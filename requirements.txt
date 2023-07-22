@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+prompt_toolkit
+requests
+rich
+pydantic
+python-dotenv
+pysocks

@@ -1,0 +1,6 @@
+# Project exclude paths
+/venv/
+__pycache__/
+.env
+README_Bard.MD
+Config.conf
