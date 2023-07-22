@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from Bard import Chatbot
+from bard import Chatbot
 from claude_api import Client
 import configparser
 import urllib.parse
@@ -72,7 +72,7 @@ async def ask(request: Request, message: Message) -> str:
     if not cookie:
         config = configparser.ConfigParser()
         config.read("Config.conf")
-        cookie = config.get('CLAUDE', 'CLAUDE_COOKIE', fallback=None)
+        cookie = config.get('Claude', 'COOKIE', fallback=None)
 
     if not cookie:
         raise ValueError("Please set the 'cookie' environment variable.")
