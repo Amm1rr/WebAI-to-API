@@ -16,6 +16,18 @@ This project implements a Python webserver that provides a free API for connecti
 
 (NOTE: This guide is being completed)
 
+**Config.conf** file:
+```
+[Claude]
+COOKIE=
+
+[Bard]
+SESSION_ID=
+
+[ChatGPT]
+SESSION=
+```
+
 
 ### Implementation
 
