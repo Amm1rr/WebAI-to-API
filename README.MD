@@ -22,17 +22,44 @@ This API can work with any software or app that needs access to OpenAI, Google B
 
 ## Usage
 
+**Get the tokens:**
 First you need to add your tokens to the `config.conf` file (see [Configuration](#configuration) section).
 
-**Google Bard:** Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
+
+**Google Bard**
+
+[![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
+
+`Google Bard:` Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
 send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the session_id,
-which is your __Secure-1PSID cookie, is included in the request.
+which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](assets/Bard.jpg))
 
-**Claude:** You can get cookie from the browser's developer tools network tab ( see for any claude.ai requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) [(Screenshot)](assets/Claude-Cookie.png)
 
-**ChatGPT:** (Under active development)
+1. Login to [bard.google.com](https://bard.google.com)
+2. Open `Developer Tools` (Press F12)
+3. Go to `Application Tab`
+4. Go to `Cookies Tab`
+5. Copy the content of `__Secure-1PSID`
 
-<br>
+<br><hr><br>
+
+**Claude**
+
+[![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
+
+`Claude:` You can get cookie from the browser's developer tools network tab ( see for any claude.ai requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
+
+1. Login to [claude.ai/chats](https://claude.ai/chats)
+2. Open `Developer Tools` (Press F12)
+3. Go to `Network Tab`
+4. Select a ajax request (like step 3 in [picture](assets/Claude.jpg))
+5. Copy the content of `Cookie`
+
+<br><hr>
+
+`ChatGPT:` (Under active development)
+
+<hr>
 
 ### 0. Prerequirments
 
@@ -101,7 +128,7 @@ curl -X POST "http://127.0.0.1:8000/claude" -H "accept: application/json" -H "Co
 <br><br>
 
 ## Configuration
-
+[How to use](#usage)
 #### Config.conf
 ```
 # Case-Sensative
