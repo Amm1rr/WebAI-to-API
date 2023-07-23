@@ -22,7 +22,7 @@ This API can work with any software or app that needs access to OpenAI, Google B
 
 ## Usage
 
-First you need to add your tokens to the `config.conf` file (see [Configuration](#Configuration) section).
+First you need to add your tokens to the `config.conf` file (see [Configuration](#configuration) section).
 
 **Google Bard:** Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
 send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the session_id,
@@ -44,7 +44,7 @@ Before using the APIs, signup to get free access credentials for each one you wa
 - Google Bard: https://bard.google.com/
 - Claude: https://claude.ai/chat/
 
-Then, add your tokens to the `config.conf` file (see [Configuration](#Configuration) section).
+Then, add your tokens to the `config.conf` file (see [Configuration](#configuration) section).
 
 
 ### 1. Clone Repository
