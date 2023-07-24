@@ -101,8 +101,8 @@ async def ask(request: Request, message: Message):
     # return StreamingResponse(fake_data_streamer(), media_type='text/event-stream')
     
     if not message.message:
-        message.message = "Hi,"
-    return StreamingResponse(claude.stream_message(message.message, conversation_id), media_type='text/event-stream')
+        message.message = "Hi, are you there?"
+    return StreamingResponse(claude.stream_message(message.message, conversation_id), media_type='application/json')
     # return StreamingResponse(claude.send_message(message.message, conversation_id), media_type='text/event-stream')
     # or, use:
     # headers = {'X-Content-Type-Options': 'nosniff'}

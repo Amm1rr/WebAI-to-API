@@ -1,6 +1,7 @@
 # Project exclude paths
 .env
 .venv
+.vscode
 README_Bard.MD
 /src/Config.conf
 /src/__pycache__

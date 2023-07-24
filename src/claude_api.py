@@ -1,3 +1,4 @@
+import time
 import requests, json, uuid
 import os
 from datetime import datetime
@@ -141,6 +142,7 @@ class Client:
         # for i in range(10):
         #     yield b'some fake data\n'
         #     time.sleep(0.5)
+        # return
 
         url = "https://claude.ai/api/append_message"
 
@@ -176,15 +178,15 @@ class Client:
             'TE': 'trailers'
         }
 
+        newChunk = ""
+        oldChunk = ""
         seen_lines = set()
         with requests.post(url, headers=headers, data=payload, stream=True) as response:
             for line in response.iter_lines():
                 if line:
-                    # decoded_data = response.content.decode("utf-8")
+                    # decoded_data = line.content.decode("utf-8")
                     # data = decoded_data.strip().split('\n')[-1]
-
-                    # data = line.decode()[5:].strip()
-
+                    
                     data = line.lstrip(b"data: ").decode("utf-8")
 
                     # print(data)
@@ -196,19 +198,36 @@ class Client:
                             decoded_line = json.loads(stripped_line)
                             stop_reason = decoded_line.get("stop_reason")
                             if stop_reason:
-                                yield '[DONE]'
+                                # yield '[DONE]'
+                                yield ''
+                                break
                             else:
                                 completion = decoded_line.get("completion")
                                 if completion:
                                     openai_response = (
                                         decoded_line
                                     )
-                                    # yield openai_response
-                                    yield completion + '\n'
+
+                                    ### Clean Response
+                                    newChunk = completion
+                                    # print(newChunk)
+
+                                    if oldChunk in newChunk:
+                                        newChunk = newChunk.replace(oldChunk, "", 1)
+                                    else:
+                                        newChunk = oldChunk
+                                    
+                                    yield newChunk + '\n'
+                                    oldChunk = completion
+                                    ### End Clean Response
+
+                                    # yield completion + '\n'
+
+
                                 else:
                                     errortype = decoded_line.get("error")["type"]
                                     if errortype == "rate_limit_error":
-                                        yield 'Error: ' + decoded_line.get("error")["message"] + '\nGive me a few hours rest :)\nCame back at ' + str(datetime.fromtimestamp(decoded_line.get("error")["resets_at"])) + '\n'
+                                        yield 'o_o: ' + decoded_line.get("error")["message"] + '\nGive me a few hours rest :)\nCame back at ' + str(datetime.fromtimestamp(decoded_line.get("error")["resets_at"])) + '\n'
                                         return
                                     
                         except json.JSONDecodeError as e:

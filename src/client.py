@@ -11,12 +11,13 @@ data = {
 with requests.post(url, json=data, stream=True) as response:
     for line in response.iter_lines(decode_unicode=True):
         if line:
-            print(line)
-            # try:
-            #     json_response = json.loads(line)
-            # except json.JSONDecodeError:
-            #     print("Invalid JSON format in line:", line)
-            #     pass
+            try:
+                # json_response = json.loads(line)
+                # print(json_response['completion'])
+                print(line)
+            except json.JSONDecodeError:
+                print("Invalid JSON format in line:", line)
+                # print(line)
 
 
 # import requests
