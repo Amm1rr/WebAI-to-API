@@ -5,48 +5,17 @@ url = "http://localhost:8000/claude"
 
 data = {
     "session_id": "",
-    "message": "Who are you?"
+    "message": "Count 0 to 10'"
 }
 
 with requests.post(url, json=data, stream=True) as response:
-    print(response)
-    # for line in response.iter_lines():
-    #     if line:
-    #         json_response = json.loads(line.decode())
-    #         print(json_response)
-
-    # for line in response.iter_lines():
-    #     if line:
-    #         try:
-    #             for obj in line.split(b"\n"):
-    #                 print(obj)
-    #                 json_response = json.loads(obj)
-    #                 # print(json_response)
-    #         except json.JSONDecodeError:
-    #             # print("Error: Invalid JSON format in line:", obj)
-
-    # for line in response.iter_lines(chunk_size=1, decode_unicode=True):
-    #     if line:
-    #         try:
-    #             print(line)
-    #             json_response = json.loads(line)
-    #             print(json_response)
-    #         except json.JSONDecodeError:
-    #             # print("Invalid JSON format in line:", line)
-    #             pass
-
-    # for line in response.iter_lines(decode_unicode=True):
-    #     if line:
-    #         json_response = json.loads(line)
-    #         print(json_response);
-
     for line in response.iter_lines(decode_unicode=True):
         if line:
             print(line)
             # try:
             #     json_response = json.loads(line)
             # except json.JSONDecodeError:
-            #     print(line)
+            #     print("Invalid JSON format in line:", line)
             #     pass
 
 

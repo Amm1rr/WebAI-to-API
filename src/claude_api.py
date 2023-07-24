@@ -1,10 +1,6 @@
-import time
-from fastapi import Request, logger
-import httpx
-import requests
-import json
+import requests, json, uuid
 import os
-import uuid
+from datetime import datetime
 
 role_map = {
     "system": "Human",
@@ -16,7 +12,6 @@ stop_reason_map = {
     "stop_sequence": "stop",
     "max_tokens": "length",
 }
-
 
 class Client:
 
@@ -141,110 +136,13 @@ class Client:
         # Returns answer
         return answer
 
-    async def chat(self, request: Request):
-        openai_params = await request.json()
-        headers = request.headers
-        claude_params = self.openai_to_claude_params(openai_params)
-        # api_key = self.get_api_key(headers)
+    def stream_message(self, prompt, conversation_id):
 
-        '''
-        Begin
-        '''
-        url = "https://claude.ai/api/append_message"
-        # url = "https://claude.ai/api/stream_message"
-
-        payload = json.dumps({
-            "completion": {
-                "prompt": "Hi, What is your name?",
-                "timezone": "Asia/Kolkata",
-                "model": "claude-2"
-            },
-            "organization_uuid": "",
-            "conversation_uuid": "",
-            "text": "Hi, Who are you?",
-            "attachments": []
-        })
-
-        headers = {
-            'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
-            'Accept': 'text/event-stream, text/event-stream',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://claude.ai/chats',
-            'Content-Type': 'application/json',
-            'Origin': 'https://claude.ai',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Cookie': f'{self.cookie}',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'TE': 'trailers'
-        }
-        '''
-        End
-        '''
-
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            if not claude_params.get("stream", False):
-                response = await client.post(
-                    f"{url}",
-                    headers=headers,
-                    json=claude_params,
-                )
-                if response.is_error:
-                    raise Exception(f"Error: {response.status_code}")
-                claude_response = response.json()
-                openai_response = self.claude_to_chatgpt_response(
-                    claude_response)
-                yield openai_response
-            else:
-                async with client.stream(
-                    "POST",
-                    f"{url}",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    if response.is_error:
-                        raise Exception(f"Error: {response.status_code}")
-                    async for line in response.aiter_lines():
-                        if line:
-                            stripped_line = line.lstrip("data:")
-                            if stripped_line:
-                                try:
-                                    decoded_line = json.loads(stripped_line)
-                                    stop_reason = decoded_line.get(
-                                        "stop_reason")
-                                    if stop_reason:
-                                        yield self.claude_to_chatgpt_response_stream(
-                                            {
-                                                "completion": "",
-                                                "stop_reason": stop_reason,
-                                            }
-                                        )
-                                        yield "[DONE]"
-                                    else:
-                                        completion = decoded_line.get(
-                                            "completion")
-                                        if completion:
-                                            openai_response = (
-                                                self.claude_to_chatgpt_response_stream(
-                                                    decoded_line
-                                                )
-                                            )
-                                            yield openai_response
-                                except json.JSONDecodeError as e:
-                                    logger.debug(
-                                        f"Error decoding JSON: {e}"
-                                    )  # Debug output
-                                    logger.debug(
-                                        f"Failed to decode line: {stripped_line}"
-                                    )  # Debug output
-
-    async def stream_message(self, prompt, conversation_id):
+        # for i in range(10):
+        #     yield b'some fake data\n'
+        #     time.sleep(0.5)
 
         url = "https://claude.ai/api/append_message"
-        # url = "https://claude.ai/api/stream_message"
 
         payload = json.dumps({
             "completion": {
@@ -282,8 +180,13 @@ class Client:
         with requests.post(url, headers=headers, data=payload, stream=True) as response:
             for line in response.iter_lines():
                 if line:
+                    # decoded_data = response.content.decode("utf-8")
+                    # data = decoded_data.strip().split('\n')[-1]
 
-                    data = line.decode()[5:].strip()
+                    # data = line.decode()[5:].strip()
+
+                    data = line.lstrip(b"data: ").decode("utf-8")
+
                     # print(data)
                     stripped_line = str(data)
 
@@ -293,7 +196,7 @@ class Client:
                             decoded_line = json.loads(stripped_line)
                             stop_reason = decoded_line.get("stop_reason")
                             if stop_reason:
-                                yield "[DONE]"
+                                yield '[DONE]'
                             else:
                                 completion = decoded_line.get("completion")
                                 if completion:
@@ -301,18 +204,25 @@ class Client:
                                         decoded_line
                                     )
                                     # yield openai_response
-                                    yield completion
+                                    yield completion + '\n'
+                                else:
+                                    errortype = decoded_line.get("error")["type"]
+                                    if errortype == "rate_limit_error":
+                                        yield 'Error: ' + decoded_line.get("error")["message"] + '\nGive me a few hours rest :)\nCame back at ' + str(datetime.fromtimestamp(decoded_line.get("error")["resets_at"])) + '\n'
+                                        return
+                                    
                         except json.JSONDecodeError as e:
                             print(
-                                f"Error decoding JSON: {e}"
+                                f"Error decoding JSON: \n{e}"
                             )  # Debug output
                             print(
-                                f"Failed to decode line: {stripped_line}"
+                                f"Failed to decode line: \n{stripped_line}"
                             )  # Debug output
                             pass
-                        seen_lines.add(stripped_line)
-    # Deletes the conversation
 
+                        seen_lines.add(stripped_line)
+    
+    # Deletes the conversation
     def delete_conversation(self, conversation_id):
         url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}"
 

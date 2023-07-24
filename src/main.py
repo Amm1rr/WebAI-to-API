@@ -31,7 +31,7 @@ app.add_middleware(
 def fake_data_streamer():
     for i in range(10):
         yield b'some fake data\n\n'
-        time.sleep(0.1)
+        time.sleep(0.5)
 
 
 class Message(BaseModel):
@@ -99,11 +99,11 @@ async def ask(request: Request, message: Message):
         conversation_id = conversation['uuid']
 
     # return StreamingResponse(fake_data_streamer(), media_type='text/event-stream')
-
+    
     if not message.message:
         message.message = "Hi,"
     return StreamingResponse(claude.stream_message(message.message, conversation_id), media_type='text/event-stream')
-    # return StreamingResponse(claude.send_message("Hi", conversation_id), media_type='text/event-stream')
+    # return StreamingResponse(claude.send_message(message.message, conversation_id), media_type='text/event-stream')
     # or, use:
     # headers = {'X-Content-Type-Options': 'nosniff'}
     # return StreamingResponse(fake_data_streamer(), headers=headers, media_type='text/plain')
