@@ -1,5 +1,10 @@
 # Project exclude paths
 .env
+.venv
 README_Bard.MD
 /src/Config.conf
 /src/__pycache__
+src/adapter
+AIAPI.sh
+claude_test copy.py
+claude_test.py
