@@ -11,7 +11,7 @@ I designed this web server API specifically for integration with [Shell GPT](htt
 
 **NOTE:** This project is currently under active development.
 
-
+<br>
 
 ## Features
 
@@ -19,6 +19,7 @@ I designed this web server API specifically for integration with [Shell GPT](htt
 - Uses the web/browser versions of each AI service
 - Uses cookies and sessions for free access
 
+<br>
 
 ## Upcoming Tasks
 
@@ -35,6 +36,7 @@ I designed this web server API specifically for integration with [Shell GPT](htt
 #### Get the tokens: (Free)
 First you need to add your tokens to the `Config.conf` file (see [Configuration](#configuration) section).
 
+<br>
 
 **Google Bard**
 
@@ -65,11 +67,13 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 4. Select a ajax request (like step 3 in [picture](assets/Claude.jpg))
 5. Copy the content of `Cookie`
 
-<br><hr>
+<br><hr><br>
+
+**ChatGPT**
 
 `ChatGPT:` (Under active development)
 
-<hr>
+<br><hr>
 
 ### Prerequisites
 
@@ -87,10 +91,14 @@ Then, add your token(s) to the `config.conf` file. (see [Configuration](#configu
 
 ## Installation
 
+<br>
+
 ### Step 1. Clone Repository
 ```
 git clone https://github.com/Amm1rr/Free-Chatbot-API.git
 ```
+
+<br>
 
 ### Step 2. Start Web Server
 Navigate into the `src` directory clone, then run:
@@ -99,6 +107,8 @@ Navigate into the `src` directory clone, then run:
 uvicorn main:app --reload --port 8000
 
 ```
+
+<br>
 
 Available **Endpoints:**
 ```
@@ -119,12 +129,21 @@ http://128.0.0.1:8000/chatgpt # (Under active development)
 **Input / Output**
 ```
 Input:
+_____
+
     {
     "session_id": "your-session-id",
     "message": "Hi, Who are you?"
     }
 
-Output: String
+--------------------
+--------------------
+
+Output:
+_____
+
+    String
+
 ```
 
 <br>
