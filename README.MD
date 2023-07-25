@@ -1,29 +1,39 @@
-# AI Assistant API
+# Free Chatbot API
 
-This project implements a Python web server that provides a unified API for accessing the AI assistants ChatGPT, Google Bard, and Claude.
+This project implements a Python web server that provides a free unified API for accessing the AI assistants ChatGPT, Google Bard, and Claude.
 
-I designed this web server API specifically for integration with [Shell GPT](https://github.com/TheR1D/shell_gpt/), but it can be used for any purpose. My goal with this project was to make AI access easy and seamless when using [Shell GPT](https://github.com/TheR1D/shell_gpt/).
+This API can work with any software or app that needs access to OpenAI, Google Bard, and Claude-2 APIs.
 
-This API can work with any software or app that needs access to OpenAI, Google Bard, and Claude APIs.
+I designed this web server API specifically for integration with [Shell GPT](https://github.com/TheR1D/shell_gpt/), but it can be used for any purpose. My goal with this project was to make AI access easy and seamless when using [shell-gpt](https://github.com/TheR1D/shell_gpt/).
+
 
 <br>
 
-**NOTE:** This project and guide are under active development.
+**NOTE:** This project is currently under active development.
 
 
 
 ## Features
 
-- REST API endpoints for querying each AI assistant ChatGPT/Google Bard/Claude
-- Leverages the web/browser-based versions of each service
-- Relies on cookies/sessions to provide free access
+- API endpoints to query ChatGPT, Google Bard, and Claude
+- Uses the web/browser versions of each AI service
+- Uses cookies and sessions for free access
+
+
+## Upcoming Tasks
+
+- Implement streaming API responses to improve response time and interactivity.
+    - ~~Claude~~    ✅ done
+    - Bard
+    - ChatGPT
+
 
 <br>
 
 ## Usage
 
-**Get the tokens:**
-First you need to add your tokens to the `config.conf` file (see [Configuration](#configuration) section).
+#### Get the tokens: (Free)
+First you need to add your tokens to the `Config.conf` file (see [Configuration](#configuration) section).
 
 
 **Google Bard**
@@ -43,7 +53,7 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 
 <br><hr><br>
 
-**Claude**
+**Claude 2**
 
 [![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
 
@@ -61,25 +71,28 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 
 <hr>
 
-### 0. Prerequirments
+### Prerequisites
 
 (NOTE: This guide is still in progress.)
 
-Before using the APIs, signup to get free access credentials for each one you want to use:
+Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
 - ChatGPT: https://openai.com/api/ 
 - Google Bard: https://bard.google.com/
 - Claude: https://claude.ai/chat/
 
-Then, add your tokens to the `config.conf` file (see [Configuration](#configuration) section).
+Then, add your token(s) to the `config.conf` file. (see [Configuration](#configuration) section).
 
+<br>
 
-### 1. Clone Repository
+## Installation
+
+### Step 1. Clone Repository
 ```
-git clone https://github.com/Amm1rr/AI-Assistant-API.git
+git clone https://github.com/Amm1rr/Free-Chatbot-API.git
 ```
 
-### 2. Start Web Server
+### Step 2. Start Web Server
 Navigate into the `src` directory clone, then run:
 
 ```
@@ -119,16 +132,20 @@ Output: String
 ## Example
 try **Claude** with **cURL**
 
-Once you have launched the webserver using `uvicorn main:app --reload --port 8000` , run this cURL command in a terminal window:
-```
-curl -X POST "http://127.0.0.1:8000/claude" -H "accept: application/json" -H "Content-Type: application/json" -d '{"session_id":"[Your_Session_ID]","message":"Who are you?"}'
+Once you have launched the webserver using [`uvicorn main:app --reload --port 8000`](#2-start-web-server) , run this cURL command in a terminal window:
 
 ```
+curl -X POST "http://127.0.0.1:8000/claude" -H "accept: application/json" -H "Content-Type: application/json" -d '{"session_id":"","message":"Who are you?"}'
+
+```
+
+Note: The `session_id` is configured in the [Config.conf](#configconf) file. If you send this variable empty, it will use the settings.
 
 <br><br>
 
 ## Configuration
-[How to use](#usage)
+[How to get Tokens](#usage)
+
 #### Config.conf
 ```
 # Case-Sensative
