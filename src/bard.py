@@ -7,6 +7,7 @@ import random
 import re
 import string
 import os
+import time
 
 import requests
 from prompt_toolkit import prompt
@@ -42,9 +43,9 @@ def __create_completer(commands: list, pattern_str: str = "$") -> WordCompleter:
 
 
 def __get_input(
-        session: PromptSession = None,
-        completer: WordCompleter = None,
-        key_bindings: KeyBindings = None,
+    session: PromptSession = None,
+    completer: WordCompleter = None,
+    key_bindings: KeyBindings = None,
 ) -> str:
     """
     Multiline input function.
@@ -103,8 +104,12 @@ class Chatbot:
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
             raise Exception("Could not get Google Bard")
-        SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
-        return SNlM0e
+        try:
+            SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
+            return SNlM0e
+        except:
+            # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
+            return
 
     def ask(self, message: str) -> dict:
         """
@@ -142,7 +147,7 @@ class Chatbot:
         )
 
         print(resp)
-        
+
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:
             return {"content": f"Google Bard encountered an error: {resp.content}."}
@@ -160,7 +165,6 @@ class Chatbot:
         self.choice_id = results["choices"][0]["id"]
         self._reqid += 100000
         return results
-
 
     def ask_bard(self, message: str) -> json:
         """
@@ -198,7 +202,7 @@ class Chatbot:
         )
 
         print(resp)
-        
+
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:
             return {"content": f"Google Bard encountered an error: {resp.content}."}
@@ -218,17 +222,81 @@ class Chatbot:
         self._reqid += 100000
 
         json_data = {
-            "choices": [
-                {
-                    "message": {
-                        "content": results["choices"][0]["content"]
-                    }
-                }
-            ]
+            "choices": [{"message": {"content": results["choices"][0]["content"]}}]
         }
 
         # return json.load(json_data)
         return json_data
+
+    def ask_bardStream(self, message: str) -> json:
+        """
+        Send a message to Google Bard and return the response.
+        :param message: The message to send to Google Bard.
+        :return: A dict containing the response from Google Bard.
+        """
+
+        # for i in range(10):
+        #     yield b'some fake data\n'
+        #     print(b'some fake data\n')
+        #     time.sleep(0.5)
+        # return
+
+        # url params
+        params = {
+            "bl": "boq_assistant-bard-web-server_20230326.21_p0",
+            "_reqid": str(self._reqid),
+            "rt": "c",
+        }
+
+        url = "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
+
+        # message arr -> data["f.req"]. Message is double json stringified
+        message_struct = [
+            [message],
+            None,
+            [self.conversation_id, self.response_id, self.choice_id],
+        ]
+
+        data = {
+            "f.req": json.dumps([None, json.dumps(message_struct)]),
+            "at": self.SNlM0e,
+        }
+
+        # Question
+        print(message)
+
+        with self.session.post(
+            url, params=params, data=data, timeout=120, stream=True
+        ) as response:
+            chat_data = json.loads(response.content.splitlines()[3])[0][2]
+            if not chat_data:
+                return {
+                    "content": f"Google Bard encountered an error: {response.content}."
+                }
+            json_chat_data = json.loads(chat_data)
+
+            results = {
+                "content": json_chat_data[5][2],
+                "conversation_id": json_chat_data[1][0],
+                "response_id": json_chat_data[1][1],
+                "factualityQueries": json_chat_data[3],
+                "textQuery": json_chat_data[2][0]
+                if json_chat_data[2] is not None
+                else "",
+                "choices": [{"id": i[0], "content": i[1]} for i in json_chat_data[4]],
+            }
+            self.conversation_id = results["conversation_id"]
+            self.response_id = results["response_id"]
+            self.choice_id = results["choices"][0]["id"]
+            self._reqid += 100000
+
+            json_data = {
+                "choices": [{"message": {"content": results["choices"][0]["content"]}}]
+            }
+
+            answer = json_data["choices"][0]["message"]["content"][0]
+            # print(answer)
+            yield answer
 
 
 if __name__ == "__main__":

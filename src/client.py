@@ -1,23 +1,28 @@
 import requests
 import json
 
-url = "http://localhost:8000/claude"
+# url = "http://localhost:8000/chatgpt"
+url = "http://localhost:8000/bard"
+# url = "http://localhost:8000/claude"
 
 data = {
     "session_id": "",
-    "message": "Count 0 to 10'"
+    "message": "Count 0 to 10",
+    "stream": False
 }
 
-with requests.post(url, json=data, stream=True) as response:
-    for line in response.iter_lines(decode_unicode=True):
-        if line:
-            try:
-                # json_response = json.loads(line)
-                # print(json_response['completion'])
-                print(line)
-            except json.JSONDecodeError:
-                print("Invalid JSON format in line:", line)
-                # print(line)
+if data["stream"] == True:
+    with requests.post(url, json=data, stream=False) as response:
+        for line in response.iter_lines(decode_unicode=True):
+            if line:
+                try:
+                    print(line)
+                except json.JSONDecodeError:
+                    print("Invalid JSON format in line:", line)
+                    # print(line)
+else:
+    response = requests.post(url, json=data, stream=False)
+    print(response.text)
 
 
 # import requests

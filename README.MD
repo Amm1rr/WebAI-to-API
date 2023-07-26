@@ -1,6 +1,6 @@
 # Free Chatbot API
 
-This project implements a Python web server that provides a free unified API for accessing the AI assistants ChatGPT, Google Bard, and Claude.
+This project implements a light Python web server that provides a free unified API for accessing the AI assistants ChatGPT, Google Bard, and Claude.
 
 This API can work with any software or app that needs access to OpenAI, Google Bard, and Claude-2 APIs.
 
@@ -133,7 +133,8 @@ _____
 
     {
     "session_id": "your-session-id",
-    "message": "Hi, Who are you?"
+    "message": "Hi, Who are you?",
+    "stream": True
     }
 
 --------------------
@@ -186,14 +187,18 @@ SESSION_ID=[YOURS]
 
 (NOTE: This guide is still in progress.)
 
+<br>
 
 ## Sources
 
 [Google Bard API](https://github.com/ra83205/google-bard-api) | [Claude API](https://github.com/KoushikNavuluri/Claude-API)
 
+<br>
 
 ## Licensing
 
 This project is licensed under the MIT License. Feel free to use it however you like.
+
+<br>
 
 [![](https://visitcount.itsvg.in/api?id=amm1rr&label=V&color=0&icon=2&pretty=true)](https://github.com/Amm1rr/)
