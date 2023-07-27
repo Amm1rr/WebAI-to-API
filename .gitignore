@@ -3,9 +3,11 @@
 .venv
 .vscode
 README_Bard.MD
+/assets/01.png
 /src/Config.conf
 /src/__pycache__
 src/adapter
 AIAPI.sh
 claude_test copy.py
 claude_test.py
+/src/session_list.json

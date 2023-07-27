@@ -1,28 +1,65 @@
 import requests
 import json
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-# url = "http://localhost:8000/chatgpt"
-url = "http://localhost:8000/bard"
+# response = requests.post(url, json=data)
+
+# if response.ok:
+#     print("1")
+#     print(response)
+#     result = response.json()
+#     print(result["response"])
+# else:
+#     print("Error:", response.status_code, response.text)
+
+
+# url = "http://127.0.0.1:8000/chatgpt"
 # url = "http://localhost:8000/claude"
+# url = "http://localhost:8000/bard"
+# ai = "/V1/chat/completions"
+ai = "chatgpt"
+url = "http://localhost:8000/" + ai
 
 data = {
+    "message": "3+6= ?",
+    "stream": True,
     "session_id": "",
-    "message": "Count 0 to 10",
-    "stream": False
 }
-
 if data["stream"] == True:
-    with requests.post(url, json=data, stream=False) as response:
-        for line in response.iter_lines(decode_unicode=True):
-            if line:
-                try:
-                    print(line)
-                except json.JSONDecodeError:
-                    print("Invalid JSON format in line:", line)
-                    # print(line)
+    with requests.post(url, json=data, stream=True) as response:
+        try:
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    try:
+                        print(line)
+                    except json.JSONDecodeError:
+                        print("Invalid JSON format in line:", line)
+        except requests.exceptions.RequestException as e:
+            print(f"Error: {e}")
+        except:
+            print(f"Error: !")
+
 else:
-    response = requests.post(url, json=data, stream=False)
-    print(response.text)
+    try:
+        response = requests.post(url, json=data, stream=False)
+        # response.raise_for_status()  # Raise an exception if the request was not successful
+
+        result = response.json()
+        print(result)
+        # return result["response"]
+
+        # Check if the response is successful (status code 200)
+        # if response.status_code == 200:
+        #     pass
+        # else:
+        #     print(f"Error: {response.status_code} - {response.text}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error occurred: {e}")
+
+    # result = response.json()
+    # print(result["response"])
 
 
 # import requests

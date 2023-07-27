@@ -6,3 +6,7 @@ rich
 pydantic
 python-dotenv
 pysocks
+revChatGPT
+jsonify
+itertools
+Response

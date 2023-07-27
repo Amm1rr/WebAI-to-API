@@ -18,9 +18,9 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.markdown import Markdown
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 
 def load_proxies():
@@ -62,7 +62,7 @@ def __get_input(
     )
 
 
-class Chatbot:
+class ChatbotBard:
     """
     A class to interact with Google Bard.
     Parameters

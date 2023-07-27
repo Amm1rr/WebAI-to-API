@@ -25,7 +25,7 @@ I designed this web server API specifically for integration with [Shell GPT](htt
 
 - Implement streaming API responses to improve response time and interactivity.
     - ~~Claude~~    ✅ done
-    - Bard
+    - ~~Bard~~      ✅ done
     - ChatGPT
 
 
@@ -166,8 +166,13 @@ Note: The `session_id` is configured in the [Config.conf](#configconf) file. If 
 ## Configuration
 [How to get Tokens](#usage)
 
-#### Config.conf
-```
+#### Config File Path:
+- **Linux** :
+    - **~/.config/Free_Chatbot_API/Config.conf**
+- **Windows** :
+    - **Config.conf**
+
+``` Config.conf
 # Case-Sensative
 
 [Claude]

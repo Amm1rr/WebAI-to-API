@@ -1,4 +1,3 @@
-import time
 import requests, json, uuid
 import os
 from datetime import datetime
@@ -101,7 +100,7 @@ class Client:
         payload = json.dumps({
             "completion": {
                 "prompt": f"{prompt}",
-                "timezone": "Asia/Kolkata",
+                "timezone": "Europe/London",
                 "model": "claude-2"
             },
             "organization_uuid": f"{self.organization_id}",
@@ -149,7 +148,7 @@ class Client:
         payload = json.dumps({
             "completion": {
                 "prompt": f"{prompt}",
-                "timezone": "Asia/Kolkata",
+                "timezone": "Europe/London",
                 "model": "claude-2"
             },
             "organization_uuid": f"{self.organization_id}",
