@@ -124,6 +124,7 @@ async def getChatGPTData(chat: Chatbot, message: Message):
         # line = line.replace("\\\'", "\\")
 
         try:
+            # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
             # import ast
             # line = ast.literal_eval(line)
             line = eval(line)
