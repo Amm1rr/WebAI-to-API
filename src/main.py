@@ -26,7 +26,9 @@ from revChatGPT.typings import Error
 CONFIG_FOLDER = os.path.expanduser("~/.config")
 Free_Chatbot_API_CONFIG_FILE_NAME = "Config.conf"
 Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
-Free_Chatbot_API_CONFIG_PATH = Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
+Free_Chatbot_API_CONFIG_PATH = (
+    Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
+)
 
 app = FastAPI()
 
@@ -39,53 +41,268 @@ app.add_middleware(
 )
 
 
-def fake_data_streamer():
+def fake_data_streamer_OLD():
     for i in range(10):
-        yield b"some fake data\n\n"
+        yield b"some fake data\n"
+        time.sleep(0.5)
+
+
+def fake_data_streamer():
+    openai_response = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo-0613",
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 100,
+            "total_tokens": 100,
+        },
+        "choices": [
+            {
+                "delta": {
+                    "role": "assistant",
+                    "content": "Yes",
+                },
+                "index": 0,
+                "finish_reason": "[DONE]",
+            }
+        ],
+    }
+    for i in range(10):
+        yield f"{openai_response}\n"
+        # yield b"some fake data\n"
         time.sleep(0.5)
 
 
 class Message(BaseModel):
-    session_id: str
-    message: str
-    stream: bool
+    message: str = ""
+    session_id: str = ""
+    stream: bool = False
+
+
+class MessageChatGPT_(BaseModel):
+    messages: list
+    model: str
+    temperature: float
+    top_p: float
+    stream: bool = True
+
+
+def is_ValidJSON(jsondata=any) -> bool:
+    try:
+        json.dumps(jsondata)
+        return True
+    except:
+        return False
+
+
+def __check_fields(data: dict) -> bool:
+    try:
+        data["author"]
+    except (TypeError, KeyError):
+        return False
+    return True
+
 
 async def getChatGPTData(chat: Chatbot, message: Message):
-    # try:
-        # response = []
-        prev_text = ""
-        for data in chat.ask(message.message):
-            msg = data["message"][len(prev_text) :]
-            # response.append(msg)
-            prev_text = data["message"]
-            # yield "".join(msg)
-            # yield "data:" + str(msg) + "\n\n"
-            yield str(msg) + "\n\n"
-            print(str(msg))
-            # time.sleep(0.1)
-            # await asyncio.sleep(0.1)
-            # return {"response": "".join(response)}
+    prev_text=""
+    for data in chat.ask(message.message):
+        # remove b' and ' at the beginning and end and ignore case
+        # line = str(data)[2:-1]
+        line = str(data)
+        if not line or line is None:
+            continue
+        if "data: " in line:
+            line = line[6:]
+        if line == "[DONE]":
+            break
 
-    # except Exception as e:
-    #     if isinstance(e, Error):
-    #         try:
-    #             # err = e.message
-    #             # if e.__notes__:
-    #             #     err = f"{err} \n\n {e.__notes__}"
-    #             js = json.loads(e.message)
-    #             print(js["detail"]["message"])
-    #             yield js["detail"]["message"]
-    #         except:
-    #             print(e)
-    #             yield e
-    #     else:
-    #         print(e)
-    #         yield e
+        # DO NOT REMOVE THIS
+        # line = line.replace('\\"', '"')
+        # line = line.replace("\\'", "'")
+        # line = line.replace("\\\'", "\\")
+
+        try:
+            # import ast
+            # line = ast.literal_eval(line)
+            line = eval(line)
+            line = json.loads(json.dumps(line))
+
+        except json.decoder.JSONDecodeError as e:
+            print(f"ERROR: {e}")
+            continue
+
+        # if not __check_fields(line):
+        #     continue
+
+        # if line.get("message").get("author").get("role") != "assistant":
+        if line.get("author").get("role") != "assistant":
+            continue
+
+        cid = line["conversation_id"]
+        pid = line["parent_id"]
+
+        author = {}
+        author = line.get("author", {})
+
+        message = line["message"]
+
+        model = line["model"]
+        finish_details = line["finish_details"]
+
+        res_text = message[len(prev_text) :]
+        prev_text = message
+
+        jsonresp = {
+            "author": author,
+            "message": res_text,
+            "conversation_id": cid,
+            "parent_id": pid,
+            "model": model,
+            "finish_details": finish_details,
+            "end_turn": line["end_turn"],
+            "recipient": line["recipient"],
+            "citations": line["citations"],
+        }
+
+
+        shellresp = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 100,
+                "total_tokens": 100,
+            },
+            "choices": [
+                {
+                    "delta": {
+                        "role": "assistant",
+                        "content": res_text,
+                    },
+                    "index": 0,
+                    "finish_reason": finish_details,
+                }
+            ],
+        }
+
+        jsonresp = json.dumps(shellresp)
+
+        yield f"{jsonresp}\n"
+
+
+@app.post("/v1/chat/completions")
+def ask_chatgpt(request: Request, message: Message):
+
+    access_token = os.getenv("OPENAI_API_SESSION")
+    if not IsSession(access_token):
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
+        if not IsSession(access_token):
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # print(answer)
+            return answer
+
+    chatbot = Chatbot(
+        config={
+            "access_token": access_token,
+        }
+    )
+
+    response = []
+    if message.stream == True:
+        try:
+            return StreamingResponse(
+                getChatGPTData(chat=chatbot, message=message),
+                media_type="application/json",
+            )
+
+        # return "".join(response)
+        # # return {"response": "".join(response)}
+
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(e)
+                return e
+    else:
+        try:
+            print(" # Normal Request #")
+            for data in chatbot.ask(message.message):
+                response = data["message"]
+            return response
+            # print(response)
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(list(e))
+                return e
+
+
+async def getGPTData(chat: Chatbot, message: Message):
+    prev_text = ""
+    for data in chat.ask(message.message):
+        msg = data["message"][len(prev_text) :]
+        openai_response = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo-0613",
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 100,
+                "total_tokens": 100,
+            },
+            "choices": [
+                {
+                    "delta": {
+                        "role": "assistant",
+                        "content": msg,
+                    },
+                    "index": 0,
+                    "finish_reason": "[DONE]",
+                }
+            ],
+        }
+
+        js = json.dumps(openai_response, indent=2)
+        # print(js)
+
+        prev_text = data["message"]
+
+        if is_ValidJSON(js):
+            yield f"{msg}\n"
+        else:
+            continue
 
 
 @app.post("/chatgpt")
-# @app.post("/V1/chat/completions")
-async def ask_chatgpt(request: Request, message: Message):
+async def ask_gpt(request: Request, message: Message):
     access_token = message.session_id
     if not IsSession(access_token):
         access_token = os.getenv("OPENAI_API_SESSION")
@@ -96,31 +313,21 @@ async def ask_chatgpt(request: Request, message: Message):
         if not IsSession(access_token):
             # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
             answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
-            print(answer)
+            # print(answer)
             return answer
 
     chatbot = Chatbot(config={"access_token": access_token})
 
     response = []
-    prev_text = ""
     if message.stream == True:
         try:
             return StreamingResponse(
-                getChatGPTData(chat=chatbot, message=message),
-                media_type="text/event-stream",
+                getGPTData(chat=chatbot, message=message),
+                media_type="application/json",
             )
-            # return StreamingResponse(
-            #     fake_data_streamer(),
-            #     media_type="text/event-stream",
-            # )  # application/json
 
-            # for data in chatbot.ask(message.message):
-            #     message = data["message"][len(prev_text) :]
-            #     response.append(message)
-            #     prev_text = data["message"]
-
-            # return "".join(response)
-            # # return {"response": "".join(response)}
+        # return "".join(response)
+        # # return {"response": "".join(response)}
 
         except Exception as e:
             if isinstance(e, Error):
@@ -183,7 +390,9 @@ async def ask_bard(request: Request, message: Message):
         config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
         session_id = config.get("Bard", "SESSION_ID", fallback=None)
         if not IsSession:
-            answer = {f"a/nswer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = {
+                f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            }["answer"]
             answer = CreateBardResponse(
                 f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
             )
@@ -215,7 +424,7 @@ async def ask_bard(request: Request, message: Message):
                 return response
 
 
-@app.post("/claude")    
+@app.post("/claude")
 async def ask_claude(request: Request, message: Message):
     cookie = os.environ.get("CLAUDE_COOKIE")
     if not cookie:
@@ -225,7 +434,9 @@ async def ask_claude(request: Request, message: Message):
         print(cookie)
 
     if not cookie:
-        raise ValueError(f"Please set the 'COOKIE' for Claude in confing file:\n\n {Free_Chatbot_API_CONFIG_PATH}")
+        raise ValueError(
+            f"Please set the 'COOKIE' for Claude in confing file:\n\n {Free_Chatbot_API_CONFIG_PATH}"
+        )
 
     claude = Client(cookie)
     conversation_id = None
