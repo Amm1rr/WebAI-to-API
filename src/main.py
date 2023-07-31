@@ -78,14 +78,15 @@ def fake_data_streamer():
 class Message(BaseModel):
     message: str = ""
     session_id: str = ""
-    stream: bool = False
+    stream: bool = True
 
 
-class MessageChatGPT_(BaseModel):
-    messages: list
-    model: str
-    temperature: float
-    top_p: float
+class MessageChatGPT(BaseModel):
+    messages: list[dict[str, str]]
+    model: str = "gpt-3.5-turbo-0613"
+    temperature: float = 0.9
+    top_p: float = 0.8
+    session_id: str = ""
     stream: bool = True
 
 
@@ -97,17 +98,9 @@ def is_ValidJSON(jsondata=any) -> bool:
         return False
 
 
-def __check_fields(data: dict) -> bool:
-    try:
-        data["author"]
-    except (TypeError, KeyError):
-        return False
-    return True
-
-
-async def getChatGPTData(chat: Chatbot, message: Message):
-    prev_text=""
-    for data in chat.ask(message.message):
+async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
+    prev_text = ""
+    for data in chat.ask(str(message.messages)):
         # remove b' and ' at the beginning and end and ignore case
         # line = str(data)[2:-1]
         line = str(data)
@@ -133,9 +126,6 @@ async def getChatGPTData(chat: Chatbot, message: Message):
         except json.decoder.JSONDecodeError as e:
             print(f"ERROR: {e}")
             continue
-
-        # if not __check_fields(line):
-        #     continue
 
         # if line.get("message").get("author").get("role") != "assistant":
         if line.get("author").get("role") != "assistant":
@@ -167,7 +157,6 @@ async def getChatGPTData(chat: Chatbot, message: Message):
             "citations": line["citations"],
         }
 
-
         shellresp = {
             "id": f"chatcmpl-{str(time.time())}",
             "object": "chat.completion.chunk",
@@ -196,8 +185,7 @@ async def getChatGPTData(chat: Chatbot, message: Message):
 
 
 @app.post("/v1/chat/completions")
-def ask_chatgpt(request: Request, message: Message):
-
+def ask_chatgpt(request: Request, message: MessageChatGPT):
     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
@@ -243,7 +231,7 @@ def ask_chatgpt(request: Request, message: Message):
                 return e
     else:
         try:
-            print(" # Normal Request #")
+            # print(" # Normal Request #")
             for data in chatbot.ask(message.message):
                 response = data["message"]
             return response
@@ -415,9 +403,6 @@ async def ask_bard(request: Request, message: Message):
         try:
             # print(response["choices"][0]["message"]["content"][0])
             return response["choices"][0]["message"]["content"][0]
-            # answer = CreateBardResponse(response["choices"][0]["message"]["content"][0])
-            # print(answer)
-            # return answer
         except:
             try:
                 return response["content"]
@@ -453,37 +438,14 @@ async def ask_claude(request: Request, message: Message):
         return StreamingResponse(
             claude.stream_message(message.message, conversation_id),
             media_type="text/event-stream",
-        )  # application/json
+        )
     else:
         response = claude.send_message(message.message, conversation_id)
         # print(response)
         return response
 
-    # return StreamingResponse(fake_data_streamer(), media_type='text/event-stream')
 
-    # or, use:
-    # headers = {'X-Content-Type-Options': 'nosniff'}
-    # return StreamingResponse(fake_data_streamer(), headers=headers, media_type='text/plain')
-
-    # response = claude.send_message(message.message, conversation_id)
-    # async def event_stream():
-    #     i=0
-    #     while i < 1:
-    #         i=i+1
-    #     # while True:
-    #         # response = claude.send_message(message.message, conversation_id)
-    #         response = claude.stream_message(message.message, conversation_id)
-    #         print(list(response))
-    #         # yield f"data: {json.dumps(response)}\n\n"
-    #         yield f"data: {list(response)}\n\n"
-    #         time.sleep(0.10)  # Adjust this time interval as needed
-    # return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    # print(response)
-    # return response
-
-
-@app.post("/ask_debug")
+@app.post("/DevMode")
 async def ask_debug(request: Request, message: Message) -> dict:
     # Get the user-defined auth key from the environment variables
     user_auth_key = os.getenv("USER_AUTH_KEY")
@@ -514,5 +476,23 @@ def IsSession(session_id: str) -> bool:
 
 
 if __name__ == "__main__":
-    print("Run")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+    )
+
+    ##### TO USE HTTPS
+    ###
+    # from subprocess import Popen
+    # Popen(["python", "-m", "https_redirect"])  # Add this
+    # uvicorn.run(
+    #     "main:app",
+    #     port=8000,
+    #     host="0.0.0.0",
+    #     reload=True,
+    #     reload_dirs=["html_files"],
+    #     ssl_keyfile="/etc/letsencrypt/live/my_domain/privkey.pem",
+    #     ssl_certfile="/etc/letsencrypt/live/my_domain/fullchain.pem",
+    # )
