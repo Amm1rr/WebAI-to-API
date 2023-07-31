@@ -1,47 +1,53 @@
 # Free Chatbot API
 
-This project implements a Python web API that provides unified access to three leading AI chatbots - ChatGPT, Google Bard, and Claude - through a single interface. Key features:
-- Unified API endpoints allow seamlessly querying ChatGPT, Bard, and Claude from one integration.
-- Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
-- Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
-- Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
-- Modular design makes adding new AI services simple as they become available.
-- Open source for customization to your needs.
-Rather than directly integrating multiple chatbot APIs, this project provides a simple Python web API to access ChatGPT, Bard, and Claude through one integration. By handling cookies and sessions, it provides free access to the web versions of these AI services for basic usage. This makes it easy to add powerful AI chatbot capabilities to your applications.
+This project implements a Python web API that provides unified access to three leading AI chatbots - **ChatGPT**, **Google Bard**, and **Claude** - through a single interface. Key features:
+
+-   Unified API endpoints allow seamlessly querying ChatGPT, Google Bard, and Claude from one integration.
+-   Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
+-   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
+-   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
 
 <br>
 
-**NOTE:** This project is currently under active development.
-- ✅ __*Google*__ Bard integration is fully complete and available now.
-- ✅ __*Claude-2*__ integration is also fully implemented and available.
-- ⏳ __*ChatGPT*__ integration is in progress and not available yet.
+-   ✅ **_Google_** Bard integration available now.
+-   ✅ **_Claude-2_** integration is also fully implemented and available.
+-   ✅ **_ChatGPT_** integration is fully complete and available now.
 
 <br>
 
 ## Upcoming Tasks
-- Implement API responses for ChatGPT.
-- Use proxy
-- Use multiple accounts
 
+-   Implement openai endpoints for ChatGPT, like `v1/chat/completions`
+-   Use proxy
+-   Use multiple accounts
 
+<br>
+
+**NOTE:** This project is currently under active development.
 
 <br>
 
 ## Usage
 
 #### How to Find Your Free Tokens
+
 First you need to add your tokens to the **`Config.conf`** file (see **[Configuration](#configuration)** section).
 
 <br>
 
+<details>
+
+  <summary>
+
 **Google Bard**
+
+  </summary>
 
 [![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
 
-*`Google Bard:`* Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
-send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the session_id,
-which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](assets/Bard.jpg))
-
+_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
+send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**,
+which is your **Secure-1PSID** cookie, is included in the request. ([Screenshot](assets/Bard.jpg))
 
 1. Login to [bard.google.com](https://bard.google.com)
 2. Open `Developer Tools` (Press **F12**)
@@ -49,14 +55,20 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 4. Go to `Cookies Tab`
 5. Copy the content of `__Secure-1PSID`
 6. Set in **[Config.conf](#configuration)** file.
+ </details>
+ <br><hr><br>
 
-<br><hr><br>
+<details>
+
+  <summary>
 
 **Claude 2**
 
+  </summary>
+
 [![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
 
-*`Claude:`* You can get cookie from the browser's developer tools network tab ( see for any claude.ai requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
+_`Claude:`_ You can get cookie from the browser's developer tools network tab ( see for any claude.ai requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
 
 1. Login to [claude.ai/chats](https://claude.ai/chats)
 2. Open `Developer Tools` (Press **F12**)
@@ -65,11 +77,33 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 5. Copy the content of `Cookie`
 6. Set in **[Config.conf](#configuration)** file.
 
+</details>
+
 <br><hr><br>
+
+<details>
+
+  <summary>
 
 **ChatGPT**
 
-*`ChatGPT:`* (Under active development)
+  </summary>
+
+[![Image](assets/ChatGPT-Thumb.jpg)](assets/ChatGPT.jpg)
+
+_`ChatGPT:`_ Please obtain the sessions mentioned here from an authorized session on chat.openai.com. The sessions can be used to
+send POST requests to the /chatgpt endpoint along with a message in a JSON payload. It is important that the session_id,
+which is your `Authorization` header session, is included in the request. ([Screenshot](assets/ChatGPT.jpg))
+
+1. Login to [chat.openai.com](https://chat.openai.com)
+2. at least ask any question.
+3. Open `Developer Tools` (Press **F12**)
+4. Go to `Network Tab`
+5. Select an ajax request (like step 4 in [picture](assets/ChatGPT.jpg))
+6. Copy the content of `Authorization`
+7. Set in **[Config.conf](#configuration)** file.
+
+</details>
 
 <br><hr>
 
@@ -79,9 +113,9 @@ which is your __Secure-1PSID cookie, is included in the request. ([Screenshot](a
 
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
-- ChatGPT: https://openai.com/api/ 
-- Google Bard: https://bard.google.com/
-- Claude: https://claude.ai/chat/
+-   ChatGPT: https://openai.com/api/
+-   Google Bard: https://bard.google.com/
+-   Claude: https://claude.ai/chat/
 
 Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#configuration)** section).
 
@@ -92,39 +126,56 @@ Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#c
 <br>
 
 ### Step 1. Clone Repository
+
 ```
-git clone https://github.com/Amm1rr/Free-Chatbot-API.git
+git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
+python -m .venv venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
 ```
 
 <br>
 
 ### Step 2. Start Web Server
-Navigate into the **`src`** directory clone, then run:
+
+Navigate into the **`src`** directory, and run the web server using one of the methods below:
 
 ```
 uvicorn main:app --reload --port 8000
 
+-- OR --
+
+python main.py
+
+-- OR --
+
+./Run-Server.sh
 ```
 
 <br>
 
 Available **Endpoints:**
+
 ```
-Google Bard
+---------- Google Bard
+
 http://128.0.0.1:8000/bard
 
 
-Claude
+---------- Claude
+
 http://128.0.0.1:8000/claude
 
 
-ChatGPT
-http://128.0.0.1:8000/chatgpt # (Under active development)
+---------- ChatGPT
+
+http://128.0.0.1:8000/chatgpt
 
 ```
 
-
 **Input / Output**
+
 ```
 Input:
 _____
@@ -148,6 +199,7 @@ _____
 <br>
 
 ## Example
+
 try **Claude** with **cURL**
 
 Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#2-start-web-server)** , run this cURL command in a terminal window:
@@ -157,20 +209,22 @@ curl -X POST "http://127.0.0.1:8000/claude" -H "accept: application/json" -H "Co
 
 ```
 
-**Note**: The **`session_id`** is configured in the **[Config.conf](#configconf)** file. If you send this variable empty, it will use the settings.
+**Note**: The **`session_id`** is configured in the **[Config.conf](#configconf)** file. If you send this variable empty, it will use the Config.conf
 
 <br><br>
 
 ## Configuration
+
 [How to Find Your Free Tokens](#usage)
 
 #### Config File Path:
-- *Linux* :
-    - **~/.config/Free_Chatbot_API/Config.conf**
-- *Windows* :
-    - **.\Config.conf**
 
-``` Config.conf
+-   _Linux_ :
+    -   **~/.config/Free_Chatbot_API/Config.conf**
+-   _Windows_ :
+    -   **.\Config.conf**
+
+```Config.conf
 # Case-Sensative
 
 [Claude]
@@ -194,7 +248,7 @@ SESSION_ID=[YOURS]
 
 ## Sources
 
-[Google Bard API](https://github.com/ra83205/google-bard-api) | [Claude API](https://github.com/KoushikNavuluri/Claude-API)
+[Google Bard API](https://github.com/ra83205/google-bard-api) | [Claude API](https://github.com/KoushikNavuluri/Claude-API) | [revChatGPT](https://github.com/acheong08/ChatGPT/)
 
 <br>
 

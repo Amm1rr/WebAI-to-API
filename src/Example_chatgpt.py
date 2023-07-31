@@ -4,7 +4,9 @@ def chat_with_bot(input_text):
     url = "http://127.0.0.1:8000/chatgpt"  # Replace with the actual server URL if it's hosted elsewhere
 
     data = {
-        "text": input_text
+        "message": input_text,
+        "session_id": "",
+        "stream": Frue
     }
 
     try:
@@ -18,6 +20,6 @@ def chat_with_bot(input_text):
         return f"Error occurred: {e}"
 
 if __name__ == "__main__":
-    # input_text = input("Enter your message: ")
-    response = chat_with_bot("Hi, who are you?")
+    input_text = input("Enter your message: ")
+    response = chat_with_bot(input_text)
     print("Chatbot:", response)
