@@ -489,7 +489,7 @@ if __name__ == "__main__":
     # Popen(["python", "-m", "https_redirect"])  # Add this
     # uvicorn.run(
     #     "main:app",
-    #     port=8000,
+    #     port=443,
     #     host="0.0.0.0",
     #     reload=True,
     #     reload_dirs=["html_files"],
