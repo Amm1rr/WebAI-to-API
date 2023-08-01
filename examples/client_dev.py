@@ -1,3 +1,10 @@
+     # # # # # # # # # # # # # # # # # # # # # #
+    #                                         #
+   #    This file is for development and     #
+  #         debugging purposes only.        #
+ #                                         #
+# # # # # # # # # # # # # # # # # # # # # #
+
 import requests
 import json
 from fastapi import FastAPI, HTTPException

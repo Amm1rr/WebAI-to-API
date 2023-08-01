@@ -29,15 +29,20 @@ def chat_with_bot(input_text):
     try:
         response = requests.post(API_ENDPOINT, json=params)
         # response.raise_for_status()  # Raise an exception if the request was not successful
-
-        result = response.json()
+        
+        result = response.text
         return result
         # return result["response"]
+    
     except requests.exceptions.RequestException as e:
         return f"Error occurred: {e}"
 
+
 if __name__ == "__main__":
+
     input_text = input("Enter your prompt: ")
+
     response = chat_with_bot(input_text)
+
     # Print the response
     print("Chatbot:", response)
