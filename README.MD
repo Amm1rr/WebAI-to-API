@@ -1,5 +1,6 @@
 # Free Chatbot API
-This project implements a Python web API that offers free access to three leading AI chatbots - **ChatGPT**, **Google Bard**, and **Claude** - through a single interface.
+This project implements a Python web API that offers free access to three leading AI chatbots - **ChatGPT**, **Google Bard**, and **Claude** through a single interface.
+
 
 __Key features:__
 
