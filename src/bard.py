@@ -100,16 +100,34 @@ class ChatbotBard:
         self.SNlM0e = self.__get_snlm0e()
 
     def __get_snlm0e(self):
-        resp = self.session.get(url="https://bard.google.com/", timeout=10)
+        try:
+            resp = self.session.get(url="https://bard.google.com/", timeout=10)
+        except TypeError as e:
+            print(f"Error: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
+            return None
+        
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
-            raise Exception("Could not get Google Bard")
+            print("Error: Failed to retrieve the Google Bard website.")
+            # raise Exception("Error: Failed to retrieve the Google Bard website.")
         try:
-            SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
-            return SNlM0e
-        except:
+            # SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
+            # - OR
+            pattern = r"SNlM0e\":\"(.*?)\""
+            match = re.search(pattern, resp.text)
+
+            if match:
+                SNlM0e = match.group(1)
+                return SNlM0e
+            else:
+                print("Error: Session not found.")
+                # raise ValueError("Error: Session not found.")
+                return None
+
+        except TypeError as e:
             # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
-            return
+            print(f"Error: Session error:\n\n{e}")
+            return None
 
     def ask(self, message: str) -> dict:
         """
@@ -152,6 +170,7 @@ class ChatbotBard:
         if not chat_data:
             return {"content": f"Google Bard encountered an error: {resp.content}."}
         json_chat_data = json.loads(chat_data)
+
         results = {
             "content": json_chat_data[5][2],
             "conversation_id": json_chat_data[1][0],
@@ -263,7 +282,7 @@ class ChatbotBard:
         }
 
         # Question
-        print(message)
+        # print(message)
 
         with self.session.post(
             url, params=params, data=data, timeout=120, stream=True

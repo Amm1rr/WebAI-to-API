@@ -205,7 +205,15 @@ try **Claude** with **cURL**
 Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#2-start-web-server)** , run this cURL command in a terminal window:
 
 ```
-curl -X POST "http://127.0.0.1:8000/claude" -H "accept: application/json" -H "Content-Type: application/json" -d '{"session_id":"","message":"Who are you?"}'
+curl -X 'POST' \
+  'http://localhost:8000/claude' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "message": "who are you?",
+  "session_id": "",
+  "stream": true
+}'
 
 ```
 

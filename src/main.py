@@ -23,11 +23,12 @@ from revChatGPT.typings import Error
 # print("".join(response))
 # print(message, end="", flush=True) #این خط باعث میشه توی ترمینال به خط بعدی نره
 
-CONFIG_FOLDER = os.path.expanduser("~/.config")
 Free_Chatbot_API_CONFIG_FILE_NAME = "Config.conf"
-Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
+# CONFIG_FOLDER = os.path.expanduser("~/.config")
+# Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
+Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
 Free_Chatbot_API_CONFIG_PATH = (
-    Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
+    Path(Free_Chatbot_API_CONFIG_FOLDER) / "src" / Free_Chatbot_API_CONFIG_FILE_NAME
 )
 
 app = FastAPI()
@@ -312,7 +313,7 @@ async def ask_gpt(request: Request, message: Message):
         try:
             return StreamingResponse(
                 getGPTData(chat=chatbot, message=message),
-                media_type="application/json",
+                media_type="text/event-stream",
             )
 
         # return "".join(response)
@@ -367,12 +368,13 @@ async def ask_bard(request: Request, message: Message):
         if msg:
             answer = {"answer": msg, "choices": [{"message": {"content": msg}}]}
             return answer
+    
 
     # Execute code without authenticating the resource
     session_id = message.session_id
-    if not IsSession(session_id):
-        session_id = os.getenv("SESSION_ID")
-        # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
+    # if not IsSession(session_id):
+    #     session_id = os.getenv("SESSION_ID")
+    #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
 
     if not IsSession(session_id):
         config = configparser.ConfigParser()
@@ -390,14 +392,17 @@ async def ask_bard(request: Request, message: Message):
 
     chatbot = ChatbotBard(session_id)
 
+    if not chatbot.SNlM0e:
+        return {"Error": "Check the Bard session ID."}
+
     if not message.message:
         message.message = "Hi, are you there?"
-
+    
     if message.stream:
         return StreamingResponse(
             chatbot.ask_bardStream(message.message),
             media_type="text/event-stream",
-        )  # application/json
+        )
     else:
         response = chatbot.ask_bard(message.message)
         try:
