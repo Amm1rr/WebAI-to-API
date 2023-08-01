@@ -1,0 +1,10 @@
+# Case-Sensative
+
+[Claude]
+COOKIE=YOURS
+
+[ChatGPT]
+ACCESS_TOKEN=YOURS
+
+[Bard]
+SESSION_ID=YOURS
