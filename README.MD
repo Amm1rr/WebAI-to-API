@@ -1,16 +1,18 @@
 # Free Chatbot API
+This project implements a Python web API that offers free access to three leading AI chatbots - **ChatGPT**, **Google Bard**, and **Claude** - through a single interface.
 
-This project implements a Python web API that provides unified access to three leading AI chatbots - **ChatGPT**, **Google Bard**, and **Claude** - through a single interface. Key features:
+__Key features:__
 
 -   Unified API endpoints allow seamlessly querying ChatGPT, Google Bard, and Claude from one integration.
 -   Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
 -   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
 -   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
+- Full support for streaming responses.
 
 
 <br>
 
-It's a personal project to use tools like [Shell GPT](https://github.com/TheR1D/shell_gpt) and others.
+It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/shell_gpt) and others.
 
 
 -   ✅ **_Google_** Bard integration available now.
@@ -25,7 +27,7 @@ It's a personal project to use tools like [Shell GPT](https://github.com/TheR1D/
 
 ## Upcoming Tasks
 
--   Implement openai endpoints for ChatGPT, like `v1/chat/completions`
+-   Implement OpenAI endpoints for ChatGPT, (`v1/chat/completions`)
 -   Use proxy
 -   Use multiple accounts
 
