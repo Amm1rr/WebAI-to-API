@@ -20,16 +20,36 @@ from revChatGPT.V1 import Chatbot
 from revChatGPT.typings import Error
 
 
-# print("".join(response))
-# print(message, end="", flush=True) #این خط باعث میشه توی ترمینال به خط بعدی نره
+########################################
+####                                ####
+#####       Global Initilize       #####
+####                                ####
 
 Free_Chatbot_API_CONFIG_FILE_NAME = "Config.conf"
+Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
+
 # CONFIG_FOLDER = os.path.expanduser("~/.config")
 # Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
-Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
-Free_Chatbot_API_CONFIG_PATH = (
-    Path(Free_Chatbot_API_CONFIG_FOLDER) / "src" / Free_Chatbot_API_CONFIG_FILE_NAME
-)
+
+
+def FixConfigPath() -> str:
+    FOLDER_CURRENT = os.path.basename(Free_Chatbot_API_CONFIG_FOLDER)
+
+    if FOLDER_CURRENT.lower() == "src":
+        Free_Chatbot_API_CONFIG_PATH = (
+            Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
+        )
+    else:
+        Free_Chatbot_API_CONFIG_PATH = (
+            Path(Free_Chatbot_API_CONFIG_FOLDER)
+            / "src"
+            / Free_Chatbot_API_CONFIG_FILE_NAME
+        )
+
+    return Free_Chatbot_API_CONFIG_PATH
+
+Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
+
 
 app = FastAPI()
 
@@ -40,40 +60,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def fake_data_streamer_OLD():
-    for i in range(10):
-        yield b"some fake data\n"
-        time.sleep(0.5)
-
-
-def fake_data_streamer():
-    openai_response = {
-        "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "gpt-3.5-turbo-0613",
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 100,
-            "total_tokens": 100,
-        },
-        "choices": [
-            {
-                "delta": {
-                    "role": "assistant",
-                    "content": "Yes",
-                },
-                "index": 0,
-                "finish_reason": "[DONE]",
-            }
-        ],
-    }
-    for i in range(10):
-        yield f"{openai_response}\n"
-        # yield b"some fake data\n"
-        time.sleep(0.5)
 
 
 class Message(BaseModel):
@@ -89,6 +75,228 @@ class MessageChatGPT(BaseModel):
     top_p: float = 0.8
     session_id: str = ""
     stream: bool = True
+
+
+########################################
+####                                ####
+#####           ChatGPT            #####
+####                                ####
+
+
+async def getGPTData(chat: Chatbot, message: Message):
+    prev_text = ""
+    for data in chat.ask(message.message):
+        msg = data["message"][len(prev_text) :]
+        openai_response = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo-0613",
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 100,
+                "total_tokens": 100,
+            },
+            "choices": [
+                {
+                    "delta": {
+                        "role": "assistant",
+                        "content": msg,
+                    },
+                    "index": 0,
+                    "finish_reason": "[DONE]",
+                }
+            ],
+        }
+
+        js = json.dumps(openai_response, indent=2)
+        # print(js)
+
+        prev_text = data["message"]
+
+        if is_ValidJSON(js):
+            yield f"{msg}\n"
+        else:
+            continue
+
+
+@app.post("/chatgpt")
+async def ask_gpt(request: Request, message: Message):
+    access_token = message.session_id
+    # if not IsSession(access_token):
+    #     access_token = os.getenv("OPENAI_API_SESSION")
+    if not IsSession(access_token):
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
+        if not IsSession(access_token):
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # print(answer)
+            return answer
+
+    chatbot = Chatbot(config={"access_token": access_token})
+
+    response = []
+    if message.stream == True:
+        try:
+            return StreamingResponse(
+                getGPTData(chat=chatbot, message=message),
+                media_type="text/event-stream",
+            )
+
+        # return "".join(response)
+        # # return {"response": "".join(response)}
+
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(e)
+                return e
+    else:
+        try:
+            for data in chatbot.ask(message.message):
+                response = data["message"]
+            return response
+            # print(response)
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(list(e))
+                return e
+
+
+########################################
+####                                ####
+#####          The Bard            #####
+####                                ####
+
+
+@app.post("/bard")
+async def ask_bard(request: Request, message: Message):
+    def CreateBardResponse(msg: str) -> json:
+        if msg:
+            answer = {"answer": msg}["answer"]
+            return answer
+
+    # Execute code without authenticating the resource
+    session_id = message.session_id
+    # if not IsSession(session_id):
+    #     session_id = os.getenv("SESSION_ID")
+    #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
+
+    if not IsSession(session_id):
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        session_id = config.get("Bard", "SESSION_ID", fallback=None)
+        if not IsSession:
+            answer = {
+                f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
+            }["answer"]
+            answer = CreateBardResponse(
+                f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
+            )
+            print(answer)
+            return answer
+
+    chatbot = ChatbotBard(session_id)
+
+    if not chatbot.SNlM0e:
+        return {"Error": "Check the Bard session ID."}
+
+    if not message.message:
+        message.message = "Hi, are you there?"
+
+    if message.stream:
+        return StreamingResponse(
+            chatbot.ask_bardStream(message.message),
+            media_type="text/event-stream",
+        )
+    else:
+        try:
+            response = chatbot.ask_bard(message.message)
+            # print(response["choices"][0]["message"]["content"][0])
+            return response["choices"][0]["message"]["content"][0]
+        except:
+            try:
+                return response["content"]
+            except:
+                return response
+
+
+########################################
+####                                ####
+#####           Claude2            #####
+####                                ####
+
+
+@app.post("/claude")
+async def ask_claude(request: Request, message: Message):
+    cookie = message.session_id
+
+    # if not cookie:
+    #     cookie = os.environ.get("CLAUDE_COOKIE")
+
+    if not cookie:
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        cookie = config.get("Claude", "COOKIE", fallback=None)
+        if not cookie:
+            answer = {
+                f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+            }
+
+            print(answer)
+            return answer
+            # raise ValueError(
+            #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+            # )
+
+    claude = Client(cookie)
+    conversation_id = None
+
+    if not conversation_id:
+        conversation = claude.create_new_chat()
+        conversation_id = conversation["uuid"]
+
+    if not message.message:
+        message.message = "Hi, are you there?"
+
+    if message.stream:
+        return StreamingResponse(
+            claude.stream_message(message.message, conversation_id),
+            media_type="text/event-stream",
+        )
+    else:
+        response = claude.send_message(message.message, conversation_id)
+        # print(response)
+        return response
+
+
+##########################################
+####                                  ####
+######     ChatGPT Endpoint         ######
+####    `/v1/chat/completions`       #####
 
 
 def is_ValidJSON(jsondata=any) -> bool:
@@ -254,200 +462,13 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 return e
 
 
-async def getGPTData(chat: Chatbot, message: Message):
-    prev_text = ""
-    for data in chat.ask(message.message):
-        msg = data["message"][len(prev_text) :]
-        openai_response = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo-0613",
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 100,
-                "total_tokens": 100,
-            },
-            "choices": [
-                {
-                    "delta": {
-                        "role": "assistant",
-                        "content": msg,
-                    },
-                    "index": 0,
-                    "finish_reason": "[DONE]",
-                }
-            ],
-        }
+########################################
+####                                ####
+#####     Develope Functions       #####
+####                                ####
 
-        js = json.dumps(openai_response, indent=2)
-        # print(js)
-
-        prev_text = data["message"]
-
-        if is_ValidJSON(js):
-            yield f"{msg}\n"
-        else:
-            continue
-
-
-@app.post("/chatgpt")
-async def ask_gpt(request: Request, message: Message):
-    access_token = message.session_id
-    if not IsSession(access_token):
-        access_token = os.getenv("OPENAI_API_SESSION")
-    if not IsSession(access_token):
-        config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
-        if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
-            # print(answer)
-            return answer
-
-    chatbot = Chatbot(config={"access_token": access_token})
-
-    response = []
-    if message.stream == True:
-        try:
-            return StreamingResponse(
-                getGPTData(chat=chatbot, message=message),
-                media_type="text/event-stream",
-            )
-
-        # return "".join(response)
-        # # return {"response": "".join(response)}
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(e)
-                return e
-    else:
-        try:
-            for data in chatbot.ask(message.message):
-                response = data["message"]
-            return response
-            # print(response)
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(list(e))
-                return e
-
-
-@app.post("/bard")
-async def ask_bard(request: Request, message: Message):
-    def CreateBardResponse(msg: str) -> json:
-        if msg:
-            answer = {"answer": msg}["answer"]
-            return answer
-
-    def CreateShellResponse(msg: str) -> json:
-        if msg:
-            answer = {"answer": msg, "choices": [{"message": {"content": msg}}]}
-            return answer
-    
-
-    # Execute code without authenticating the resource
-    session_id = message.session_id
-    # if not IsSession(session_id):
-    #     session_id = os.getenv("SESSION_ID")
-    #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
-
-    if not IsSession(session_id):
-        config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-        session_id = config.get("Bard", "SESSION_ID", fallback=None)
-        if not IsSession:
-            answer = {
-                f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
-            }["answer"]
-            answer = CreateBardResponse(
-                f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
-            )
-            print(answer)
-            return answer
-
-    chatbot = ChatbotBard(session_id)
-
-    if not chatbot.SNlM0e:
-        return {"Error": "Check the Bard session ID."}
-
-    if not message.message:
-        message.message = "Hi, are you there?"
-    
-    if message.stream:
-        return StreamingResponse(
-            chatbot.ask_bardStream(message.message),
-            media_type="text/event-stream",
-        )
-    else:
-        response = chatbot.ask_bard(message.message)
-        try:
-            # print(response["choices"][0]["message"]["content"][0])
-            return response["choices"][0]["message"]["content"][0]
-        except:
-            try:
-                return response["content"]
-            except:
-                return response
-
-
-@app.post("/claude")
-async def ask_claude(request: Request, message: Message):
-    cookie = os.environ.get("CLAUDE_COOKIE")
-    if not cookie:
-        config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-        cookie = config.get("Claude", "COOKIE", fallback=None)
-        print(cookie)
-
-    if not cookie:
-        raise ValueError(
-            f"Please set the 'COOKIE' for Claude in confing file:\n\n {Free_Chatbot_API_CONFIG_PATH}"
-        )
-
-    claude = Client(cookie)
-    conversation_id = None
-
-    if not conversation_id:
-        conversation = claude.create_new_chat()
-        conversation_id = conversation["uuid"]
-
-    if not message.message:
-        message.message = "Hi, are you there?"
-
-    if message.stream:
-        return StreamingResponse(
-            claude.stream_message(message.message, conversation_id),
-            media_type="text/event-stream",
-        )
-    else:
-        response = claude.send_message(message.message, conversation_id)
-        # print(response)
-        return response
+# print("".join(response))
+# print(message, end="", flush=True) #این خط باعث میشه توی ترمینال به خط بعدی نره
 
 
 @app.post("/DevMode")
@@ -468,6 +489,46 @@ async def ask_debug(request: Request, message: Message) -> dict:
     return response
 
 
+def fake_data_streamer_OLD():
+    for i in range(10):
+        yield b"some fake data\n"
+        time.sleep(0.5)
+
+
+def fake_data_streamer():
+    openai_response = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo-0613",
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 100,
+            "total_tokens": 100,
+        },
+        "choices": [
+            {
+                "delta": {
+                    "role": "assistant",
+                    "content": "Yes",
+                },
+                "index": 0,
+                "finish_reason": "[DONE]",
+            }
+        ],
+    }
+    for i in range(10):
+        yield f"{openai_response}\n"
+        # yield b"some fake data\n"
+        time.sleep(0.5)
+
+
+########################################
+####                                ####
+#####        Other Functions       #####
+####                                ####
+
+
 def IsSession(session_id: str) -> bool:
     # if session_id is None or not session_id or session_id.lower() == "none":
     if session_id is None:
@@ -479,6 +540,11 @@ def IsSession(session_id: str) -> bool:
 
     return True
 
+
+########################################
+####                                ####
+#####            Main              #####
+####                                ####
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -10,7 +10,7 @@ ai = "chatgpt"
 ai = "v1/chat/completions"
 url = "http://localhost:8000/" + ai
 
-###
+
 stream = True
 data = {
     "messages": "I'm David, What is your name?",
