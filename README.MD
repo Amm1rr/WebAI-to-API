@@ -7,11 +7,19 @@ This project implements a Python web API that provides unified access to three l
 -   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
 -   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
 
+
 <br>
+
+It's a personal project to use tools like [Shell GPT](https://github.com/TheR1D/shell_gpt) and others.
+
 
 -   ✅ **_Google_** Bard integration available now.
 -   ✅ **_Claude-2_** integration is also fully implemented and available.
 -   ✅ **_ChatGPT_** integration is fully complete and available now.
+
+<br>
+
+[![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
 <br>
 
@@ -129,8 +137,11 @@ Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#c
 
 ```
 git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
+
 python -m .venv venv
+
 source .venv/bin/activate
+
 
 pip install -r requirements.txt
 ```
@@ -181,9 +192,9 @@ Input:
 _____
 
     {
-    "session_id": "your-session-id",
-    "message": "Hi, Who are you?",
-    "stream": True
+      "session_id": "your-session-id",
+      "message": "Hi, Who are you?",
+      "stream": True
     }
 
 --------------------
@@ -192,7 +203,9 @@ _____
 Output:
 _____
 
-    String
+    {
+      I'm a Chatbot assistant :)
+    }
 
 ```
 
@@ -227,10 +240,7 @@ curl -X 'POST' \
 
 #### Config File Path:
 
--   _Linux_ :
-    -   **~/.config/Free_Chatbot_API/Config.conf**
--   _Windows_ :
-    -   **.\Config.conf**
+-   Free-Chatbot-API\src\Config.conf
 
 ```Config.conf
 # Case-Sensative
