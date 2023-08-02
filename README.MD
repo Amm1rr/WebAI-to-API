@@ -15,7 +15,7 @@ This project implements a Python web API that offers free access to three leadin
 It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/shell_gpt) and others.
 
 
--   ✅ **_Google_** Bard integration available now.
+-   ✅ **_Google Bard_** integration available now.
 -   ✅ **_Claude-2_** integration is also fully implemented and available.
 -   ✅ **_ChatGPT_** integration is fully complete and available now.
 
