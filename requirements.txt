@@ -1,12 +1,21 @@
-fastapi
+# fastapi
+# uvicorn
+# prompt_toolkit
+# requests
+# rich
+# pydantic
+# python-dotenv
+# pysocks
+# revChatGPT
+# jsonify
+# itertools
+# Response
+
+anyio
+aiohttp
 uvicorn
-prompt_toolkit
 requests
+fastapi
+prompt_toolkit
 rich
-pydantic
-python-dotenv
-pysocks
 revChatGPT
-jsonify
-itertools
-Response

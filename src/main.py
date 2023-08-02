@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import asyncio
 import os
 from anyio import Path
@@ -32,21 +35,12 @@ Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
 # Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
 
 
-def FixConfigPath() -> str:
-    FOLDER_CURRENT = os.path.basename(Free_Chatbot_API_CONFIG_FOLDER)
-
-    if FOLDER_CURRENT.lower() == "src":
-        Free_Chatbot_API_CONFIG_PATH = (
-            Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
-        )
-    else:
-        Free_Chatbot_API_CONFIG_PATH = (
-            Path(Free_Chatbot_API_CONFIG_FOLDER)
-            / "src"
-            / Free_Chatbot_API_CONFIG_FILE_NAME
-        )
-
-    return Free_Chatbot_API_CONFIG_PATH
+FixConfigPath = lambda: (
+    Path(Free_Chatbot_API_CONFIG_FOLDER)
+    / Free_Chatbot_API_CONFIG_FILE_NAME
+    if os.path.basename(Free_Chatbot_API_CONFIG_FOLDER).lower() == "src"
+    else Path(Free_Chatbot_API_CONFIG_FOLDER) / "src" / Free_Chatbot_API_CONFIG_FILE_NAME
+)
 
 Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
 
@@ -182,7 +176,7 @@ async def ask_gpt(request: Request, message: Message):
                     print(e)
                     return e
             else:
-                print(list(e))
+                print(e)
                 return e
 
 

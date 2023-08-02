@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
 Reverse engineering of Google Bard
 """
@@ -102,8 +105,8 @@ class ChatbotBard:
     def __get_snlm0e(self):
         try:
             resp = self.session.get(url="https://bard.google.com/", timeout=10)
-        except TypeError as e:
-            print(f"Error: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
+        except Exception as e:
+            print(f"ERROR: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
             return None
         
         # Find "SNlM0e":"<ID>"
@@ -124,7 +127,7 @@ class ChatbotBard:
                 # raise ValueError("Error: Session not found.")
                 return None
 
-        except TypeError as e:
+        except Exception as e:
             # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
             print(f"Error: Session error:\n\n{e}")
             return None
@@ -210,7 +213,8 @@ class ChatbotBard:
             "at": self.SNlM0e,
         }
 
-        print(message)
+        # Question
+        # print(message)
 
         # do the request!
         resp = self.session.post(
@@ -220,7 +224,8 @@ class ChatbotBard:
             timeout=120,
         )
 
-        print(resp)
+        # Answer
+        # print(resp)
 
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:
