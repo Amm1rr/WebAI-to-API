@@ -58,14 +58,14 @@ app.add_middleware(
 
 
 class Message(BaseModel):
-    message: str = ""
+    message: str
     session_id: str = ""
     stream: bool = True
 
 
 class MessageChatGPT(BaseModel):
     messages: list[dict[str, str]]
-    model: str = "gpt-3.5-turbo-0613"
+    model: str = "gpt-3.5-turbo"
     temperature: float = 0.9
     top_p: float = 0.8
     session_id: str = ""
