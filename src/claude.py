@@ -219,7 +219,7 @@ class Client:
                                     else:
                                         newChunk = oldChunk
                                     
-                                    yield newChunk + '\n'
+                                    yield newChunk
                                     oldChunk = completion
                                     ### End Clean Response
 

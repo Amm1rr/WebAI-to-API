@@ -108,10 +108,12 @@ async def getGPTData(chat: Chatbot, message: Message):
 
         prev_text = data["message"]
 
-        if is_ValidJSON(js):
-            yield f"{msg}\n"
-        else:
+        try:
+            yield f"{msg}"
+        except:
             continue
+
+
 
 
 @app.post("/chatgpt")
@@ -216,7 +218,7 @@ async def ask_bard(request: Request, message: Message):
     chatbot = ChatbotBard(session_id)
 
     if not chatbot.SNlM0e:
-        return {"Error": "Check the Bard session ID."}
+        return {"Error": "Check the Bard session."}
 
     if not message.message:
         message.message = "Hi, are you there?"
@@ -293,14 +295,6 @@ async def ask_claude(request: Request, message: Message):
 ####    `/v1/chat/completions`       #####
 
 
-def is_ValidJSON(jsondata=any) -> bool:
-    try:
-        json.dumps(jsondata)
-        return True
-    except:
-        return False
-
-
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     prev_text = ""
     for data in chat.ask(str(message.messages)):
@@ -326,8 +320,9 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
             line = eval(line)
             line = json.loads(json.dumps(line))
 
-        except json.decoder.JSONDecodeError as e:
-            print(f"ERROR: {e}")
+        # except json.decoder.JSONDecodeError as e:
+        except Exception as e:
+            print(f"ERROR Decode: {e}")
             continue
 
         # if line.get("message").get("author").get("role") != "assistant":
@@ -365,11 +360,6 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 100,
-                "total_tokens": 100,
-            },
             "choices": [
                 {
                     "delta": {

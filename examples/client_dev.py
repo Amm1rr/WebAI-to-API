@@ -6,6 +6,7 @@
 # # # # # # # # # # # # # # # # # # # # # #
 
 import requests
+import sys
 import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -18,7 +19,16 @@ ai = "v1/chat/completions"
 url = "http://localhost:8000/" + ai
 
 
+## Argument for stream if available
+#
 stream = True
+if len(sys.argv) > 1:
+    arg1 = sys.argv[1]  # The first argument
+    if arg1.upper() == "TRUE":
+        stream = True
+    else:
+        stream = False
+
 data = {
     "messages": "I'm David, What is your name?",
     "message": "I'm David, What is your name?",

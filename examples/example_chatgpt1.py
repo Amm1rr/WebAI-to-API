@@ -1,4 +1,5 @@
 import requests
+import sys
 import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,16 @@ input_text = input("Enter your prompt: ")
 
 API_ENDPOINT = "http://127.0.0.1:8000/chatgpt"  # Replace with the actual server URL if it's hosted elsewhere
 
+stream = True
+
+## Argument for stream if available
+#
+if len(sys.argv) > 1:
+    arg1 = sys.argv[1]  # The first argument
+    if arg1.upper() == "TRUE":
+        stream = True
+    else:
+        stream = False
 
 ### Set the model parameters
 ##
@@ -23,7 +34,7 @@ API_ENDPOINT = "http://127.0.0.1:8000/chatgpt"  # Replace with the actual server
 params = {
     "message": input_text,
     "session_id": "",
-    "stream": True
+    "stream": stream
 }
 
 ### Make the API request
@@ -41,7 +52,7 @@ response = requests.post(
 response.raise_for_status()
 
 if not params["stream"]:
-    data = response.json()
+    data = response.text
     print(data)
     # print(data["choices"][0]["message"]["content"])  # type: ignore
     exit()
@@ -52,7 +63,7 @@ for line in response.iter_lines():
     if not data:
         continue
     
-    print(data)
+    print(data, end="", flush=True)
 
     # data = json.loads(data)  # type: ignore
     # delta = data["choices"][0]["delta"]  # type: ignore

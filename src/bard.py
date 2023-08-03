@@ -21,9 +21,6 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.markdown import Markdown
-# from dotenv import load_dotenv
-
-# load_dotenv()
 
 
 def load_proxies():
@@ -190,7 +187,7 @@ class ChatbotBard:
 
     def ask_bard(self, message: str) -> json:
         """
-        Send a message to Google Bard and return the response.
+        Send a message to Google Bard and return the response. (FastAPI)
         :param message: The message to send to Google Bard.
         :return: A dict containing the response from Google Bard.
         """
@@ -245,12 +242,12 @@ class ChatbotBard:
         self.choice_id = results["choices"][0]["id"]
         self._reqid += 100000
 
-        json_data = {
+        json_Response = {
             "choices": [{"message": {"content": results["choices"][0]["content"]}}]
         }
 
-        # return json.load(json_data)
-        return json_data
+        # return json.load(json_Response)
+        return json_Response
 
     def ask_bardStream(self, message: str) -> json:
         """
@@ -340,7 +337,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    chatbot = Chatbot(args.session)
+    chatbot = ChatbotBard(args.session)
     prompt_session = __create_session()
     completions = __create_completer(["!exit", "!reset"])
     console = Console()

@@ -1,6 +1,18 @@
 import requests
+import sys
 
-def chat_with_bot(input_text):
+stream = True
+
+## Argument for stream if available
+#
+if len(sys.argv) > 1:
+    arg1 = sys.argv[1]  # The first argument
+    if arg1.upper() == "TRUE":
+        stream = True
+    else:
+        stream = False
+
+def chat_with_bot(input_text) -> str:
 
     # Set the API endpoint
     #
@@ -21,7 +33,7 @@ def chat_with_bot(input_text):
     params = {
         "message": input_text,
         "session_id": "",
-        "stream": True
+        "stream": stream
     }
 
     ### Make the API request

@@ -1,4 +1,5 @@
 import requests
+import sys
 import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -9,6 +10,16 @@ user_input = input("Enter your prompt: ")
 #
 API_ENDPOINT = "http://127.0.0.1:8000/bard"
 
+stream = True
+
+## Argument for stream if available
+#
+if len(sys.argv) > 1:
+    arg1 = sys.argv[1]  # The first argument
+    if arg1.upper() == "TRUE":
+        stream = True
+    else:
+        stream = False
 
 ### Set the model parameters
 ##
@@ -24,7 +35,7 @@ API_ENDPOINT = "http://127.0.0.1:8000/bard"
 params = {
     "message": user_input,
     "session_id": "",
-    "stream": True,
+    "stream": stream,
 }
 
 
@@ -37,7 +48,7 @@ if params["stream"] == True:
                 if line:
                     try:
                         # Print the response
-                        print(line)
+                        print(line, end="", flush=True)
                     except json.JSONDecodeError:
                         print("Invalid JSON format in line:", line)
         except TypeError as e:
