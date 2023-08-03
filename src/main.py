@@ -36,10 +36,11 @@ Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
 
 
 FixConfigPath = lambda: (
-    Path(Free_Chatbot_API_CONFIG_FOLDER)
-    / Free_Chatbot_API_CONFIG_FILE_NAME
+    Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
     if os.path.basename(Free_Chatbot_API_CONFIG_FOLDER).lower() == "src"
-    else Path(Free_Chatbot_API_CONFIG_FOLDER) / "src" / Free_Chatbot_API_CONFIG_FILE_NAME
+    else Path(Free_Chatbot_API_CONFIG_FOLDER)
+    / "src"
+    / Free_Chatbot_API_CONFIG_FILE_NAME
 )
 
 Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
@@ -110,29 +111,32 @@ async def getGPTData(chat: Chatbot, message: Message):
             prev_text = data["message"]
 
             try:
-                yield(f"{msg}")
+                yield (f"{msg}")
             except:
                 continue
-    
+
     except requests.exceptions.ConnectionError:
         # Handle the ConnectionError exception here
-        print("Connection error occurred. Please check your internet connection or the server's availability.")
-        yield("Connection error occurred. Please check your internet connection or the server's availability.")
+        print(
+            "Connection error occurred. Please check your internet connection or the server's availability."
+        )
+        yield (
+            "Connection error occurred. Please check your internet connection or the server's availability."
+        )
 
     except requests.exceptions.HTTPError as http_err:
         # Handle HTTPError (e.g., 404, 500) if needed
         print(f"HTTP error occurred: {http_err}")
-        yield(f"HTTP error occurred: {http_err}")
+        yield (f"HTTP error occurred: {http_err}")
 
     except requests.exceptions.RequestException as req_err:
         # Handle other request exceptions if needed
         print(f"Request error occurred: {req_err}")
-        yield(f"Request error occurred: {req_err}")
-    
+        yield (f"Request error occurred: {req_err}")
+
     except Exception as e:
         print(f"Error: {str(e)}")
-        yield(str(f"Error: {str(e)}"))
-
+        yield (str(f"Error: {str(e)}"))
 
 
 @app.post("/chatgpt")
@@ -182,12 +186,14 @@ async def ask_gpt(request: Request, message: Message):
         try:
             for data in chatbot.ask(message.message):
                 response = data["message"]
-            
+
             return response
         except requests.exceptions.ConnectionError:
             # Handle the ConnectionError exception here
-            print("Connection error occurred. Please check your internet connection or the server's availability.")
-            return("Connection error occurred. Please check your internet connection or the server's availability.")
+            print(
+                "Connection error occurred. Please check your internet connection or the server's availability."
+            )
+            return "Connection error occurred. Please check your internet connection or the server's availability."
 
         except requests.exceptions.HTTPError as http_err:
             # Handle HTTPError (e.g., 404, 500) if needed
@@ -198,7 +204,7 @@ async def ask_gpt(request: Request, message: Message):
             # Handle other request exceptions if needed
             print(f"Request error occurred: {req_err}")
             return f"Request error occurred: {req_err}"
-        
+
         except Exception as e:
             if isinstance(e, Error):
                 try:
@@ -214,8 +220,6 @@ async def ask_gpt(request: Request, message: Message):
             else:
                 print("Error 02: ")
                 return e
-                    
-                
 
 
 ########################################
@@ -253,27 +257,65 @@ async def ask_bard(request: Request, message: Message):
 
     chatbot = ChatbotBard(session_id)
 
-    if not chatbot.SNlM0e:
-        return {"Error": "Check the Bard session."}
 
     if not message.message:
         message.message = "Hi, are you there?"
 
     if message.stream:
-        return StreamingResponse(
-            chatbot.ask_bardStream(message.message),
-            media_type="text/event-stream",
-        )
+        try:
+            # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
+            if not chatbot.SNlM0e:
+                return {"Error": "Check the Bard session."}
+            
+            return StreamingResponse(
+                chatbot.ask_bardStream(message.message),
+                media_type="text/event-stream",
+            )
+        except requests.exceptions.ConnectionError:
+            # Handle the ConnectionError exception here
+            print(
+                "Connection error occurred. Please check your internet connection or the server's availability."
+            )
+            return "Connection error occurred. Please check your internet connection or the server's availability."
+
+        except requests.exceptions.HTTPError as http_err:
+            # Handle HTTPError (e.g., 404, 500) if needed
+            print(f"HTTP error occurred: {http_err}")
+            return f"HTTP error occurred: {http_err}"
+
+        except requests.exceptions.RequestException as req_err:
+            # Handle other request exceptions if needed
+            print(f"Request error occurred: {req_err}")
+            return f"Request error occurred: {req_err}"
+
+        except Exception as req_err:
+            print(f"Error Occurred: {req_err}")
+            return f"Error Occurred: {req_err}"
+
     else:
         try:
             response = chatbot.ask_bard(message.message)
             # print(response["choices"][0]["message"]["content"][0])
             return response["choices"][0]["message"]["content"][0]
-        except:
-            try:
-                return response["content"]
-            except:
-                return response
+        except requests.exceptions.ConnectionError:
+            # Handle the ConnectionError exception here
+            print("Connection error occurred. Please check your internet connection or the server's availability.")
+            return("Connection error occurred. Please check your internet connection or the server's availability.")
+
+        except requests.exceptions.HTTPError as http_err:
+            # Handle HTTPError (e.g., 404, 500) if needed
+            print(f"HTTP error occurred: {http_err}")
+            return f"HTTP error occurred: {http_err}"
+
+        except requests.exceptions.RequestException as req_err:
+            # Handle other request exceptions if needed
+            print(f"Request error occurred: {req_err}")
+            return f"Request error occurred: {req_err}"
+
+        except Exception as req_err:
+            print(f"Error Occurred: {req_err}")
+            return f"Error Occurred: {req_err}"
+        
 
 
 ########################################
@@ -412,7 +454,7 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
             jsonresp = json.dumps(shellresp)
 
             yield f"{jsonresp}\n"
-    
+
     except Exception as e:
         print(f"Error : {str(e)}")
         yield f"Error : {str(e)}"
