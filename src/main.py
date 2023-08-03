@@ -78,41 +78,60 @@ class MessageChatGPT(BaseModel):
 
 
 async def getGPTData(chat: Chatbot, message: Message):
-    prev_text = ""
-    for data in chat.ask(message.message):
-        msg = data["message"][len(prev_text) :]
-        openai_response = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo-0613",
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 100,
-                "total_tokens": 100,
-            },
-            "choices": [
-                {
-                    "delta": {
-                        "role": "assistant",
-                        "content": msg,
-                    },
-                    "index": 0,
-                    "finish_reason": "[DONE]",
-                }
-            ],
-        }
+    try:
+        prev_text = ""
+        for data in chat.ask(message.message):
+            msg = data["message"][len(prev_text) :]
+            openai_response = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "gpt-3.5-turbo",
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 100,
+                    "total_tokens": 100,
+                },
+                "choices": [
+                    {
+                        "delta": {
+                            "role": "assistant",
+                            "content": msg,
+                        },
+                        "index": 0,
+                        "finish_reason": "[DONE]",
+                    }
+                ],
+            }
 
-        js = json.dumps(openai_response, indent=2)
-        # print(js)
+            js = json.dumps(openai_response, indent=2)
+            # print(js)
 
-        prev_text = data["message"]
+            prev_text = data["message"]
 
-        try:
-            yield f"{msg}"
-        except:
-            continue
+            try:
+                yield(f"{msg}")
+            except:
+                continue
+    
+    except requests.exceptions.ConnectionError:
+        # Handle the ConnectionError exception here
+        print("Connection error occurred. Please check your internet connection or the server's availability.")
+        yield("Connection error occurred. Please check your internet connection or the server's availability.")
 
+    except requests.exceptions.HTTPError as http_err:
+        # Handle HTTPError (e.g., 404, 500) if needed
+        print(f"HTTP error occurred: {http_err}")
+        yield(f"HTTP error occurred: {http_err}")
+
+    except requests.exceptions.RequestException as req_err:
+        # Handle other request exceptions if needed
+        print(f"Request error occurred: {req_err}")
+        yield(f"Request error occurred: {req_err}")
+    
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        yield(str(f"Error: {str(e)}"))
 
 
 
@@ -163,8 +182,23 @@ async def ask_gpt(request: Request, message: Message):
         try:
             for data in chatbot.ask(message.message):
                 response = data["message"]
+            
             return response
-            # print(response)
+        except requests.exceptions.ConnectionError:
+            # Handle the ConnectionError exception here
+            print("Connection error occurred. Please check your internet connection or the server's availability.")
+            return("Connection error occurred. Please check your internet connection or the server's availability.")
+
+        except requests.exceptions.HTTPError as http_err:
+            # Handle HTTPError (e.g., 404, 500) if needed
+            print(f"HTTP error occurred: {http_err}")
+            return f"HTTP error occurred: {http_err}"
+
+        except requests.exceptions.RequestException as req_err:
+            # Handle other request exceptions if needed
+            print(f"Request error occurred: {req_err}")
+            return f"Request error occurred: {req_err}"
+        
         except Exception as e:
             if isinstance(e, Error):
                 try:
@@ -175,11 +209,13 @@ async def ask_gpt(request: Request, message: Message):
                     print(js["detail"]["message"])
                     return js["detail"]["message"]
                 except:
-                    print(e)
-                    return e
-            else:
-                print(e)
+                    print("Error 01: ")
                 return e
+            else:
+                print("Error 02: ")
+                return e
+                    
+                
 
 
 ########################################
@@ -296,85 +332,90 @@ async def ask_claude(request: Request, message: Message):
 
 
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
-    prev_text = ""
-    for data in chat.ask(str(message.messages)):
-        # remove b' and ' at the beginning and end and ignore case
-        # line = str(data)[2:-1]
-        line = str(data)
-        if not line or line is None:
-            continue
-        if "data: " in line:
-            line = line[6:]
-        if line == "[DONE]":
-            break
+    try:
+        prev_text = ""
+        for data in chat.ask(str(message.messages)):
+            # remove b' and ' at the beginning and end and ignore case
+            # line = str(data)[2:-1]
+            line = str(data)
+            if not line or line is None:
+                continue
+            if "data: " in line:
+                line = line[6:]
+            if line == "[DONE]":
+                break
 
-        # DO NOT REMOVE THIS
-        # line = line.replace('\\"', '"')
-        # line = line.replace("\\'", "'")
-        # line = line.replace("\\\'", "\\")
+            # DO NOT REMOVE THIS
+            # line = line.replace('\\"', '"')
+            # line = line.replace("\\'", "'")
+            # line = line.replace("\\\'", "\\")
 
-        try:
-            # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
-            # import ast
-            # line = ast.literal_eval(line)
-            line = eval(line)
-            line = json.loads(json.dumps(line))
+            try:
+                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
+                # import ast
+                # line = ast.literal_eval(line)
+                line = eval(line)
+                line = json.loads(json.dumps(line))
 
-        # except json.decoder.JSONDecodeError as e:
-        except Exception as e:
-            print(f"ERROR Decode: {e}")
-            continue
+            # except json.decoder.JSONDecodeError as e:
+            except Exception as e:
+                print(f"ERROR Decode: {e}")
+                continue
 
-        # if line.get("message").get("author").get("role") != "assistant":
-        if line.get("author").get("role") != "assistant":
-            continue
+            # if line.get("message").get("author").get("role") != "assistant":
+            if line.get("author").get("role") != "assistant":
+                continue
 
-        cid = line["conversation_id"]
-        pid = line["parent_id"]
+            cid = line["conversation_id"]
+            pid = line["parent_id"]
 
-        author = {}
-        author = line.get("author", {})
+            author = {}
+            author = line.get("author", {})
 
-        message = line["message"]
+            message = line["message"]
 
-        model = line["model"]
-        finish_details = line["finish_details"]
+            model = line["model"]
+            finish_details = line["finish_details"]
 
-        res_text = message[len(prev_text) :]
-        prev_text = message
+            res_text = message[len(prev_text) :]
+            prev_text = message
 
-        jsonresp = {
-            "author": author,
-            "message": res_text,
-            "conversation_id": cid,
-            "parent_id": pid,
-            "model": model,
-            "finish_details": finish_details,
-            "end_turn": line["end_turn"],
-            "recipient": line["recipient"],
-            "citations": line["citations"],
-        }
+            jsonresp = {
+                "author": author,
+                "message": res_text,
+                "conversation_id": cid,
+                "parent_id": pid,
+                "model": model,
+                "finish_details": finish_details,
+                "end_turn": line["end_turn"],
+                "recipient": line["recipient"],
+                "citations": line["citations"],
+            }
 
-        shellresp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "delta": {
-                        "role": "assistant",
-                        "content": res_text,
-                    },
-                    "index": 0,
-                    "finish_reason": finish_details,
-                }
-            ],
-        }
+            shellresp = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "delta": {
+                            "role": "assistant",
+                            "content": res_text,
+                        },
+                        "index": 0,
+                        "finish_reason": finish_details,
+                    }
+                ],
+            }
 
-        jsonresp = json.dumps(shellresp)
+            jsonresp = json.dumps(shellresp)
 
-        yield f"{jsonresp}\n"
+            yield f"{jsonresp}\n"
+    
+    except Exception as e:
+        print(f"Error : {str(e)}")
+        yield f"Error : {str(e)}"
 
 
 @app.post("/v1/chat/completions")
