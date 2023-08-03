@@ -3,12 +3,6 @@
 .venv
 .vscode
 demploys/
-AIAPI.sh
-claude_test copy.py
-claude_test.py
-README_Bard.MD
-/assets/01.png
 /src/Config.conf
 /src/__pycache__
 /src/adapter/
-/src/session_list.json
