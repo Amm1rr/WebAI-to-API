@@ -1,24 +1,22 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import asyncio
 import os
-from anyio import Path
-import uvicorn
-from aiohttp import request
-from h11 import Response
-import requests
+import time
+import json
 import configparser
 import urllib.parse
-import json
-import time
+import itertools
+from anyio import Path
+import uvicorn
+import requests
+from aiohttp import request
+from h11 import Response
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import browser_cookie3
 from bard import ChatbotBard
 from claude import Client
-import itertools
 from revChatGPT.V1 import Chatbot
 from revChatGPT.typings import Error
 
@@ -46,6 +44,7 @@ FixConfigPath = lambda: (
 Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
 
 
+# Initialize the FastAPI app
 app = FastAPI()
 
 app.add_middleware(
@@ -78,6 +77,7 @@ class MessageChatGPT(BaseModel):
 ####                                ####
 
 
+# Define a function to generate a stream of responses from the GPT-3.5 Turbo model
 async def getGPTData(chat: Chatbot, message: Message):
     try:
         prev_text = ""
@@ -139,6 +139,7 @@ async def getGPTData(chat: Chatbot, message: Message):
         yield (str(f"Error: {str(e)}"))
 
 
+# Define a FastAPI endpoint for interacting with the GPT-3.5 Turbo model
 @app.post("/chatgpt")
 async def ask_gpt(request: Request, message: Message):
     access_token = message.session_id
@@ -257,7 +258,6 @@ async def ask_bard(request: Request, message: Message):
 
     chatbot = ChatbotBard(session_id)
 
-
     if not message.message:
         message.message = "Hi, are you there?"
 
@@ -266,7 +266,7 @@ async def ask_bard(request: Request, message: Message):
             # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
             if not chatbot.SNlM0e:
                 return {"Error": "Check the Bard session."}
-            
+
             return StreamingResponse(
                 chatbot.ask_bardStream(message.message),
                 media_type="text/event-stream",
@@ -299,8 +299,10 @@ async def ask_bard(request: Request, message: Message):
             return response["choices"][0]["message"]["content"][0]
         except requests.exceptions.ConnectionError:
             # Handle the ConnectionError exception here
-            print("Connection error occurred. Please check your internet connection or the server's availability.")
-            return("Connection error occurred. Please check your internet connection or the server's availability.")
+            print(
+                "Connection error occurred. Please check your internet connection or the server's availability."
+            )
+            return "Connection error occurred. Please check your internet connection or the server's availability."
 
         except requests.exceptions.HTTPError as http_err:
             # Handle HTTPError (e.g., 404, 500) if needed
@@ -315,7 +317,6 @@ async def ask_bard(request: Request, message: Message):
         except Exception as req_err:
             print(f"Error Occurred: {req_err}")
             return f"Error Occurred: {req_err}"
-        
 
 
 ########################################
@@ -332,19 +333,23 @@ async def ask_claude(request: Request, message: Message):
     #     cookie = os.environ.get("CLAUDE_COOKIE")
 
     if not cookie:
-        config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-        cookie = config.get("Claude", "COOKIE", fallback=None)
+        cookie = get_claude_cookie()
         if not cookie:
-            answer = {
-                f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-            }
+            config = configparser.ConfigParser()
+            config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+            cookie = config.get("Claude", "COOKIE", fallback=None)
+            if not cookie:
+                answer = {
+                    f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                }
 
-            print(answer)
-            return answer
-            # raise ValueError(
-            #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-            # )
+                print(answer)
+                return answer
+                # raise ValueError(
+                #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                # )
+        
+        cookie = f"sessionKey={cookie}"
 
     claude = Client(cookie)
     conversation_id = None
@@ -376,7 +381,9 @@ async def ask_claude(request: Request, message: Message):
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     try:
         prev_text = ""
-        for data in chat.ask(str(message.messages)):
+        print(message.messages)
+        # for data in chat.ask(str(message.messages)):
+        for data in chat.ask(str(message.messages[0])):
             # remove b' and ' at the beginning and end and ignore case
             # line = str(data)[2:-1]
             line = str(data)
@@ -439,6 +446,8 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
                 "object": "chat.completion.chunk",
                 "created": int(time.time()),
                 "model": model,
+                "temperature": 0.1,
+                "top_probability": 1.0,
                 "choices": [
                     {
                         "delta": {
@@ -607,6 +616,35 @@ def IsSession(session_id: str) -> bool:
 
     return True
 
+
+def get_claude_cookie(filter_text="sessionKey") -> str:
+    """
+    Retrieve the value of a specific cookie from the 'claude' domain, filtered by cookie name.
+
+    This function retrieves the value of a specific cookie from the 'claude' domain by filtering
+    cookies based on the provided `filter_text`. The filtering is case-insensitive. It returns
+    the value of the last matching cookie found, or `None` if no matching cookies are found.
+
+    Parameters:
+    filter_text (str, optional): The text used to filter cookies based on their name. The default
+                                 value is "sessionKey".
+
+    Returns:
+    str or None: The value of the last matching cookie, or `None` if no matching cookies are found.
+    """
+
+    domain = "claude"
+    cookies = browser_cookie3.load(domain)
+
+    filtered_cookies = [
+        cookie for cookie in cookies if filter_text.lower() in cookie.name.lower()
+    ]
+
+    result = None
+    if filtered_cookies:
+        result = filtered_cookies[-1].value
+
+    return result
 
 ########################################
 ####                                ####
