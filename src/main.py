@@ -5,6 +5,7 @@ import json
 import configparser
 import urllib.parse
 import itertools
+import sys
 from anyio import Path
 import uvicorn
 import requests
@@ -339,16 +340,16 @@ async def ask_claude(request: Request, message: Message):
             config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
             if not cookie:
-                answer = {
+                response_error = {
                     f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 }
 
-                print(answer)
-                return answer
+                print(response_error)
+                return response_error
                 # raise ValueError(
                 #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 # )
-        
+
         cookie = f"sessionKey={cookie}"
 
     claude = Client(cookie)
@@ -381,8 +382,6 @@ async def ask_claude(request: Request, message: Message):
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     try:
         prev_text = ""
-        print(message.messages)
-        # for data in chat.ask(str(message.messages)):
         for data in chat.ask(str(message.messages[0])):
             # remove b' and ' at the beginning and end and ignore case
             # line = str(data)[2:-1]
@@ -645,6 +644,7 @@ def get_claude_cookie(filter_text="sessionKey") -> str:
         result = filtered_cookies[-1].value
 
     return result
+
 
 ########################################
 ####                                ####

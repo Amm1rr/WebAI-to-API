@@ -1,4 +1,5 @@
 # Free Chatbot API
+
 This project implements a Python web API that offers free access to three leading AI chatbots **ChatGPT**, **Google Bard**, and **Claude** through a single interface.
 
 **Key features:**
@@ -7,13 +8,9 @@ This project implements a Python web API that offers free access to three leadin
 -   Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
 -   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
 -   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
-- Full support for streaming responses.
-
+-   Full support for streaming responses.
 
 <br>
-
-It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/shell_gpt) and others.
-
 
 -   ✅ **_Google Bard_** integration available now.
 -   ✅ **_Claude-2_** integration is also fully implemented and available.
@@ -27,13 +24,13 @@ It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/s
 
 ## Upcoming Tasks
 
--   Implement OpenAI endpoints for ChatGPT, (`v1/chat/completions`)
--   Use proxy
--   Use multiple accounts
+-   Implement OpenAI endpoints for ChatGPT, (`v1/chat/completions`) (The beta is now ready ⏳.)
+-   ~~Authorization is accomplished by logging into cloud.ai using a web browser, without requiring manual cookie configuration.~~ (Done ✅)
 
-<br>
+<br><br>
 
-**NOTE:** This project is currently under active development.
+**NOTE:** It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/shell_gpt) and others.<br>
+This project is currently under active development.
 
 <br>
 
@@ -42,6 +39,10 @@ It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/s
 #### How to Find Your Free Tokens
 
 First you need to add your tokens to the **`Config.conf`** file (see **[Configuration](#configuration)** section).
+
+<br>
+
+**Note**: For Claude, all you need to do is [login](https://claude.ai/chats) to your account using your web browser. Alternatively, you can follow the instructions below.
 
 <br>
 
@@ -78,6 +79,10 @@ which is your **Secure-1PSID** cookie, is included in the request. ([Screenshot]
 
 [![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
 
+**Method 1:** <br>
+For Claude, all you need to do is [login](https://claude.ai/chats) to your account using your web browser. (Firefox, Chrome, Safari)
+
+**Method 2:** <br>
 _`Claude:`_ You can get cookie from the browser's developer tools network tab ( see for any claude.ai requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
 
 1. Login to [claude.ai/chats](https://claude.ai/chats)
@@ -140,7 +145,7 @@ Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#c
 ```
 git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
 
-python -m .venv venv
+python -m venv .venv
 
 source .venv/bin/activate
 
@@ -155,15 +160,28 @@ pip install -r requirements.txt
 Navigate into the **`src`** directory, and run the web server using one of the methods below:
 
 ```
-uvicorn main:app --reload --port 8000
-
--- OR --
+cd src/
 
 python main.py
 
--- OR --
+
+-------------- or --------------
+
+
+cd src/
+
+uvicorn main:app --reload --port 8000
+
+
+-------------- or --------------
+
+
+cd src/
+
+sudo chmod -x ./Run-Server.sh
 
 ./Run-Server.sh
+
 ```
 
 <br>
@@ -239,6 +257,8 @@ curl -X 'POST' \
 ## Configuration
 
 [How to Find Your Free Tokens](#usage)
+
+**Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
 #### Config File Path:
 
