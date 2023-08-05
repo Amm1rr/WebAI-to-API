@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+from typing import Literal
 import urllib.parse
 
 # Third-Party Imports
@@ -49,7 +50,7 @@ FixConfigPath = lambda: (
     / Free_Chatbot_API_CONFIG_FILE_NAME
 )
 
-"""Path to API configuration file.""" 
+"""Path to API configuration file."""
 Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
 
 
@@ -65,12 +66,17 @@ app.add_middleware(
 )
 
 """Request message data model."""
+
+
 class Message(BaseModel):
     message: str
     session_id: str = ""
     stream: bool = True
 
-"""ChatGPT request message data model.""" 
+
+"""ChatGPT request message data model."""
+
+
 class MessageChatGPT(BaseModel):
     messages: list[dict[str, str]]
     model: str = "gpt-3.5-turbo"
@@ -95,13 +101,13 @@ async def getGPTData(chat: Chatbot, message: Message):
 
     Yields:
         str: ChatGPT response chunks
-    
+
     Raises:
         ConnectionError: If internet connection or API server is unavailable
         HTTPError: If HTTP error response received from API
         RequestException: If other request error occurs
         Exception: For any other errors
-    
+
     """
     try:
         prev_text = ""
@@ -166,20 +172,20 @@ async def getGPTData(chat: Chatbot, message: Message):
 @app.post("/chatgpt")
 async def ask_gpt(request: Request, message: Message):
     """API endpoint to get response from ChatGPT.
-    
+
     Args:
         request (Request): API request object.
         message (Message): Message request object.
-        
+
     Returns:
         str: ChatGPT response.
-    
+
     Raises:
         ConnectionError: If internet connection or API server is unavailable.
         HTTPError: If HTTP error response received from API.
         RequestException: If other request error occurs.
         Error: If ChatGPT API error occurs.
-    
+
     """
     access_token = message.session_id
     # if not IsSession(access_token):
@@ -271,21 +277,22 @@ async def ask_gpt(request: Request, message: Message):
 @app.post("/bard")
 async def ask_bard(request: Request, message: Message):
     """API endpoint to get response from Anthropic's Claude/Bard.
-    
+
     Args:
         request (Request): API request object
         message (Message): Message request object
-        
+
     Returns:
         str: Bard response
-    
+
     Raises:
         ConnectionError: If internet connection or API server is unavailable
         HTTPError: If HTTP error response received from API
         RequestException: If other request error occurs
         Exception: For any other errors
-        
+
     """
+
     def CreateBardResponse(msg: str) -> json:
         if msg:
             answer = {"answer": msg}["answer"]
@@ -298,18 +305,22 @@ async def ask_bard(request: Request, message: Message):
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
 
     if not IsSession(session_id):
-        config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-        session_id = config.get("Bard", "SESSION_ID", fallback=None)
-        if not IsSession:
-            answer = {
-                f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
-            }["answer"]
-            answer = CreateBardResponse(
-                f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
-            )
-            print(answer)
-            return answer
+        cookie = get_Cookie("Bard")
+        if cookie:
+            session_id = cookie
+        else:
+            config = configparser.ConfigParser()
+            config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+            session_id = config.get("Bard", "SESSION_ID", fallback=None)
+            if not IsSession:
+                answer = {
+                    f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
+                }["answer"]
+                answer = CreateBardResponse(
+                    f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
+                )
+                print(answer)
+                return answer
 
     chatbot = ChatbotBard(session_id)
 
@@ -383,14 +394,14 @@ async def ask_bard(request: Request, message: Message):
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
     """API endpoint to get Claude response.
-    
+
     Args:
         request (Request): API request object.
         message (Message): Message request object.
-        
+
     Returns:
         str: JSON string of Claude response.
-    
+
     """
     cookie = message.session_id
 
@@ -398,8 +409,10 @@ async def ask_claude(request: Request, message: Message):
     #     cookie = os.environ.get("CLAUDE_COOKIE")
 
     if not cookie:
-        cookie = get_claude_cookie()
-        if not cookie:
+        cookie = get_Cookie("Claude")
+        if cookie:
+            cookie = f"sessionKey={cookie}"
+        else:
             config = configparser.ConfigParser()
             config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
@@ -413,8 +426,6 @@ async def ask_claude(request: Request, message: Message):
                 # raise ValueError(
                 #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 # )
-
-        cookie = f"sessionKey={cookie}"
 
     claude = Client(cookie)
     conversation_id = None
@@ -450,7 +461,7 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
         chat (Chatbot): Chatbot client object.
         message (MessageChatGPT): Message request object.
 
-    Yields: 
+    Yields:
         str: JSON response chunks.
     """
     try:
@@ -548,7 +559,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
     Args:
         request (Request): API request object.
         message (MessageChatGPT): Message request object.
-    
+
     Returns:
         str: ChatGPT response.
     """
@@ -631,7 +642,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
 async def ask_debug(request: Request, message: Message) -> dict:
     """API endpoint to get response in developer mode.
 
-    This endpoint allows executing code without authentication 
+    This endpoint allows executing code without authentication
     if the correct authorization key is provided in the headers.
 
     Args:
@@ -643,7 +654,7 @@ async def ask_debug(request: Request, message: Message) -> dict:
 
     Raises:
         HTTPException: If invalid authorization key is provided
-    
+
     """
 
     # Get the user-defined auth key from the environment variables
@@ -723,27 +734,39 @@ def IsSession(session_id: str) -> bool:
     return True
 
 
-def get_claude_cookie(filter_text="sessionKey") -> str:
+def get_Cookie(service_Name: Literal["Bard", "Claude"]) -> str:
     """
-    Retrieve the value of a specific cookie from the 'claude' domain, filtered by cookie name.
+    Retrieve and return the session cookie value for the specified service.
 
-    This function retrieves the value of a specific cookie from the 'claude' domain by filtering
-    cookies based on the provided `filter_text`. The filtering is case-insensitive. It returns
-    the value of the last matching cookie found, or `None` if no matching cookies are found.
+    This function takes a service name as input, either 'Bard' or 'Claude', and retrieves
+    the corresponding session cookie value from the browser's stored cookies. The cookie
+    value is then returned.
 
-    Parameters:
-    filter_text (str, optional): The text used to filter cookies based on their name. The default
-                                 value is "sessionKey".
+    Note: This function requires the 'browser_cookie3' library to be installed.
+
+    Args:
+        service_Name (Literal["Bard", "Claude"]): The name of the service for which to retrieve the session cookie.
 
     Returns:
-    str or None: The value of the last matching cookie, or `None` if no matching cookies are found.
+        str: The session cookie value for the specified service, or None if no matching cookie is found.
     """
 
-    domain = "claude"
+    domains = {
+        "Bard": "google",
+        "Claude": "claude",
+    }
+    domain = domains[service_Name]
+
+    sessName = {
+        "claude": "sessionKey",
+        "google": "__Secure-1PSID",
+    }
+    sessionName = sessName[domain]
+
     cookies = browser_cookie3.load(domain)
 
     filtered_cookies = [
-        cookie for cookie in cookies if filter_text.lower() in cookie.name.lower()
+        cookie for cookie in cookies if sessionName.lower() in cookie.name.lower()
     ]
 
     result = None
@@ -769,18 +792,16 @@ if __name__ == "__main__":
 
     """
 
+    get_Cookie("ChatGPT")
+    exit()
+
     parser = argparse.ArgumentParser(description="Run the UVicorn server.")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host IP address")
     parser.add_argument("--port", type=int, default=8000, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
 
-    uvicorn.run(
-        "main:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload
-    )
+    uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 
     ##### TO USE HTTPS
     ###
