@@ -252,7 +252,7 @@ curl -X 'POST' \
 
 ```
 
-**Note**: The **`session_id`** is configured in the **[Config.conf](#config)** file. If you send this variable empty, it will use the Config.conf
+**Note**: The **`session_id`** is configured in the **[Config.conf](#configuration)** file. If you send this variable empty, it will use the Config.conf
 
 <br><br>
 
