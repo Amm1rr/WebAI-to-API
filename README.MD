@@ -178,13 +178,11 @@ sudo chmod -x ./Run-Server.sh
 
 ./Run-Server.sh
 
-
 -------------- or --------------
 
 cd src/
 
 uvicorn main:app --reload --port 8000
-
 
 ```
 
@@ -239,7 +237,7 @@ _____
 
 try **Claude** with **cURL**
 
-Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#2-start-web-server)** , run this cURL command in a terminal window:
+Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#step-2-start-web-server)** , run this cURL command in a terminal window:
 
 ```
 curl -X 'POST' \
@@ -254,13 +252,15 @@ curl -X 'POST' \
 
 ```
 
-**Note**: The **`session_id`** is configured in the **[Config.conf](#configconf)** file. If you send this variable empty, it will use the Config.conf
+**Note**: The **`session_id`** is configured in the **[Config.conf](#config)** file. If you send this variable empty, it will use the Config.conf
 
 <br><br>
 
 ## Configuration
 
 [How to Find Your Tokens](#usage)
+
+**Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
 **Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
