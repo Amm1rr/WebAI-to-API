@@ -29,7 +29,7 @@ This project implements a Python web API that offers free access to three leadin
     
     <br>
 
--   Authorization is accomplished by logging into [cloud.ai](https://claude.ai/) using a web browser, without requiring manual cookie configuration.
+-   Authorization is accomplished by logging into [cloud.ai](https://claude.ai/) or [bard.google.com](https://bard.google.com/) using a web browser, without requiring manual cookie configuration.
     - Done ✅
 
 <br><br>
@@ -260,9 +260,7 @@ curl -X 'POST' \
 
 [How to Find Your Tokens](#usage)
 
-**Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
-
-**Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
+**Note**: Claude and Bard presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
 #### Config File Path:
 
