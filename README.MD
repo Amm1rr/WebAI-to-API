@@ -178,13 +178,11 @@ sudo chmod -x ./Run-Server.sh
 
 ./Run-Server.sh
 
-
 -------------- or --------------
 
 cd src/
 
 uvicorn main:app --reload --port 8000
-
 
 ```
 
@@ -261,6 +259,8 @@ curl -X 'POST' \
 ## Configuration
 
 [How to Find Your Tokens](#usage)
+
+**Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
 **Note**: Claude presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
 
