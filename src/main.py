@@ -1,24 +1,31 @@
+# Standard Library Imports
+import argparse
 import asyncio
-import os
-import time
-import json
 import configparser
+import json
+import os
+import sys
+import time
 import urllib.parse
-import itertools
-from anyio import Path
+
+# Third-Party Imports
+import anyio
+import browser_cookie3
 import uvicorn
 import requests
 from aiohttp import request
-from h11 import Response
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from h11 import Response
 from pydantic import BaseModel
-import browser_cookie3
-from bard import ChatbotBard
-from claude import Client
+
+# Local Imports
 from revChatGPT.V1 import Chatbot
 from revChatGPT.typings import Error
+from bard import ChatbotBard
+from claude import Client
+from anyio import Path
 
 
 ########################################
@@ -26,6 +33,7 @@ from revChatGPT.typings import Error
 #####       Global Initilize       #####
 ####                                ####
 
+"""Config file name and paths for chatbot API configuration."""
 Free_Chatbot_API_CONFIG_FILE_NAME = "Config.conf"
 Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
 
@@ -41,10 +49,11 @@ FixConfigPath = lambda: (
     / Free_Chatbot_API_CONFIG_FILE_NAME
 )
 
+"""Path to API configuration file.""" 
 Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
 
 
-# Initialize the FastAPI app
+"""FastAPI application instance."""
 app = FastAPI()
 
 app.add_middleware(
@@ -55,13 +64,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+"""Request message data model."""
 class Message(BaseModel):
     message: str
     session_id: str = ""
     stream: bool = True
 
-
+"""ChatGPT request message data model.""" 
 class MessageChatGPT(BaseModel):
     messages: list[dict[str, str]]
     model: str = "gpt-3.5-turbo"
@@ -77,8 +86,23 @@ class MessageChatGPT(BaseModel):
 ####                                ####
 
 
-# Define a function to generate a stream of responses from the GPT-3.5 Turbo model
 async def getGPTData(chat: Chatbot, message: Message):
+    """Gets response data from ChatGPT API.
+
+    Args:
+        chat (Chatbot): Chatbot client object
+        message (Message): Message request object
+
+    Yields:
+        str: ChatGPT response chunks
+    
+    Raises:
+        ConnectionError: If internet connection or API server is unavailable
+        HTTPError: If HTTP error response received from API
+        RequestException: If other request error occurs
+        Exception: For any other errors
+    
+    """
     try:
         prev_text = ""
         for data in chat.ask(message.message):
@@ -139,9 +163,24 @@ async def getGPTData(chat: Chatbot, message: Message):
         yield (str(f"Error: {str(e)}"))
 
 
-# Define a FastAPI endpoint for interacting with the GPT-3.5 Turbo model
 @app.post("/chatgpt")
 async def ask_gpt(request: Request, message: Message):
+    """API endpoint to get response from ChatGPT.
+    
+    Args:
+        request (Request): API request object.
+        message (Message): Message request object.
+        
+    Returns:
+        str: ChatGPT response.
+    
+    Raises:
+        ConnectionError: If internet connection or API server is unavailable.
+        HTTPError: If HTTP error response received from API.
+        RequestException: If other request error occurs.
+        Error: If ChatGPT API error occurs.
+    
+    """
     access_token = message.session_id
     # if not IsSession(access_token):
     #     access_token = os.getenv("OPENAI_API_SESSION")
@@ -231,6 +270,22 @@ async def ask_gpt(request: Request, message: Message):
 
 @app.post("/bard")
 async def ask_bard(request: Request, message: Message):
+    """API endpoint to get response from Anthropic's Claude/Bard.
+    
+    Args:
+        request (Request): API request object
+        message (Message): Message request object
+        
+    Returns:
+        str: Bard response
+    
+    Raises:
+        ConnectionError: If internet connection or API server is unavailable
+        HTTPError: If HTTP error response received from API
+        RequestException: If other request error occurs
+        Exception: For any other errors
+        
+    """
     def CreateBardResponse(msg: str) -> json:
         if msg:
             answer = {"answer": msg}["answer"]
@@ -327,6 +382,16 @@ async def ask_bard(request: Request, message: Message):
 
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
+    """API endpoint to get Claude response.
+    
+    Args:
+        request (Request): API request object.
+        message (Message): Message request object.
+        
+    Returns:
+        str: JSON string of Claude response.
+    
+    """
     cookie = message.session_id
 
     # if not cookie:
@@ -339,16 +404,16 @@ async def ask_claude(request: Request, message: Message):
             config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
             if not cookie:
-                answer = {
+                response_error = {
                     f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 }
 
-                print(answer)
-                return answer
+                print(response_error)
+                return response_error
                 # raise ValueError(
                 #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 # )
-        
+
         cookie = f"sessionKey={cookie}"
 
     claude = Client(cookie)
@@ -379,10 +444,17 @@ async def ask_claude(request: Request, message: Message):
 
 
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
+    """Gets AI response data from ChatGPT Website.
+
+    Args:
+        chat (Chatbot): Chatbot client object.
+        message (MessageChatGPT): Message request object.
+
+    Yields: 
+        str: JSON response chunks.
+    """
     try:
         prev_text = ""
-        print(message.messages)
-        # for data in chat.ask(str(message.messages)):
         for data in chat.ask(str(message.messages[0])):
             # remove b' and ' at the beginning and end and ignore case
             # line = str(data)[2:-1]
@@ -471,6 +543,15 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
 
 @app.post("/v1/chat/completions")
 def ask_chatgpt(request: Request, message: MessageChatGPT):
+    """API endpoint to get ChatGPT response.
+
+    Args:
+        request (Request): API request object.
+        message (MessageChatGPT): Message request object.
+    
+    Returns:
+        str: ChatGPT response.
+    """
     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
@@ -544,11 +625,27 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
 ####                                ####
 
 # print("".join(response))
-# print(message, end="", flush=True) #این خط باعث میشه توی ترمینال به خط بعدی نره
 
 
 @app.post("/DevMode")
 async def ask_debug(request: Request, message: Message) -> dict:
+    """API endpoint to get response in developer mode.
+
+    This endpoint allows executing code without authentication 
+    if the correct authorization key is provided in the headers.
+
+    Args:
+        request (Request): API request object
+        message (Message): Message request object
+
+    Returns:
+        dict: Chatbot response
+
+    Raises:
+        HTTPException: If invalid authorization key is provided
+    
+    """
+
     # Get the user-defined auth key from the environment variables
     user_auth_key = os.getenv("USER_AUTH_KEY")
 
@@ -606,6 +703,15 @@ def fake_data_streamer():
 
 
 def IsSession(session_id: str) -> bool:
+    """Checks if a valid session ID is provided.
+
+    Args:
+        session_id (str): The session ID to check
+
+    Returns:
+        bool: True if session ID is valid, False otherwise
+    """
+
     # if session_id is None or not session_id or session_id.lower() == "none":
     if session_id is None:
         return False
@@ -646,17 +752,34 @@ def get_claude_cookie(filter_text="sessionKey") -> str:
 
     return result
 
+
 ########################################
 ####                                ####
 #####            Main              #####
 ####                                ####
 
 if __name__ == "__main__":
+    """Parse arguments and run the UVicorn server.
+
+    This allows running the FastAPI server from the command line
+    by specifying the host, port, and whether to enable auto-reloading.
+
+    Example:
+        python main.py --host 0.0.0.0 --port 8000 --reload
+
+    """
+
+    parser = argparse.ArgumentParser(description="Run the UVicorn server.")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host IP address")
+    parser.add_argument("--port", type=int, default=8000, help="Port number")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
+    args = parser.parse_args()
+
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload
     )
 
     ##### TO USE HTTPS
@@ -665,9 +788,9 @@ if __name__ == "__main__":
     # Popen(["python", "-m", "https_redirect"])  # Add this
     # uvicorn.run(
     #     "main:app",
-    #     port=443,
-    #     host="0.0.0.0",
-    #     reload=True,
+    #     host=args.host,
+    #     port=args.port,
+    #     reload=args.reload,
     #     reload_dirs=["html_files"],
     #     ssl_keyfile="/etc/letsencrypt/live/my_domain/privkey.pem",
     #     ssl_certfile="/etc/letsencrypt/live/my_domain/fullchain.pem",
