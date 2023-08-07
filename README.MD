@@ -42,7 +42,7 @@ This project implements a Python web API that offers free access to three leadin
 
 #### How to Find Your Tokens
 
-**Note**: [Claude](https://claude.ai/) and (Bard)(Https://bard.google.com/] presents two authentication options - logging in through your browser or follow the instructions below to configure.
+**Note**: [Claude](https://claude.ai/) and [Bard](https://bard.google.com/) presents two authentication options - logging in through your browser or follow the instructions below to configure.
 
 <br>
 
