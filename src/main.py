@@ -630,6 +630,10 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 return e
 
 
+#############################################
+####                                     ####
+######    Code Review Endpoint         ######
+#### `/v1/chat/completions/CodeReview`  #####
 
 async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
@@ -641,92 +645,92 @@ async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
     Yields:
         str: JSON response chunks.
     """
-    # try:
-    prev_text = ""
-    for data in chat.ask(str(message.messages[0])):
-        # remove b' and ' at the beginning and end and ignore case
-        # line = str(data)[2:-1]
-        line = str(data)
-        if not line or line is None:
-            continue
-        if "data: " in line:
-            line = line[6:]
-        if line == "[DONE]" or line == "stop":
-            break
+    try:
+        prev_text = ""
+        for data in chat.ask(str(message.messages[0])):
+            # remove b' and ' at the beginning and end and ignore case
+            # line = str(data)[2:-1]
+            line = str(data)
+            if not line or line is None:
+                continue
+            if "data: " in line:
+                line = line[6:]
+            if line == "[DONE]" or line == "stop":
+                break
 
-        # DO NOT REMOVE THIS
-        # line = line.replace('\\"', '"')
-        # line = line.replace("\\'", "'")
-        # line = line.replace("\\\'", "\\")
+            # DO NOT REMOVE THIS
+            # line = line.replace('\\"', '"')
+            # line = line.replace("\\'", "'")
+            # line = line.replace("\\\'", "\\")
 
-        # try:
-            # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
-            # import ast
-            # line = ast.literal_eval(line)
-        line = eval(str(line))
-        line = json.loads(json.dumps(line))
+            try:
+                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
+                # import ast
+                # line = ast.literal_eval(line)
+                line = eval(str(line))
+                line = json.loads(json.dumps(line))
 
-        # except json.decoder.JSONDecodeError as e:
-        # except Exception as e:
-        #     print(f"ERROR Decode: {e}")
-        #     continue
+            # except json.decoder.JSONDecodeError as e:
+            except Exception as e:
+                print(f"ERROR Decode: {e}")
+                continue
 
-        # if line.get("message").get("author").get("role") != "assistant":
-        if line.get("author").get("role") != "assistant":
-            continue
+            # if line.get("message").get("author").get("role") != "assistant":
+            if line.get("author").get("role") != "assistant":
+                continue
 
-        cid = line["conversation_id"]
-        pid = line["parent_id"]
+            cid = line["conversation_id"]
+            pid = line["parent_id"]
 
-        author = {}
-        author = line.get("author", {})
+            author = {}
+            author = line.get("author", {})
 
-        message = line["message"]
+            message = line["message"]
 
-        model = line["model"]
-        finish_details = line["finish_details"]
+            model = line["model"]
+            finish_details = line["finish_details"]
 
-        res_text = message[len(prev_text) :]
-        prev_text = message
+            res_text = message[len(prev_text) :]
+            prev_text = message
 
-        jsonresp = {
-            "author": author,
-            "message": res_text,
-            "conversation_id": cid,
-            "parent_id": pid,
-            "model": model,
-            "finish_details": finish_details,
-            "end_turn": line["end_turn"],
-            "recipient": line["recipient"],
-            "citations": line["citations"],
-        }
+            jsonresp = {
+                "author": author,
+                "message": res_text,
+                "conversation_id": cid,
+                "parent_id": pid,
+                "model": model,
+                "finish_details": finish_details,
+                "end_turn": line["end_turn"],
+                "recipient": line["recipient"],
+                "citations": line["citations"],
+            }
 
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "temperature": 0.1,
-            "top_probability": 1.0,
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": res_text,
-                    },
-                    "index": 0,
-                    "finish_reason": finish_details,
-                }
-            ],
-        }
+            openairesp = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "temperature": 0.1,
+                "top_probability": 1.0,
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": res_text,
+                        },
+                        "index": 0,
+                        "finish_reason": finish_details,
+                    }
+                ],
+            }
 
-        jsonresp = json.dumps(openairesp)
-        print(jsonresp)
-        yield f"{jsonresp}"
+            jsonresp = json.dumps(openairesp)
+            print(jsonresp)
+            yield f"{jsonresp}"
 
-    # except Exception as e:
-    #     print(f"Error : {e}")
-    #     yield f"Error : {e}"
+    except Exception as e:
+        print(f"Error : {e}")
+        yield f"Error : {e}"
 
 
 # This is the beta version of the "ChatGPT Code Review" project
