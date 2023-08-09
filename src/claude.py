@@ -5,17 +5,6 @@ import requests, json, uuid
 import os
 from datetime import datetime
 
-role_map = {
-    "system": "Human",
-    "user": "Human",
-    "assistant": "Assistant",
-}
-
-stop_reason_map = {
-    "stop_sequence": "stop",
-    "max_tokens": "length",
-}
-
 class Client:
 
     def __init__(self, cookie):
@@ -92,9 +81,11 @@ class Client:
         if attachment:
             attachment_response = self.upload_attachment(attachment)
             if attachment_response:
-                attachments = attachment_response
+                attachments = [attachment_response]
             else:
                 return {"Error: Invalid file format. Please try again."}
+        else:
+            attachment_response = None
 
         # Ensure attachments is an empty list when no attachment is provided
         if not attachment:
@@ -103,7 +94,7 @@ class Client:
         payload = json.dumps({
             "completion": {
                 "prompt": f"{prompt}",
-                "timezone": "Europe/London",
+                "timezone": "Asia/Kolkata",
                 "model": "claude-2"
             },
             "organization_uuid": f"{self.organization_id}",
@@ -129,12 +120,18 @@ class Client:
             'TE': 'trailers'
         }
 
-        response = requests.post(url, headers=headers,
-                                 data=payload, stream=True)
+        response = requests.post(url, headers=headers, data=payload, stream=True)
         decoded_data = response.content.decode("utf-8")
-        data = decoded_data.strip().split('\n')[-1]
+        data_strings = decoded_data.strip().split('\n')
+        data_strings = [item for item in data_strings if item != '']
+        completions = []
+        for data_string in data_strings:
+            json_str = data_string[6:].strip()
+            data = json.loads(json_str)
+            if 'completion' in data:
+                completions.append(data['completion'])
 
-        answer = {"answer": json.loads(data[6:])['completion']}['answer']
+        answer = ''.join(completions)
 
         # Returns answer
         return answer

@@ -151,7 +151,8 @@ git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
 
 python -m venv .venv
 
-source .venv/bin/activate
+source .venv/bin/activate  # Linux or macOS
+.venv\Scripts\activate  # Windows
 
 
 pip install -r requirements.txt
@@ -167,22 +168,6 @@ Navigate into the **`src`** directory, and run the web server using one of the m
 cd src/
 
 python main.py
-
-
--------------- or --------------
-
-
-cd src/
-
-sudo chmod -x ./Run-Server.sh
-
-./Run-Server.sh
-
--------------- or --------------
-
-cd src/
-
-uvicorn main:app --reload --port 8000
 
 ```
 

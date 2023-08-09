@@ -42,7 +42,10 @@ response = requests.post(API_ENDPOINT, json=params)
 ## Print the response
 #
 try:
-    print(response.text, end="", flush=True)
+    if stream:
+        print(response.text, end="", flush=True)
+    else:
+        print(response.text)
 except Exception as e:
     print(f"Error: {e}")
 
