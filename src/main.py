@@ -630,6 +630,211 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 return e
 
 
+
+async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
+    """Gets AI response data from ChatGPT Website.
+
+    Args:
+        chat (Chatbot): Chatbot client object.
+        message (MessageChatGPT): Message request object.
+
+    Yields:
+        str: JSON response chunks.
+    """
+    # try:
+    prev_text = ""
+    for data in chat.ask(str(message.messages[0])):
+        # remove b' and ' at the beginning and end and ignore case
+        # line = str(data)[2:-1]
+        line = str(data)
+        if not line or line is None:
+            continue
+        if "data: " in line:
+            line = line[6:]
+        if line == "[DONE]" or line == "stop":
+            break
+
+        # DO NOT REMOVE THIS
+        # line = line.replace('\\"', '"')
+        # line = line.replace("\\'", "'")
+        # line = line.replace("\\\'", "\\")
+
+        # try:
+            # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
+            # import ast
+            # line = ast.literal_eval(line)
+        line = eval(str(line))
+        line = json.loads(json.dumps(line))
+
+        # except json.decoder.JSONDecodeError as e:
+        # except Exception as e:
+        #     print(f"ERROR Decode: {e}")
+        #     continue
+
+        # if line.get("message").get("author").get("role") != "assistant":
+        if line.get("author").get("role") != "assistant":
+            continue
+
+        cid = line["conversation_id"]
+        pid = line["parent_id"]
+
+        author = {}
+        author = line.get("author", {})
+
+        message = line["message"]
+
+        model = line["model"]
+        finish_details = line["finish_details"]
+
+        res_text = message[len(prev_text) :]
+        prev_text = message
+
+        jsonresp = {
+            "author": author,
+            "message": res_text,
+            "conversation_id": cid,
+            "parent_id": pid,
+            "model": model,
+            "finish_details": finish_details,
+            "end_turn": line["end_turn"],
+            "recipient": line["recipient"],
+            "citations": line["citations"],
+        }
+
+        openairesp = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "temperature": 0.1,
+            "top_probability": 1.0,
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": res_text,
+                    },
+                    "index": 0,
+                    "finish_reason": finish_details,
+                }
+            ],
+        }
+
+        jsonresp = json.dumps(openairesp)
+        print(jsonresp)
+        yield f"{jsonresp}"
+
+    # except Exception as e:
+    #     print(f"Error : {e}")
+    #     yield f"Error : {e}"
+
+
+# This is the beta version of the "ChatGPT Code Review" project
+@app.post("/v1/chat/completions/CodeReview")
+def ask_new(request: Request, message: MessageChatGPT):
+    """API endpoint to get ChatGPT response.
+
+    Args:
+        request (Request): API request object.
+        message (MessageChatGPT): Message request object.
+
+    Returns:
+        str: ChatGPT response.
+    """
+    access_token = os.getenv("OPENAI_API_SESSION")
+    if not IsSession(access_token):
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
+        if not IsSession(access_token):
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # print(answer)
+            return answer
+
+    chatbot = Chatbot(
+        config={
+            "access_token": access_token,
+        }
+    )
+
+    response = []
+    if message.stream == True:
+        try:
+            return StreamingResponse(
+                getChatGPTDataNew(chat=chatbot, message=message),
+                media_type="application/json",
+            )
+
+        # return "".join(response)
+        # # return {"response": "".join(response)}
+
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(e)
+                return e
+    else:
+        # try:
+        # print(" # Normal Request #")
+        for data in chatbot.ask(str(message.messages[0])):
+            # response = data["message"]
+            response = data
+        
+        jsonresp = eval(str(response))
+        jsonresp = json.dumps(response)
+        jsonresp = json.loads(jsonresp)
+
+        openairesp = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo",
+            "temperature": 0.1,
+            "top_probability": 1.0,
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": jsonresp["message"],
+                    },
+                    "index": 0,
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+
+        openairesp = json.dumps(openairesp)
+        # print(openairesp)
+        return openairesp
+            # print(response)
+        # except Exception as e:
+        #     print(str(e))
+        #     return e
+            # if isinstance(e, Error):
+            #     try:
+            #         # err = e.message
+            #         # if e.__notes__:
+            #         #     err = f"{err} \n\n {e.__notes__}"
+            #         js = json.loads(e.message)
+            #         print(js["detail"]["message"])
+            #         return js["detail"]["message"]
+            #     except:
+            #         print(str(e))
+            #         return e
+            # else:
+
 ########################################
 ####                                ####
 #####     Develope Functions       #####
@@ -684,7 +889,7 @@ def fake_data_streamer():
         "id": f"chatcmpl-{str(time.time())}",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "gpt-3.5-turbo-0613",
+        "model": "gpt-3.5-turbo",
         "usage": {
             "prompt_tokens": 0,
             "completion_tokens": 100,
