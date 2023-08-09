@@ -42,11 +42,11 @@ This project implements a Python web API that offers free access to three leadin
 
 #### How to Find Your Tokens
 
-First you need to add your tokens to the **`Config.conf`** file (see **[Configuration](#configuration)** section).
+**Note**: [Claude](https://claude.ai/) and [Bard](https://bard.google.com/) presents two authentication options - logging in through your browser or follow the instructions below to configure.
 
 <br>
 
-**Note**: For Claude, all you need to do is [login](https://claude.ai/) to your account using your web browser. Alternatively, you can follow the instructions below.
+First you need to add your tokens to the **`Config.conf`** file (see **[Configuration](#configuration)** section).
 
 <br>
 
