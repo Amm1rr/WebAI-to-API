@@ -18,6 +18,10 @@ This project implements a Python web API that offers free access to three leadin
 
 <br>
 
+Python > 3.10
+
+<br>
+
 [![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
 <br>
@@ -42,7 +46,7 @@ This project implements a Python web API that offers free access to three leadin
 
 #### How to Find Your Tokens
 
-**Note**: [Claude](https://claude.ai/) and [Bard](https://bard.google.com/) presents two authentication options - logging in through your browser or follow the instructions below to configure.
+**Note**: [Claude](https://claude.ai/) and [Bard](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 <br>
 
@@ -128,7 +132,7 @@ which is your `Authorization` header session, is included in the request. ([Scre
 
 ### Prerequisites
 
-(NOTE: This guide is still in progress.)
+(NOTE: This guide is in progress.)
 
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
@@ -190,7 +194,25 @@ http://128.0.0.1:8000/claude
 
 http://128.0.0.1:8000/chatgpt
 
+
+
+---------- ChatGPT for ShellGPT
+
+http://128.0.0.1:8000/v1/chat/completions
+
+
+
+---------- ChatGPT for Code Review
+
+http://128.0.0.1:8000/v1/chat/completions/CodeReview
+
+
 ```
+1- [ShellGPT](https://github.com/TheR1D/shell_gpt/)
+|
+2- [ChatGPT Code Review](https://github.com/mattiasu96/chatgpt-code-review/)
+
+<br>
 
 **Input / Output**
 
