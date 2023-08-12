@@ -18,27 +18,17 @@ This project implements a Python web API that offers free access to three leadin
 
 <br>
 
-Python > 3.10
-
-<br>
-
 [![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
-
-<br>
-
-## Upcoming Tasks
-
--   Implement OpenAI endpoints for ChatGPT.
-    - The beta endpoint of `v1/chat/completions` is available now ⏳
-    
-    <br>
-
--   Authorization is accomplished by logging into [cloud.ai](https://claude.ai/) or [bard.google.com](https://bard.google.com/) using a web browser, without requiring manual cookie configuration.
-    - Done ✅
 
 <br><br>
 
-**NOTE:** It's a personal project to use tools like [ShellGPT](https://github.com/TheR1D/shell_gpt) and others.<br>
+**NOTE:** This is a personal project involving the use of tools such as [ShellGPT](https://github.com/TheR1D/shell_gpt) , [ChatGPT Code Review](https://github.com/Amm1rr/ChatGPT-Code-Review) and...<br>
+Please use them responsibly.
+
+This repository is up-to-date.
+<br><br>
+Python version: >= 3.10
+
 
 <br>
 
@@ -46,11 +36,11 @@ Python > 3.10
 
 #### How to Find Your Tokens
 
-**Note**: [Claude](https://claude.ai/) and [Bard](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 <br>
 
-First you need to add your tokens to the **`Config.conf`** file (see **[Configuration](#configuration)** section).
+First you need to add your tokens to the [**`Config.conf`**](#configuration) file (see [**Configuration**](#configuration) section).
 
 <br>
 
@@ -124,7 +114,7 @@ which is your `Authorization` header session, is included in the request. ([Scre
 4. Go to `Network Tab`
 5. Select an ajax request (like step 4 in [picture](assets/ChatGPT.jpg))
 6. Copy the content of `Authorization`
-7. Set in **[Config.conf](#configuration)** file.
+7. Set in [**Config.conf**](#configuration) file.
 
 </details>
 
@@ -132,16 +122,15 @@ which is your `Authorization` header session, is included in the request. ([Scre
 
 ### Prerequisites
 
-(NOTE: This guide is in progress.)
-
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
 -   ChatGPT: https://openai.com/api/
 -   Google Bard: https://bard.google.com/
 -   Claude: https://claude.ai/
 
-Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#configuration)** section).
+Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
+**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step.
 <br>
 
 ## Installation
@@ -150,7 +139,7 @@ Then, add your token(s) to the **`Config.conf`** file. (see **[Configuration](#c
 
 ### Step 1. Clone Repository
 
-```
+```bash
 git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
 
 python -m venv .venv
@@ -168,7 +157,7 @@ pip install -r requirements.txt
 
 Navigate into the **`src`** directory, and run the web server using one of the methods below:
 
-```
+```bash
 cd src/
 
 python main.py
@@ -179,30 +168,39 @@ python main.py
 
 Available **Endpoints:**
 
-```
----------- Google Bard
+```bash
+#---------- Google Bard
 
 http://128.0.0.1:8000/bard
 
 
----------- Claude
+#---------- Claude
 
 http://128.0.0.1:8000/claude
 
 
----------- ChatGPT
+#---------- ChatGPT
 
 http://128.0.0.1:8000/chatgpt
 
 
 
----------- ChatGPT for ShellGPT
 
-http://128.0.0.1:8000/v1/chat/completions
+#---------- ChatGPT JSON Response
+
+http://128.0.0.1:8000/v1/chat/completions/
 
 
 
----------- ChatGPT for Code Review
+
+#---------- ChatGPT for ShellGPT
+
+http://128.0.0.1:8000/v1/chat/completions/ShellGPT
+
+
+
+
+#---------- ChatGPT for Code Review
 
 http://128.0.0.1:8000/v1/chat/completions/CodeReview
 
@@ -216,8 +214,8 @@ http://128.0.0.1:8000/v1/chat/completions/CodeReview
 
 **Input / Output**
 
-```
-Input:
+```bash
+# Input:
 _____
 
     {
@@ -227,9 +225,8 @@ _____
     }
 
 --------------------
---------------------
 
-Output:
+# Output:
 _____
 
     {
@@ -246,7 +243,7 @@ try **Claude** with **cURL**
 
 Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#step-2-start-web-server)** , run this cURL command in a terminal window:
 
-```
+```bash
 curl -X 'POST' \
   'http://localhost:8000/claude' \
   -H 'accept: application/json' \
@@ -259,7 +256,7 @@ curl -X 'POST' \
 
 ```
 
-**Note**: The **`session_id`** is configured in the **[Config.conf](#configuration)** file. If you send this variable empty, it will use the Config.conf
+**Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
 
 <br><br>
 
@@ -273,17 +270,18 @@ curl -X 'POST' \
 
 -   Free-Chatbot-API\src\Config.conf
 
-```Config.conf
+```bash
 # Case-Sensative
 
 [Claude]
 COOKIE=[YOURS]
 
+[Bard]
+SESSION_ID=[YOURS]
+
 [ChatGPT]
 ACCESS_TOKEN=[YOURS]
 
-[Bard]
-SESSION_ID=[YOURS]
 
 ```
 
