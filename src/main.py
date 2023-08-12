@@ -86,11 +86,10 @@ class MessageChatGPT(BaseModel):
     stream: bool = True
 
 
-########################################
-####                                ####
-#####           ChatGPT            #####
-####                                ####
-
+#############################################
+####                                     ####
+#####              ChatGPT              #####
+####                                     ####
 
 async def getGPTData(chat: Chatbot, message: Message):
     """Gets response data from ChatGPT API.
@@ -268,11 +267,10 @@ async def ask_gpt(request: Request, message: Message):
                 return e
 
 
-########################################
-####                                ####
-#####          The Bard            #####
-####                                ####
-
+#############################################
+####                                     ####
+#####            The Bard               #####
+####                                     ####
 
 @app.post("/bard")
 async def ask_bard(request: Request, message: Message):
@@ -385,11 +383,10 @@ async def ask_bard(request: Request, message: Message):
             return f"Error Occurred: {req_err}"
 
 
-########################################
-####                                ####
-#####           Claude2            #####
-####                                ####
-
+#############################################
+####                                     ####
+#####             Claude2               #####
+####                                     ####
 
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
@@ -448,11 +445,10 @@ async def ask_claude(request: Request, message: Message):
         return response
 
 
-##########################################
-####                                  ####
-######     ChatGPT Endpoint         ######
-####    `/v1/chat/completions`       #####
-
+#############################################
+####                                     ####
+######      ChatGPT JSON Response      ######
+####        `/v1/chat/completions`       ####
 
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
@@ -630,10 +626,10 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 return e
 
 
-##########################################
-####                                  ####
-######       ShellGPT Endpoint      ######
-#### `/v1/chat/completions/ShellGPT` #####
+#############################################
+####                                     ####
+######         ShellGPT Endpoint       ######
+####   `/v1/chat/completions/ShellGPT`   ####
 
 async def getShellGPTData(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
@@ -800,8 +796,8 @@ def ask_shellgpt(request: Request, message: MessageChatGPT):
 
 #############################################
 ####                                     ####
-######    Code Review Endpoint         ######
-#### `/v1/chat/completions/CodeReview`  #####
+######       Code Review Endpoint      ######
+####  `/v1/chat/completions/CodeReview`  ####
 
 async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
@@ -901,7 +897,7 @@ async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
         yield f"Error : {e}"
 
 
-# This is the beta version of the "ChatGPT Code Review" project
+# This is the beta version of the "ChatGPT Code Review" endpoint
 @app.post("/v1/chat/completions/CodeReview")
 def ask_new(request: Request, message: MessageChatGPT):
     """API endpoint to get ChatGPT response.
@@ -1007,10 +1003,10 @@ def ask_new(request: Request, message: MessageChatGPT):
             #         return e
             # else:
 
-########################################
-####                                ####
-#####     Develope Functions       #####
-####                                ####
+#############################################
+####                                     ####
+#####        Develope Functions         #####
+####                                     ####
 
 # print("".join(response))
 
@@ -1084,10 +1080,10 @@ def fake_data_streamer():
         time.sleep(0.5)
 
 
-########################################
-####                                ####
-#####        Other Functions       #####
-####                                ####
+#############################################
+####                                     ####
+#####           Other Functions         #####
+####                                     ####
 
 
 def IsSession(session_id: str) -> bool:
@@ -1153,10 +1149,10 @@ def get_Cookie(service_Name: Literal["Bard", "Claude"]) -> str:
     return result
 
 
-########################################
-####                                ####
-#####            Main              #####
-####                                ####
+#############################################
+####                                      ###
+#####               Main                 ####
+####                                     ####
 
 if __name__ == "__main__":
     """Parse arguments and run the UVicorn server.
