@@ -630,6 +630,174 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 return e
 
 
+##########################################
+####                                  ####
+######       ShellGPT Endpoint      ######
+#### `/v1/chat/completions/ShellGPT` #####
+
+async def getShellGPTData(chat: Chatbot, message: MessageChatGPT):
+    """Gets AI response data from ChatGPT Website.
+
+    Args:
+        chat (Chatbot): Chatbot client object.
+        message (MessageChatGPT): Message request object.
+
+    Yields:
+        str: JSON response chunks.
+    """
+    try:
+        prev_text = ""
+        for data in chat.ask(str(message.messages[0])):
+            # remove b' and ' at the beginning and end and ignore case
+            # line = str(data)[2:-1]
+            line = str(data)
+            if not line or line is None:
+                continue
+            if "data: " in line:
+                line = line[6:]
+            if line == "[DONE]":
+                break
+
+            # DO NOT REMOVE THIS
+            # line = line.replace('\\"', '"')
+            # line = line.replace("\\'", "'")
+            # line = line.replace("\\\'", "\\")
+
+            try:
+                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
+                # import ast
+                # line = ast.literal_eval(line)
+                line = eval(line)
+                line = json.loads(json.dumps(line))
+
+            # except json.decoder.JSONDecodeError as e:
+            except Exception as e:
+                print(f"ERROR Decode: {e}")
+                continue
+
+            # if line.get("message").get("author").get("role") != "assistant":
+            if line.get("author").get("role") != "assistant":
+                continue
+
+            cid = line["conversation_id"]
+            pid = line["parent_id"]
+
+            author = {}
+            author = line.get("author", {})
+
+            message = line["message"]
+
+            model = line["model"]
+            finish_details = line["finish_details"]
+
+            res_text = message[len(prev_text) :]
+            prev_text = message
+
+            shellresp = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "temperature": 0.1,
+                "top_probability": 1.0,
+                "choices": [
+                    {
+                        "delta": {
+                            "role": "assistant",
+                            "content": res_text,
+                        },
+                        "index": 0,
+                        "finish_reason": finish_details,
+                    }
+                ],
+            }
+
+            jsonresp = json.dumps(shellresp)
+
+            yield f"{jsonresp}\n"
+
+    except Exception as e:
+        print(f"Error : {str(e)}")
+        yield f"Error : {str(e)}"
+
+
+@app.post("/v1/chat/completions/ShellGPT")
+def ask_shellgpt(request: Request, message: MessageChatGPT):
+    """API endpoint to get ChatGPT response.
+
+    Args:
+        request (Request): API request object.
+        message (MessageChatGPT): Message request object.
+
+    Returns:
+        str: ChatGPT response.
+    """
+    access_token = os.getenv("OPENAI_API_SESSION")
+    if not IsSession(access_token):
+        config = configparser.ConfigParser()
+        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
+        if not IsSession(access_token):
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # print(answer)
+            return answer
+
+    chatbot = Chatbot(
+        config={
+            "access_token": access_token,
+        }
+    )
+
+    response = []
+    if message.stream == True:
+        try:
+            return StreamingResponse(
+                getShellGPTData(chat=chatbot, message=message),
+                media_type="application/json",
+            )
+
+        # return "".join(response)
+        # # return {"response": "".join(response)}
+
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(e)
+                return e
+    else:
+        try:
+            # print(" # Normal Request #")
+            for data in chatbot.ask(message.message):
+                response = data["message"]
+            return response
+            # print(response)
+        except Exception as e:
+            if isinstance(e, Error):
+                try:
+                    # err = e.message
+                    # if e.__notes__:
+                    #     err = f"{err} \n\n {e.__notes__}"
+                    js = json.loads(e.message)
+                    print(js["detail"]["message"])
+                    return js["detail"]["message"]
+                except:
+                    print(e)
+                    return e
+            else:
+                print(list(e))
+                return e
+
 #############################################
 ####                                     ####
 ######    Code Review Endpoint         ######
