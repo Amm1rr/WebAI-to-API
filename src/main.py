@@ -45,9 +45,7 @@ CONFIG_FOLDER = os.getcwd()
 FixConfigPath = lambda: (
     Path(CONFIG_FOLDER) / CONFIG_FILE_NAME
     if os.path.basename(CONFIG_FOLDER).lower() == "src"
-    else Path(CONFIG_FOLDER)
-    / "src"
-    / CONFIG_FILE_NAME
+    else Path(CONFIG_FOLDER) / "src" / CONFIG_FILE_NAME
 )
 
 """Path to API configuration file."""
@@ -69,10 +67,12 @@ app.add_middleware(
 
 """Request message data model."""
 
+
 class Message(BaseModel):
     message: str
     session_id: str = ""
     stream: bool = True
+
 
 class MessageBard(BaseModel):
     message: str
@@ -80,7 +80,9 @@ class MessageBard(BaseModel):
     session_idTS: str = ""
     stream: bool = True
 
+
 """ChatGPT request message data model."""
+
 
 class MessageChatGPT(BaseModel):
     messages: list[dict[str, str]]
@@ -95,6 +97,7 @@ class MessageChatGPT(BaseModel):
 ####                                     ####
 #####              ChatGPT              #####
 ####                                     ####
+
 
 async def getGPTData(chat: Chatbot, message: Message):
     """Gets response data from ChatGPT API.
@@ -274,8 +277,9 @@ async def ask_gpt(request: Request, message: Message):
 
 #############################################
 ####                                     ####
-#####            The Bard               #####
+#####             The Bard              #####
 ####                                     ####
+
 
 @app.post("/bard")
 async def ask_bard(request: Request, message: MessageBard):
@@ -327,13 +331,12 @@ async def ask_bard(request: Request, message: MessageBard):
         session_id = get_session_id_Bard("SESSION_ID")
 
     if not session_idTS:
-        session_idTS = get_session_id_Bard("SESSION_IDTS")    
+        session_idTS = get_session_id_Bard("SESSION_IDTS")
 
     chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS)
 
     if not message.message:
         message.message = "Hi, are you there?"
-    
 
     if message.stream:
         try:
@@ -395,8 +398,9 @@ async def ask_bard(request: Request, message: MessageBard):
 
 #############################################
 ####                                     ####
-#####             Claude2               #####
+#####              Claude2              #####
 ####                                     ####
+
 
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
@@ -459,6 +463,7 @@ async def ask_claude(request: Request, message: Message):
 ####                                     ####
 ######      ChatGPT JSON Response      ######
 ####        `/v1/chat/completions`       ####
+
 
 async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
@@ -530,13 +535,11 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
                 "citations": line["citations"],
             }
 
-            shellresp = {
+            OpenAIResp = {
                 "id": f"chatcmpl-{str(time.time())}",
                 "object": "chat.completion.chunk",
                 "created": int(time.time()),
                 "model": model,
-                "temperature": 0.1,
-                "top_probability": 1.0,
                 "choices": [
                     {
                         "delta": {
@@ -549,7 +552,7 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
                 ],
             }
 
-            jsonresp = json.dumps(shellresp)
+            jsonresp = json.dumps(OpenAIResp)
 
             yield f"{jsonresp}\n"
 
@@ -613,364 +616,14 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 print(e)
                 return e
     else:
-        try:
-            # print(" # Normal Request #")
-            for data in chatbot.ask(message.message):
-                response = data["message"]
-            return response
-            # print(response)
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(list(e))
-                return e
-
-
-#############################################
-####                                     ####
-######         ShellGPT Endpoint       ######
-####   `/v1/chat/completions/ShellGPT`   ####
-
-async def getShellGPTData(chat: Chatbot, message: MessageChatGPT):
-    """Gets AI response data from ChatGPT Website.
-
-    Args:
-        chat (Chatbot): Chatbot client object.
-        message (MessageChatGPT): Message request object.
-
-    Yields:
-        str: JSON response chunks.
-    """
-    try:
-        prev_text = ""
-        for data in chat.ask(str(message.messages[0])):
-            # remove b' and ' at the beginning and end and ignore case
-            # line = str(data)[2:-1]
-            line = str(data)
-            if not line or line is None:
-                continue
-            if "data: " in line:
-                line = line[6:]
-            if line == "[DONE]":
-                break
-
-            # DO NOT REMOVE THIS
-            # line = line.replace('\\"', '"')
-            # line = line.replace("\\'", "'")
-            # line = line.replace("\\\'", "\\")
-
-            try:
-                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
-                # import ast
-                # line = ast.literal_eval(line)
-                line = eval(line)
-                line = json.loads(json.dumps(line))
-
-            # except json.decoder.JSONDecodeError as e:
-            except Exception as e:
-                print(f"ERROR Decode: {e}")
-                continue
-
-            # if line.get("message").get("author").get("role") != "assistant":
-            if line.get("author").get("role") != "assistant":
-                continue
-
-            cid = line["conversation_id"]
-            pid = line["parent_id"]
-
-            author = {}
-            author = line.get("author", {})
-
-            message = line["message"]
-
-            model = line["model"]
-            finish_details = line["finish_details"]
-
-            res_text = message[len(prev_text) :]
-            prev_text = message
-
-            shellresp = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "temperature": 0.1,
-                "top_probability": 1.0,
-                "choices": [
-                    {
-                        "delta": {
-                            "role": "assistant",
-                            "content": res_text,
-                        },
-                        "index": 0,
-                        "finish_reason": finish_details,
-                    }
-                ],
-            }
-
-            jsonresp = json.dumps(shellresp)
-
-            yield f"{jsonresp}\n"
-
-    except Exception as e:
-        print(f"Error : {str(e)}")
-        yield f"Error : {str(e)}"
-
-
-@app.post("/v1/chat/completions/ShellGPT")
-def ask_shellgpt(request: Request, message: MessageChatGPT):
-    """API endpoint to get ChatGPT response.
-
-    Args:
-        request (Request): API request object.
-        message (MessageChatGPT): Message request object.
-
-    Returns:
-        str: ChatGPT response.
-    """
-    access_token = os.getenv("OPENAI_API_SESSION")
-    if not IsSession(access_token):
-        config = configparser.ConfigParser()
-        config.read(filenames=CONFIG_FILE_PATH)
-        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
-        if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-            # print(answer)
-            return answer
-
-    chatbot = Chatbot(
-        config={
-            "access_token": access_token,
-        }
-    )
-
-    response = []
-    if message.stream == True:
-        try:
-            return StreamingResponse(
-                getShellGPTData(chat=chatbot, message=message),
-                media_type="application/json",
-            )
-
-        # return "".join(response)
-        # # return {"response": "".join(response)}
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(e)
-                return e
-    else:
-        try:
-            # print(" # Normal Request #")
-            for data in chatbot.ask(message.message):
-                response = data["message"]
-            return response
-            # print(response)
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(list(e))
-                return e
-
-#############################################
-####                                     ####
-######       Code Review Endpoint      ######
-####  `/v1/chat/completions/CodeReview`  ####
-
-async def getCodeReviewData(chat: Chatbot, message: MessageChatGPT):
-    """Gets AI response data from ChatGPT Website.
-
-    Args:
-        chat (Chatbot): Chatbot client object.
-        message (MessageChatGPT): Message request object.
-
-    Yields:
-        str: JSON response chunks.
-    """
-    try:
-        prev_text = ""
-        for data in chat.ask(str(message.messages[0])):
-            # remove b' and ' at the beginning and end and ignore case
-            # line = str(data)[2:-1]
-            line = str(data)
-            if not line or line is None:
-                continue
-            if "data: " in line:
-                line = line[6:]
-            if line == "[DONE]" or line == "stop":
-                break
-
-            # DO NOT REMOVE THIS
-            # line = line.replace('\\"', '"')
-            # line = line.replace("\\'", "'")
-            # line = line.replace("\\\'", "\\")
-
-            try:
-                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
-                # import ast
-                # line = ast.literal_eval(line)
-                line = eval(str(line))
-                line = json.loads(json.dumps(line))
-
-            # except json.decoder.JSONDecodeError as e:
-            except Exception as e:
-                print(f"ERROR Decode: {e}")
-                continue
-
-            # if line.get("message").get("author").get("role") != "assistant":
-            if line.get("author").get("role") != "assistant":
-                continue
-
-            cid = line["conversation_id"]
-            pid = line["parent_id"]
-
-            author = {}
-            author = line.get("author", {})
-
-            message = line["message"]
-
-            model = line["model"]
-            finish_details = line["finish_details"]
-
-            res_text = message[len(prev_text) :]
-            prev_text = message
-
-            jsonresp = {
-                "author": author,
-                "message": res_text,
-                "conversation_id": cid,
-                "parent_id": pid,
-                "model": model,
-                "finish_details": finish_details,
-                "end_turn": line["end_turn"],
-                "recipient": line["recipient"],
-                "citations": line["citations"],
-            }
-
-            openairesp = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "temperature": 0.1,
-                "top_probability": 1.0,
-                "choices": [
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": res_text,
-                        },
-                        "index": 0,
-                        "finish_reason": finish_details,
-                    }
-                ],
-            }
-
-            jsonresp = json.dumps(openairesp)
-            print(jsonresp)
-            yield f"{jsonresp}"
-
-    except Exception as e:
-        print(f"Error : {e}")
-        yield f"Error : {e}"
-
-
-# This is the beta version of the "ChatGPT Code Review" endpoint
-@app.post("/v1/chat/completions/CodeReview")
-def ask_CodeReview(request: Request, message: MessageChatGPT):
-    """API endpoint to get ChatGPT response.
-
-    Args:
-        request (Request): API request object.
-        message (MessageChatGPT): Message request object.
-
-    Returns:
-        str: ChatGPT response.
-    """
-    access_token = os.getenv("OPENAI_API_SESSION")
-    if not IsSession(access_token):
-        config = configparser.ConfigParser()
-        config.read(filenames=CONFIG_FILE_PATH)
-        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
-        if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-            # print(answer)
-            return answer
-
-    chatbot = Chatbot(
-        config={
-            "access_token": access_token,
-        }
-    )
-
-    response = []
-    if message.stream == True:
-        try:
-            return StreamingResponse(
-                getCodeReviewData(chat=chatbot, message=message),
-                media_type="application/json",
-            )
-
-        # return "".join(response)
-        # # return {"response": "".join(response)}
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(e)
-                return e
-    else:
         # try:
         # print(" # Normal Request #")
-        for data in chatbot.ask(str(message.messages[0])):
+        for data in chatbot.ask(str(message.messages)):
             # response = data["message"]
             response = data
-        
+
         jsonresp = eval(str(response))
-        jsonresp = json.dumps(response)
+        jsonresp = json.dumps(jsonresp)
         jsonresp = json.loads(jsonresp)
 
         openairesp = {
@@ -978,8 +631,6 @@ def ask_CodeReview(request: Request, message: MessageChatGPT):
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": "gpt-3.5-turbo",
-            "temperature": 0.1,
-            "top_probability": 1.0,
             "choices": [
                 {
                     "message": {
@@ -992,26 +643,27 @@ def ask_CodeReview(request: Request, message: MessageChatGPT):
             ],
         }
 
-
-        openairesp = json.dumps(openairesp)
+        openairesp = openairesp
         # print(openairesp)
         return openairesp
-            # print(response)
+        # print(response)
         # except Exception as e:
         #     print(str(e))
         #     return e
-            # if isinstance(e, Error):
-            #     try:
-            #         # err = e.message
-            #         # if e.__notes__:
-            #         #     err = f"{err} \n\n {e.__notes__}"
-            #         js = json.loads(e.message)
-            #         print(js["detail"]["message"])
-            #         return js["detail"]["message"]
-            #     except:
-            #         print(str(e))
-            #         return e
-            # else:
+        # if isinstance(e, Error):
+        #     try:
+        #         # err = e.message
+        #         # if e.__notes__:
+        #         #     err = f"{err} \n\n {e.__notes__}"
+        #         js = json.loads(e.message)
+        #         print(js["detail"]["message"])
+        #         return js["detail"]["message"]
+        #     except:
+        #         print(str(e))
+        #         return e
+        # else:
+
+
 
 #############################################
 ####                                     ####
@@ -1019,41 +671,6 @@ def ask_CodeReview(request: Request, message: MessageChatGPT):
 ####                                     ####
 
 # print("".join(response))
-
-
-@app.post("/DevMode")
-async def ask_debug(request: Request, message: Message) -> dict:
-    """API endpoint to get response in developer mode.
-
-    This endpoint allows executing code without authentication
-    if the correct authorization key is provided in the headers.
-
-    Args:
-        request (Request): API request object
-        message (Message): Message request object
-
-    Returns:
-        dict: Chatbot response
-
-    Raises:
-        HTTPException: If invalid authorization key is provided
-
-    """
-
-    # Get the user-defined auth key from the environment variables
-    user_auth_key = os.getenv("USER_AUTH_KEY")
-
-    # Check if the user has defined an auth key,
-    # If so, check if the auth key in the header matches it.
-    if user_auth_key and user_auth_key != request.headers.get("Authorization"):
-        raise HTTPException(status_code=401, detail="Invalid authorization key")
-
-    # Execute your code without authenticating the resource
-    chatbot = Chatbot(message.session_id)
-    response = chatbot.ask(message.message)
-
-    # print(response['choices'][0]['content'][0])
-    return response
 
 
 def fake_data_streamer_OLD():
@@ -1092,7 +709,7 @@ def fake_data_streamer():
 
 #############################################
 ####                                     ####
-#####           Other Functions         #####
+#####          Other Functions          #####
 ####                                     ####
 
 
@@ -1121,18 +738,18 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
 
-    This function takes a service name as input, either 'Bard', 'BardTS', or 'Claude', 
-    and retrieves the corresponding session cookie value from the browser's stored cookies. 
+    This function takes a service name as input, either 'Bard', 'BardTS', or 'Claude',
+    and retrieves the corresponding session cookie value from the browser's stored cookies.
     The cookie value is then returned.
 
     Note: This function requires the 'browser_cookie3' library to be installed.
 
     Args:
-        service_name (Literal["Bard", "BardTS", "Claude"]): The name of the service 
+        service_name (Literal["Bard", "BardTS", "Claude"]): The name of the service
             for which to retrieve the session cookie.
 
     Returns:
-        str: The session cookie value for the specified service, or None if no matching 
+        str: The session cookie value for the specified service, or None if no matching
             cookie is found.
     """
 
@@ -1143,10 +760,10 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     }
     domain = domains[service_Name]
 
-    bardSessionName="__Secure-1PSID"
+    bardSessionName = "__Secure-1PSID"
     if service_Name.lower() == "bardts":
-        bardSessionName="__Secure-1PSIDTS"
-    
+        bardSessionName = "__Secure-1PSIDTS"
+
     sessName = {
         "claude": "sessionKey",
         "google": bardSessionName,
