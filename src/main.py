@@ -35,28 +35,30 @@ from anyio import Path
 ####                                ####
 
 """Config file name and paths for chatbot API configuration."""
-Free_Chatbot_API_CONFIG_FILE_NAME = "Config.conf"
-Free_Chatbot_API_CONFIG_FOLDER = os.getcwd()
+CONFIG_FILE_NAME = "Config.conf"
+CONFIG_FOLDER = os.getcwd()
 
 # CONFIG_FOLDER = os.path.expanduser("~/.config")
-# Free_Chatbot_API_CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
+# CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
 
 
 FixConfigPath = lambda: (
-    Path(Free_Chatbot_API_CONFIG_FOLDER) / Free_Chatbot_API_CONFIG_FILE_NAME
-    if os.path.basename(Free_Chatbot_API_CONFIG_FOLDER).lower() == "src"
-    else Path(Free_Chatbot_API_CONFIG_FOLDER)
+    Path(CONFIG_FOLDER) / CONFIG_FILE_NAME
+    if os.path.basename(CONFIG_FOLDER).lower() == "src"
+    else Path(CONFIG_FOLDER)
     / "src"
-    / Free_Chatbot_API_CONFIG_FILE_NAME
+    / CONFIG_FILE_NAME
 )
 
 """Path to API configuration file."""
-Free_Chatbot_API_CONFIG_PATH = FixConfigPath()
+CONFIG_FILE_PATH = FixConfigPath()
 
 
 """FastAPI application instance."""
+
 app = FastAPI()
 
+# Add CORS middleware to allow all origins, credentials, methods, and headers.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,15 +69,18 @@ app.add_middleware(
 
 """Request message data model."""
 
-
 class Message(BaseModel):
     message: str
     session_id: str = ""
     stream: bool = True
 
+class MessageBard(BaseModel):
+    message: str
+    session_id: str = ""
+    session_idTS: str = ""
+    stream: bool = True
 
 """ChatGPT request message data model."""
-
 
 class MessageChatGPT(BaseModel):
     messages: list[dict[str, str]]
@@ -191,11 +196,11 @@ async def ask_gpt(request: Request, message: Message):
     #     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
             # print(answer)
             return answer
 
@@ -273,7 +278,7 @@ async def ask_gpt(request: Request, message: Message):
 ####                                     ####
 
 @app.post("/bard")
-async def ask_bard(request: Request, message: Message):
+async def ask_bard(request: Request, message: MessageBard):
     """API endpoint to get response from Anthropic's Claude/Bard.
 
     Args:
@@ -290,40 +295,45 @@ async def ask_bard(request: Request, message: Message):
         Exception: For any other errors
 
     """
-
-    def CreateBardResponse(msg: str) -> json:
-        if msg:
-            answer = {"answer": msg}["answer"]
-            return answer
-
     # Execute code without authenticating the resource
     session_id = message.session_id
+    session_idTS = message.session_idTS
     # if not IsSession(session_id):
     #     session_id = os.getenv("SESSION_ID")
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
 
-    if not IsSession(session_id):
-        cookie = get_Cookie("Bard")
-        if cookie:
-            session_id = cookie
-        else:
-            config = configparser.ConfigParser()
-            config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
-            session_id = config.get("Bard", "SESSION_ID", fallback=None)
-            if not IsSession:
-                answer = {
-                    f"answer": "You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
-                }["answer"]
-                answer = CreateBardResponse(
-                    f"You should set SESSION_ID in {Free_Chatbot_API_CONFIG_FILE_NAME} file for the Bard or send it as an argument."
-                )
-                print(answer)
-                return answer
+    def get_session_id_Bard(sessionId: str = "SESSION_ID"):
+        """Get the session ID for Bard.
 
-    chatbot = ChatbotBard(session_id)
+        Args:
+            sessionId (str, optional): The session ID to get. Defaults to "SESSION_ID".
+
+        Returns:
+            str: The session ID.
+        """
+        session_name = "Bard" if sessionId == "SESSION_ID" else "BardTS"
+        session_id = get_Cookie(session_name)
+        if not session_id:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE_PATH)
+            session_id = config.get("Bard", sessionId)
+
+        if not IsSession(session_id):
+            print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
+
+        return session_id
+
+    if not session_id:
+        session_id = get_session_id_Bard("SESSION_ID")
+
+    if not session_idTS:
+        session_idTS = get_session_id_Bard("SESSION_IDTS")    
+
+    chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS)
 
     if not message.message:
         message.message = "Hi, are you there?"
+    
 
     if message.stream:
         try:
@@ -411,17 +421,17 @@ async def ask_claude(request: Request, message: Message):
             cookie = f"sessionKey={cookie}"
         else:
             config = configparser.ConfigParser()
-            config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+            config.read(filenames=CONFIG_FILE_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
             if not cookie:
                 response_error = {
-                    f"Error": f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                    f"Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 }
 
                 print(response_error)
                 return response_error
                 # raise ValueError(
-                #     f"You should set 'COOKIE' in '{Free_Chatbot_API_CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 # )
 
     claude = Client(cookie)
@@ -562,11 +572,11 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
             # print(answer)
             return answer
 
@@ -731,11 +741,11 @@ def ask_shellgpt(request: Request, message: MessageChatGPT):
     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
             # print(answer)
             return answer
 
@@ -799,7 +809,7 @@ def ask_shellgpt(request: Request, message: MessageChatGPT):
 ######       Code Review Endpoint      ######
 ####  `/v1/chat/completions/CodeReview`  ####
 
-async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
+async def getCodeReviewData(chat: Chatbot, message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
 
     Args:
@@ -899,7 +909,7 @@ async def getChatGPTDataNew(chat: Chatbot, message: MessageChatGPT):
 
 # This is the beta version of the "ChatGPT Code Review" endpoint
 @app.post("/v1/chat/completions/CodeReview")
-def ask_new(request: Request, message: MessageChatGPT):
+def ask_CodeReview(request: Request, message: MessageChatGPT):
     """API endpoint to get ChatGPT response.
 
     Args:
@@ -912,11 +922,11 @@ def ask_new(request: Request, message: MessageChatGPT):
     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
         config = configparser.ConfigParser()
-        config.read(filenames=Free_Chatbot_API_CONFIG_PATH)
+        config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {Free_Chatbot_API_CONFIG_FILE_NAME} file or send it as an argument."
+            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
+            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
             # print(answer)
             return answer
 
@@ -930,7 +940,7 @@ def ask_new(request: Request, message: MessageChatGPT):
     if message.stream == True:
         try:
             return StreamingResponse(
-                getChatGPTDataNew(chat=chatbot, message=message),
+                getCodeReviewData(chat=chatbot, message=message),
                 media_type="application/json",
             )
 
@@ -1107,32 +1117,40 @@ def IsSession(session_id: str) -> bool:
     return True
 
 
-def get_Cookie(service_Name: Literal["Bard", "Claude"]) -> str:
+def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
 
-    This function takes a service name as input, either 'Bard' or 'Claude', and retrieves
-    the corresponding session cookie value from the browser's stored cookies. The cookie
-    value is then returned.
+    This function takes a service name as input, either 'Bard', 'BardTS', or 'Claude', 
+    and retrieves the corresponding session cookie value from the browser's stored cookies. 
+    The cookie value is then returned.
 
     Note: This function requires the 'browser_cookie3' library to be installed.
 
     Args:
-        service_Name (Literal["Bard", "Claude"]): The name of the service for which to retrieve the session cookie.
+        service_name (Literal["Bard", "BardTS", "Claude"]): The name of the service 
+            for which to retrieve the session cookie.
 
     Returns:
-        str: The session cookie value for the specified service, or None if no matching cookie is found.
+        str: The session cookie value for the specified service, or None if no matching 
+            cookie is found.
     """
 
     domains = {
         "Bard": "google",
+        "BardTS": "google",
         "Claude": "claude",
     }
     domain = domains[service_Name]
 
+    if service_Name.lower() == "bard":
+        Name="__Secure-1PSID"
+    elif service_Name.lower() == "bardts":
+        Name="__Secure-1PSIDTS"
+    
     sessName = {
         "claude": "sessionKey",
-        "google": "__Secure-1PSID",
+        "google": Name,
     }
     sessionName = sessName[domain]
 

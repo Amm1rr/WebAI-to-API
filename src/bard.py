@@ -68,6 +68,8 @@ class ChatbotBard:
     Parameters
         session_id: str
             The __Secure-1PSID cookie.
+        session_idTS: str
+            The __Secure-1PSIDTS cookie.
     """
 
     __slots__ = [
@@ -80,7 +82,7 @@ class ChatbotBard:
         "session",
     ]
 
-    def __init__(self, session_id):
+    def __init__(self, session_id, session_idTS):
         headers = {
             "Host": "bard.google.com",
             "X-Same-Domain": "1",
@@ -96,6 +98,7 @@ class ChatbotBard:
         self.session = requests.Session()
         self.session.headers = headers
         self.session.cookies.set("__Secure-1PSID", session_id)
+        self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
         self.session.proxies = load_proxies()
         self.SNlM0e = self.__get_snlm0e()
 
