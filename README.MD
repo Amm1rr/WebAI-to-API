@@ -32,7 +32,7 @@ This repository is up-to-date.
 
 ### Prerequisites
 
-Python version: >= 3.10
+Python version >= 3.10
 
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
@@ -67,7 +67,7 @@ pip install -r requirements.txt
 
 ### Step 2. Start Web Server
 
-Navigate into the **`src`** directory, and run the web server using one of the methods below:
+Navigate into the **`src`** directory, and run the web server:
 
 ```bash
 cd src/
@@ -113,7 +113,6 @@ _____
 
     {
       "session_id": "session-ID",
-      "session_idTS": "Session-IDTS-Only-For-Brad",
       "message": "Hi, Who are you?",
       "stream": True
     }
@@ -303,6 +302,7 @@ COOKIE=[YOURS]
 
 [Bard]
 SESSION_ID=[YOURS]
+SESSION_IDTS=[YOURS]
 
 [ChatGPT]
 ACCESS_TOKEN=[YOURS]
