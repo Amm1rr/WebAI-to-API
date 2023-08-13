@@ -184,33 +184,14 @@ http://128.0.0.1:8000/claude
 http://128.0.0.1:8000/chatgpt
 
 
-
-
 #---------- ChatGPT JSON Response
 
-http://128.0.0.1:8000/v1/chat/completions/
-
-
-
-
-#---------- ChatGPT for ShellGPT
-
-http://128.0.0.1:8000/v1/chat/completions/ShellGPT
-
-
-
-
-#---------- ChatGPT for Code Review
-
-http://128.0.0.1:8000/v1/chat/completions/CodeReview
+http://128.0.0.1:8000/v1/chat/completions
 
 
 ```
-1- [ShellGPT](https://github.com/TheR1D/shell_gpt/)
-|
-2- [ChatGPT Code Review](https://github.com/mattiasu96/chatgpt-code-review/)
 
-<br>
+<br><br>
 
 **Input / Output**
 
@@ -219,7 +200,8 @@ http://128.0.0.1:8000/v1/chat/completions/CodeReview
 _____
 
     {
-      "session_id": "your-session-id",
+      "session_id": "session-ID",
+      "session_idTS": "Session-IDTS-Only-For-Brad",
       "message": "Hi, Who are you?",
       "stream": True
     }
