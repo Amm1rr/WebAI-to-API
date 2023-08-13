@@ -29,12 +29,16 @@ if len(sys.argv) > 1:
 # session_id:   str
 #       - You can set 'Session' here or configure it in the Config.conf file.
 #
+# session_idTS:   str
+#       - You can set 'SessionTS' here or configure it in the Config.conf file.
+#
 # stream:       bool
 #       - We can choose between response Streaming or Normal handling for data retrieval.
 #
 params = {
     "message": user_input,
     "session_id": "",
+    "session_idTS": "",
     "stream": stream,
 }
 

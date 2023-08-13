@@ -62,7 +62,7 @@ which is your **Secure-1PSID** cookie, is included in the request. ([Screenshot]
 2. Open `Developer Tools` (Press **F12**)
 3. Go to `Application Tab`
 4. Go to `Cookies Tab`
-5. Copy the content of `__Secure-1PSID`
+5. Copy the content of `__Secure-1PSID` and `__Secure-1PSIDTS`. Copy the value of those cookie.
 6. Set in **[Config.conf](#configuration)** file.
  </details>
  <br><hr><br>
