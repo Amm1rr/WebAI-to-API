@@ -29,10 +29,10 @@ from claude import Client
 from anyio import Path
 
 
-########################################
-####                                ####
-#####       Global Initilize       #####
-####                                ####
+#############################################
+####                                     ####
+#####          Global Initilize         #####
+####                                     ####
 
 """Config file name and paths for chatbot API configuration."""
 CONFIG_FILE_NAME = "Config.conf"
@@ -642,10 +642,9 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 }
             ],
         }
-
-        openairesp = openairesp
+        
         # print(openairesp)
-        return openairesp
+        return JSONResponse(openairesp)
         # print(response)
         # except Exception as e:
         #     print(str(e))
