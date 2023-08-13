@@ -22,6 +22,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.markdown import Markdown
 
+from requests import Session
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 def load_proxies():
     proxy_enabled = os.getenv("PROXY_ENABLED", "False").lower() == "true"
@@ -83,7 +86,40 @@ class ChatbotBard:
     ]
 
     def __init__(self, session_id, session_idTS):
-        headers = {
+        """
+        Initialize the ChatbotBard instance.
+        
+        Parameters:
+            session_id (str): The __Secure-1PSID cookie value.
+            session_idTS (str): The __Secure-1PSIDTS cookie value.
+            
+        Sets up the request session with headers, cookies, and proxies.
+        Configures a pool of 100 connections and 100 max pool size.
+        Sets up retry with 5 total retries and exponential backoff.
+        Generates a random request ID and initializes the conversation ID, 
+        response ID, and choice ID to empty strings. Retrieves the SNlM0e
+        value from the Bard website.
+        """
+        max_retries = Retry(total=5, backoff_factor=1, status_forcelist=[502, 503, 504]) 
+        adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=max_retries)
+        
+        self.session = Session()
+        self.session.headers = self._get_headers()
+        
+        self.session.cookies.set("__Secure-1PSID", session_id) 
+        self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
+        self.session.proxies = load_proxies()
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+        self._reqid = int("".join(random.choices(string.digits, k=4)))
+        self.conversation_id = ""
+        self.response_id = ""
+        self.choice_id = ""
+        self.SNlM0e = self.__get_snlm0e()
+    
+    def _get_headers(self):
+        return {
             "Host": "bard.google.com",
             "X-Same-Domain": "1",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
@@ -91,17 +127,6 @@ class ChatbotBard:
             "Origin": "https://bard.google.com",
             "Referer": "https://bard.google.com/",
         }
-        self._reqid = int("".join(random.choices(string.digits, k=4)))
-        self.conversation_id = ""
-        self.response_id = ""
-        self.choice_id = ""
-        self.session = requests.Session()
-        self.session.headers = headers
-        self.session.cookies.set("__Secure-1PSID", session_id)
-        self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
-        self.session.proxies = load_proxies()
-        self.SNlM0e = self.__get_snlm0e()
-
     def __get_snlm0e(self):
         try:
             resp = self.session.get(url="https://bard.google.com/", timeout=10)
@@ -157,7 +182,8 @@ class ChatbotBard:
             "at": self.SNlM0e,
         }
 
-        print(message)
+        # Question
+        # print(message)
 
         # do the request!
         resp = self.session.post(
@@ -167,7 +193,8 @@ class ChatbotBard:
             timeout=120,
         )
 
-        print(resp)
+        # Answer
+        # print(resp)
 
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:
@@ -188,7 +215,7 @@ class ChatbotBard:
         self._reqid += 100000
         return results
 
-    def ask_bard(self, message: str) -> json:
+    def ask_bard(self, message: str) -> dict:
         """
         Send a message to Google Bard and return the response. (FastAPI)
         :param message: The message to send to Google Bard.
@@ -252,7 +279,7 @@ class ChatbotBard:
         # return json.load(json_Response)
         return json_Response
 
-    def ask_bardStream(self, message: str) -> json:
+    def ask_bardStream(self, message: str) -> dict:
         """
         Send a message to Google Bard and return the response.
         :param message: The message to send to Google Bard.
@@ -323,42 +350,42 @@ class ChatbotBard:
             yield answer
 
 
-if __name__ == "__main__":
-    print(
-        """
-        Bard - A command-line interface to Google's Bard (https://bard.google.com/)
-        Repo: github.com/acheong08/Bard
-        Enter `alt+enter` or `esc+enter` to send a message.
-        """,
-    )
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--session",
-        help="__Secure-1PSID cookie.",
-        type=str,
-        required=True,
-    )
-    args = parser.parse_args()
+# if __name__ == "__main__":
+#     print(
+#         """
+#         Bard - A command-line interface to Google's Bard (https://bard.google.com/)
+#         Repo: github.com/acheong08/Bard
+#         Enter `alt+enter` or `esc+enter` to send a message.
+#         """,
+#     )
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument(
+#         "--session",
+#         help="__Secure-1PSID cookie.",
+#         type=str,
+#         required=True,
+#     )
+#     args = parser.parse_args()
 
-    chatbot = ChatbotBard(args.session)
-    prompt_session = __create_session()
-    completions = __create_completer(["!exit", "!reset"])
-    console = Console()
-    try:
-        while True:
-            console.print("You:")
-            user_prompt = __get_input(session=prompt_session, completer=completions)
-            console.print()
-            if user_prompt == "!exit":
-                break
-            elif user_prompt == "!reset":
-                chatbot.conversation_id = ""
-                chatbot.response_id = ""
-                chatbot.choice_id = ""
-                continue
-            print("Google Bard:")
-            response = chatbot.ask(user_prompt)
-            console.print(Markdown(response["content"]))
-            print()
-    except KeyboardInterrupt:
-        print("Exiting...")
+#     chatbot = ChatbotBard(args.session)
+#     prompt_session = __create_session()
+#     completions = __create_completer(["!exit", "!reset"])
+#     console = Console()
+#     try:
+#         while True:
+#             console.print("You:")
+#             user_prompt = __get_input(session=prompt_session, completer=completions)
+#             console.print()
+#             if user_prompt == "!exit":
+#                 break
+#             elif user_prompt == "!reset":
+#                 chatbot.conversation_id = ""
+#                 chatbot.response_id = ""
+#                 chatbot.choice_id = ""
+#                 continue
+#             print("Google Bard:")
+#             response = chatbot.ask(user_prompt)
+#             console.print(Markdown(response["content"]))
+#             print()
+#     except KeyboardInterrupt:
+#         print("Exiting...")
