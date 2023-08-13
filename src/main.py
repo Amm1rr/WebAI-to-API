@@ -1143,14 +1143,13 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     }
     domain = domains[service_Name]
 
-    if service_Name.lower() == "bard":
-        Name="__Secure-1PSID"
-    elif service_Name.lower() == "bardts":
-        Name="__Secure-1PSIDTS"
+    bardSessionName="__Secure-1PSID"
+    if service_Name.lower() == "bardts":
+        bardSessionName="__Secure-1PSIDTS"
     
     sessName = {
         "claude": "sessionKey",
-        "google": Name,
+        "google": bardSessionName,
     }
     sessionName = sessName[domain]
 
