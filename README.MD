@@ -26,11 +26,176 @@ This project implements a Python web API that offers free access to three leadin
 Please use them responsibly.
 
 This repository is up-to-date.
-<br><br>
-Python version: >= 3.10
-
 
 <br>
+
+
+### Prerequisites
+
+Python version: >= 3.10
+
+Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
+
+-   ChatGPT: https://openai.com/api/
+-   Google Bard: https://bard.google.com/
+-   Claude: https://claude.ai/
+
+Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
+
+**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step.
+<br>
+
+## Installation
+
+<br>
+
+### Step 1. Clone Repository
+
+```bash
+git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
+
+python -m venv .venv
+
+source .venv/bin/activate  # Linux/macOS
+.venv\Scripts\activate     # Windows
+
+
+pip install -r requirements.txt
+```
+
+<br>
+
+### Step 2. Start Web Server
+
+Navigate into the **`src`** directory, and run the web server using one of the methods below:
+
+```bash
+cd src/
+
+python main.py
+
+```
+
+<br>
+
+Available **Endpoints:**
+
+```bash
+#---------- Google Bard
+
+http://128.0.0.1:8000/bard
+
+
+#---------- Claude
+
+http://128.0.0.1:8000/claude
+
+
+#---------- ChatGPT
+
+http://128.0.0.1:8000/chatgpt
+
+
+#---------- OpenAI ChatGPT JSON Response
+
+http://128.0.0.1:8000/v1/chat/completions
+
+
+```
+
+<br><br>
+
+**Input / Output**
+
+```bash
+# Input:
+_____
+
+    {
+      "session_id": "session-ID",
+      "session_idTS": "Session-IDTS-Only-For-Brad",
+      "message": "Hi, Who are you?",
+      "stream": True
+    }
+
+
+--------------------
+
+
+# Output:
+_____
+
+    {
+      I am a Chatbot assistant :)
+    }
+
+
+--------------------
+
+
+# OpenAI Response Output:
+_____
+
+# Streaming
+  {
+    "id": "chatcmpl-123",
+    "object": "chat.completion.chunk",
+    "created": 1677652288,
+    "model": "gpt-3.5-turbo",
+    "choices": [{
+      "index": 0,
+      "delta": {
+        "content": "Hello",
+      },
+      "finish_reason": "stop"
+    }]
+  }
+
+
+# Not Streaming
+  {
+    "id": "chatcmpl-123",
+    "object": "chat.completion",
+    "created": 1677652288,
+    "model": "gpt-3.5-turbo",
+    "choices": [{
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "\n\nHello there, how may I assist you today?",
+      },
+      "finish_reason": "stop"
+    }]
+  }
+
+
+
+```
+
+<br>
+
+## Example
+
+try **Claude** with **cURL**
+
+Once you have launched the webserver using **[`src\python main.py`](#step-2-start-web-server)** , run this cURL command in a terminal window:
+
+```bash
+curl -X 'POST' \
+  'http://localhost:8000/claude' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "message": "who are you?",
+  "session_id": "",
+  "stream": true
+}'
+
+```
+
+**Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
+
+<br><br>
 
 ## Usage
 
@@ -119,167 +284,6 @@ which is your `Authorization` header session, is included in the request. ([Scre
 </details>
 
 <br><hr>
-
-### Prerequisites
-
-Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
-
--   ChatGPT: https://openai.com/api/
--   Google Bard: https://bard.google.com/
--   Claude: https://claude.ai/
-
-Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
-
-**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step.
-<br>
-
-## Installation
-
-<br>
-
-### Step 1. Clone Repository
-
-```bash
-git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
-
-python -m venv .venv
-
-source .venv/bin/activate  # Linux or macOS
-.venv\Scripts\activate  # Windows
-
-
-pip install -r requirements.txt
-```
-
-<br>
-
-### Step 2. Start Web Server
-
-Navigate into the **`src`** directory, and run the web server using one of the methods below:
-
-```bash
-cd src/
-
-python main.py
-
-```
-
-<br>
-
-Available **Endpoints:**
-
-```bash
-#---------- Google Bard
-
-http://128.0.0.1:8000/bard
-
-
-#---------- Claude
-
-http://128.0.0.1:8000/claude
-
-
-#---------- ChatGPT
-
-http://128.0.0.1:8000/chatgpt
-
-
-#---------- ChatGPT JSON Response
-
-http://128.0.0.1:8000/v1/chat/completions
-
-
-```
-
-<br><br>
-
-**Input / Output**
-
-```bash
-# Input:
-_____
-
-    {
-      "session_id": "session-ID",
-      "session_idTS": "Session-IDTS-Only-For-Brad",
-      "message": "Hi, Who are you?",
-      "stream": True
-    }
-
---------------------
-
-# Output:
-_____
-
-    {
-      I am a Chatbot assistant :)
-    }
-
-
-
-# OpenAI Response Endpoint:
-_____
-
-# Streaming
-  {
-    "id": "chatcmpl-123",
-    "object": "chat.completion.chunk",
-    "created": 1677652288,
-    "model": "gpt-3.5-turbo",
-    "choices": [{
-      "index": 0,
-      "delta": {
-        "content": "Hello",
-      },
-      "finish_reason": "stop"
-    }]
-  }
-
-
-# Not Streaming
-  {
-    "id": "chatcmpl-123",
-    "object": "chat.completion",
-    "created": 1677652288,
-    "model": "gpt-3.5-turbo",
-    "choices": [{
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "\n\nHello there, how may I assist you today?",
-      },
-      "finish_reason": "stop"
-    }]
-  }
-
-
-
-```
-
-<br>
-
-## Example
-
-try **Claude** with **cURL**
-
-Once you have launched the webserver using **[`uvicorn main:app --reload --port 8000`](#step-2-start-web-server)** , run this cURL command in a terminal window:
-
-```bash
-curl -X 'POST' \
-  'http://localhost:8000/claude' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "message": "who are you?",
-  "session_id": "",
-  "stream": true
-}'
-
-```
-
-**Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
-
-<br><br>
 
 ## Configuration
 
