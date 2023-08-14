@@ -401,6 +401,116 @@ async def ask_bard(request: Request, message: MessageBard):
 #####              Claude2              #####
 ####                                     ####
 
+async def getGPTClaude(chat: Chatbot, message: Message, conversation_id):
+    try:
+        prev_text = ""
+        for chunck in chat.stream_message(message.message, conversation_id):
+            # remove b' and ' at the beginning and end and ignore case
+            # line = str(chunck)[2:-1]
+            line = str(chunck)
+            if not line or line is None:
+                continue
+            if line == "[DONE]":
+                break
+
+            # res_text = chunck[len(prev_text) :]
+            # prev_text = message
+
+            OpenAIResp = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "gpt-3.5-turbo",
+                "choices": [
+                    {
+                        "delta": {
+                            "role": "assistant",
+                            "content": chunck,
+                        },
+                        "index": 0,
+                        "finish_reason": "",
+                    }
+                ],
+            }
+
+            jsonresp = json.dumps(OpenAIResp)
+
+            yield f"{jsonresp}\n"
+
+    except Exception as e:
+        print(f"Error : {str(e)}")
+        yield f"Error : {str(e)}"
+
+@app.post("/v1/chat/completions/Claude")
+def ask_gptClaude(request: Request, message: MessageChatGPT):
+
+    claudeMessage = Message
+    claudeMessage.message = str(message.messages)
+    claudeMessage.session_id = message.session_id
+    claudeMessage.stream = message.stream
+
+    cookie = message.session_id
+
+    # if not cookie:
+    #     cookie = os.environ.get("CLAUDE_COOKIE")
+
+    if not cookie:
+        cookie = get_Cookie("Claude")
+        if cookie:
+            cookie = f"sessionKey={cookie}"
+        else:
+            config = configparser.ConfigParser()
+            config.read(filenames=CONFIG_FILE_PATH)
+            cookie = config.get("Claude", "COOKIE", fallback=None)
+            if not cookie:
+                response_error = {
+                    f"Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                }
+
+                print(response_error)
+                return response_error
+                # raise ValueError(
+                #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                # )
+
+    claude = Client(cookie)
+    conversation_id = None
+
+    if not conversation_id:
+        conversation = claude.create_new_chat()
+        conversation_id = conversation["uuid"]
+
+    if not claudeMessage.message:
+        claudeMessage.message = "Hi, are you there?"
+
+    if claudeMessage.stream:
+        return StreamingResponse(
+                getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
+                media_type="application/json",
+            )
+    else:
+        resp = claude.send_message(claudeMessage.message, conversation_id)
+
+        openairesp = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": resp,
+                    },
+                    "index": 0,
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        return JSONResponse(openairesp)
+
+
 
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
