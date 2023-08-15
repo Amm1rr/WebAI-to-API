@@ -7,10 +7,7 @@ stream = True
 #
 if len(sys.argv) > 1:
     arg1 = sys.argv[1]  # The first argument
-    if arg1.upper() == "TRUE":
-        stream = True
-    else:
-        stream = False
+    stream = arg1.upper() == "TRUE"
 
 def chat_with_bot(input_text) -> str:
 
@@ -40,12 +37,9 @@ def chat_with_bot(input_text) -> str:
     #
     try:
         response = requests.post(API_ENDPOINT, json=params)
-        # response.raise_for_status()  # Raise an exception if the request was not successful
-        
-        result = response.text
-        return result
-        # return result["response"]
-    
+        return response.text
+            # return result["response"]
+
     except requests.exceptions.RequestException as e:
         return f"Error occurred: {e}"
 

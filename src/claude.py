@@ -29,9 +29,7 @@ class Client:
 
         response = requests.request("GET", url, headers=headers)
         res = json.loads(response.text)
-        uuid = res[0]['uuid']
-
-        return uuid
+        return res[0]['uuid']
 
     def get_content_type(self, file_path):
         # Function to determine content type based on file extension
@@ -79,8 +77,7 @@ class Client:
         # Upload attachment if provided
         attachments = []
         if attachment:
-            attachment_response = self.upload_attachment(attachment)
-            if attachment_response:
+            if attachment_response := self.upload_attachment(attachment):
                 attachments = [attachment_response]
             else:
                 return {"Error: Invalid file format. Please try again."}
@@ -131,10 +128,7 @@ class Client:
             if 'completion' in data:
                 completions.append(data['completion'])
 
-        answer = ''.join(completions)
-
-        # Returns answer
-        return answer
+        return ''.join(completions)
 
     def stream_message(self, prompt, conversation_id):
 
@@ -185,7 +179,7 @@ class Client:
                 if line:
                     # decoded_data = line.content.decode("utf-8")
                     # data = decoded_data.strip().split('\n')[-1]
-                    
+
                     data = line.lstrip(b"data: ").decode("utf-8")
 
                     # print(data)
@@ -195,40 +189,26 @@ class Client:
                     if stripped_line not in seen_lines:
                         try:
                             decoded_line = json.loads(stripped_line)
-                            stop_reason = decoded_line.get("stop_reason")
-                            if stop_reason:
+                            if stop_reason := decoded_line.get("stop_reason"):
                                 # yield '[DONE]'
                                 yield ''
                                 break
                             else:
-                                completion = decoded_line.get("completion")
-                                if completion:
+                                if completion := decoded_line.get("completion"):
                                     openai_response = (
                                         decoded_line
                                     )
 
                                     ### Clean Response
                                     newChunk = completion
-                                    # print(newChunk)
-
-                                    if oldChunk in newChunk:
-                                        newChunk = newChunk.replace(oldChunk, "", 1)
-                                    else:
-                                        newChunk = oldChunk
-                                    
-                                    yield newChunk
+                                    yield newChunk.replace(oldChunk, "", 1) if oldChunk in newChunk else oldChunk
                                     oldChunk = completion
-                                    ### End Clean Response
-
-                                    # yield completion + '\n'
-
-
                                 else:
                                     errortype = decoded_line.get("error")["type"]
                                     if errortype == "rate_limit_error":
                                         yield 'o_o: ' + decoded_line.get("error")["message"] + '\nGive me a few hours rest :)\nCame back at ' + str(datetime.fromtimestamp(decoded_line.get("error")["resets_at"])) + '\n'
                                         return
-                                    
+
                         except json.JSONDecodeError as e:
                             print(
                                 f"Error decoding JSON: \n{e}"
@@ -236,8 +216,6 @@ class Client:
                             print(
                                 f"Failed to decode line: \n{stripped_line}"
                             )  # Debug output
-                            pass
-
                         seen_lines.add(stripped_line)
     
     # Deletes the conversation
@@ -265,10 +243,7 @@ class Client:
             "DELETE", url, headers=headers, data=payload)
 
         # Returns True if deleted or False if any error in deleting
-        if response.status_code == 204:
-            return True
-        else:
-            return False
+        return response.status_code == 204
 
     # Returns all the messages in conversation
     def chat_conversation_history(self, conversation_id):
@@ -296,8 +271,7 @@ class Client:
     def generate_uuid(self):
         random_uuid = uuid.uuid4()
         random_uuid_str = str(random_uuid)
-        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
-        return formatted_uuid
+        return f"{random_uuid_str[:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
 
     def create_new_chat(self):
         url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations"
@@ -360,10 +334,7 @@ class Client:
         }
 
         response = requests.post(url, headers=headers, files=files)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return False
+        return response.json() if response.status_code == 200 else False
 
     # Renames the chat conversation title
 
@@ -392,7 +363,4 @@ class Client:
 
         response = requests.request("POST", url, headers=headers, data=payload)
 
-        if response.status_code == 200:
-            return True
-        else:
-            return False
+        return response.status_code == 200

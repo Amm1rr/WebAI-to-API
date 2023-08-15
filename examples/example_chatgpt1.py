@@ -15,11 +15,7 @@ stream = True
 #
 if len(sys.argv) > 1:
     arg1 = sys.argv[1]  # The first argument
-    if arg1.upper() == "TRUE":
-        stream = True
-    else:
-        stream = False
-
+    stream = arg1.upper() == "TRUE"
 ### Set the model parameters
 ##
 # message:      str
@@ -41,10 +37,7 @@ params = {
 #
 response = requests.post(
     API_ENDPOINT,
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer ",
-    },
+    headers={"Content-Type": "application/json", "Authorization": "Bearer "},
     json=params,
     timeout=360,
     stream=params["stream"],
@@ -62,7 +55,7 @@ for line in response.iter_lines():
         break
     if not data:
         continue
-    
+
     print(data, end="", flush=True)
 
     # data = json.loads(data)  # type: ignore
