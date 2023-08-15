@@ -202,11 +202,7 @@ async def ask_gpt(request: Request, message: Message):
         config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-            # print(answer)
-            return answer
-
+            return f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
     chatbot = Chatbot(config={"access_token": access_token})
 
     response = []
@@ -269,10 +265,10 @@ async def ask_gpt(request: Request, message: Message):
                     return js["detail"]["message"]
                 except:
                     print("Error 01: ")
-                return e
             else:
                 print("Error 02: ")
-                return e
+
+            return e
 
 
 #############################################
@@ -464,14 +460,14 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
             cookie = config.get("Claude", "COOKIE", fallback=None)
             if not cookie:
                 response_error = {
-                    f"Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 }
 
                 print(response_error)
                 return response_error
-                # raise ValueError(
-                #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                # )
+                            # raise ValueError(
+                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                            # )
 
     claude = Client(cookie)
     conversation_id = None
@@ -488,27 +484,26 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
                 getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
                 media_type="application/json",
             )
-    else:
-        resp = claude.send_message(claudeMessage.message, conversation_id)
+    resp = claude.send_message(claudeMessage.message, conversation_id)
 
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": resp,
-                    },
-                    "index": 0,
-                    "finish_reason": "stop",
-                }
-            ],
-        }
+    openairesp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": resp,
+                },
+                "index": 0,
+                "finish_reason": "stop",
+            }
+        ],
+    }
 
-        return JSONResponse(openairesp)
+    return JSONResponse(openairesp)
 
 
 
@@ -539,14 +534,14 @@ async def ask_claude(request: Request, message: Message):
             cookie = config.get("Claude", "COOKIE", fallback=None)
             if not cookie:
                 response_error = {
-                    f"Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                 }
 
                 print(response_error)
                 return response_error
-                # raise ValueError(
-                #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                # )
+                            # raise ValueError(
+                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                            # )
 
     claude = Client(cookie)
     conversation_id = None
@@ -564,9 +559,7 @@ async def ask_claude(request: Request, message: Message):
             media_type="text/event-stream",
         )
     else:
-        response = claude.send_message(message.message, conversation_id)
-        # print(response)
-        return response
+        return claude.send_message(message.message, conversation_id)
 
 
 #############################################
@@ -688,11 +681,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
         config.read(filenames=CONFIG_FILE_PATH)
         access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
         if not IsSession(access_token):
-            # answer = {f"answer": "You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."}["answer"]
-            answer = f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-            # print(answer)
-            return answer
-
+            return f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
     chatbot = Chatbot(
         config={
             "access_token": access_token,
@@ -752,7 +741,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
                 }
             ],
         }
-        
+
         # print(openairesp)
         return JSONResponse(openairesp)
         # print(response)
@@ -783,7 +772,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
 
 
 def fake_data_streamer_OLD():
-    for i in range(10):
+    for _ in range(10):
         yield b"some fake data\n"
         time.sleep(0.5)
 
@@ -810,7 +799,7 @@ def fake_data_streamer():
             }
         ],
     }
-    for i in range(10):
+    for _ in range(10):
         yield f"{openai_response}\n"
         # yield b"some fake data\n"
         time.sleep(0.5)
@@ -835,12 +824,7 @@ def IsSession(session_id: str) -> bool:
     # if session_id is None or not session_id or session_id.lower() == "none":
     if session_id is None:
         return False
-    if not session_id:
-        return False
-    if session_id.lower() == "none":
-        return False
-
-    return True
+    return False if not session_id else session_id.lower() != "none"
 
 
 def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
@@ -881,15 +865,17 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
 
     cookies = browser_cookie3.load(domain)
 
-    filtered_cookies = [
-        cookie for cookie in cookies if sessionName.lower() in cookie.name.lower()
-    ]
-
-    result = None
-    if filtered_cookies:
-        result = filtered_cookies[-1].value
-
-    return result
+    return (
+        filtered_cookies[-1].value
+        if (
+            filtered_cookies := [
+                cookie
+                for cookie in cookies
+                if sessionName.lower() in cookie.name.lower()
+            ]
+        )
+        else None
+    )
 
 
 #############################################

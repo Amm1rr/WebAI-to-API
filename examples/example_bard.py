@@ -16,11 +16,7 @@ stream = True
 #
 if len(sys.argv) > 1:
     arg1 = sys.argv[1]  # The first argument
-    if arg1.upper() == "TRUE":
-        stream = True
-    else:
-        stream = False
-
+    stream = arg1.upper() == "TRUE"
 ### Set the model parameters
 ##
 # message:      str

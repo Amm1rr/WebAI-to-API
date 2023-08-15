@@ -16,7 +16,7 @@ from pydantic import BaseModel
 # url = "http://localhost:8000/bard"
 ai = "chatgpt"
 ai = "v1/chat/completions"
-url = "http://localhost:8000/" + ai
+url = f"http://localhost:8000/{ai}"
 
 
 ## Argument for stream if available
@@ -24,11 +24,7 @@ url = "http://localhost:8000/" + ai
 stream = True
 if len(sys.argv) > 1:
     arg1 = sys.argv[1]  # The first argument
-    if arg1.upper() == "TRUE":
-        stream = True
-    else:
-        stream = False
-
+    stream = arg1.upper() == "TRUE"
 data = {
     "messages": "I'm David, What is your name?",
     "message": "I'm David, What is your name?",
@@ -51,10 +47,7 @@ def is_ValidJSON(jsondata=any) -> bool:
 
 response = requests.post(
     endpoint,
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer ",
-    },
+    headers={"Content-Type": "application/json", "Authorization": "Bearer "},
     json=data,
     timeout=360,
     stream=stream,
@@ -92,17 +85,7 @@ for line in response.iter_lines():
 exit()
 
 # application/json
-with requests.post(
-    endpoint,
-    # Hide API key from Rich traceback.
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer ",
-    },
-    json=data,
-    timeout=120,
-    stream=stream,
-) as response:
+with requests.post(endpoint, headers={"Content-Type": "application/json", "Authorization": "Bearer "}, json=data, timeout=120, stream=stream) as response:
     save = ""
     for line in response.iter_lines():
         # data = response.json
@@ -123,12 +106,6 @@ with requests.post(
             continue
         print(delta["content"])
         continue
-
-        if line and line is not None:
-            data = line.lstrip(b"data: ").decode("utf-8")
-            # print(f"{data}\n\n")
-            jsondata = json.dumps(data)
-            print(jsondata)
 
             # try:
             #     data = line.lstrip(b"data: ").decode("utf-8")

@@ -133,7 +133,7 @@ class ChatbotBard:
         except Exception as e:
             print(f"ERROR: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
             return None
-        
+
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
             print("Error: Failed to retrieve the Google Bard website.")
@@ -142,15 +142,11 @@ class ChatbotBard:
             # SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
             # - OR
             pattern = r"SNlM0e\":\"(.*?)\""
-            match = re.search(pattern, resp.text)
-
-            if match:
-                SNlM0e = match.group(1)
-                return SNlM0e
-            else:
-                print("Error: Session not found.")
-                # raise ValueError("Error: Session not found.")
-                return None
+            if match := re.search(pattern, resp.text):
+                return match[1]
+            print("Error: Session not found.")
+            # raise ValueError("Error: Session not found.")
+            return None
 
         except Exception as e:
             # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
@@ -272,12 +268,9 @@ class ChatbotBard:
         self.choice_id = results["choices"][0]["id"]
         self._reqid += 100000
 
-        json_Response = {
+        return {
             "choices": [{"message": {"content": results["choices"][0]["content"]}}]
         }
-
-        # return json.load(json_Response)
-        return json_Response
 
     def ask_bardStream(self, message: str) -> dict:
         """
@@ -317,8 +310,8 @@ class ChatbotBard:
         # print(message)
 
         with self.session.post(
-            url, params=params, data=data, timeout=120, stream=True
-        ) as response:
+                url, params=params, data=data, timeout=120, stream=True
+            ) as response:
             chat_data = json.loads(response.content.splitlines()[3])[0][2]
             if not chat_data:
                 return {
@@ -345,9 +338,7 @@ class ChatbotBard:
                 "choices": [{"message": {"content": results["choices"][0]["content"]}}]
             }
 
-            answer = json_data["choices"][0]["message"]["content"][0]
-            # print(answer)
-            yield answer
+            yield json_data["choices"][0]["message"]["content"][0]
 
 
 # if __name__ == "__main__":
