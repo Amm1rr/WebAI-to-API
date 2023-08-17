@@ -28,7 +28,7 @@ This project implements a Python web API that offers free access to three leadin
 
 <br><br>
 
-**NOTE:** This is a personal project involving the use of tools such as [ShellGPT](https://github.com/TheR1D/shell_gpt) , [ChatGPT Code Review](https://github.com/Amm1rr/ChatGPT-Code-Review) and...<br>
+**NOTE:** This is a research day project.<br>
 Please use them responsibly.
 
 This repository is up-to-date.
