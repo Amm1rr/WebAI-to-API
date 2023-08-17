@@ -1,6 +1,7 @@
-# Free Chatbot API
+# WebAI to API
 
 This project implements a Python web API that offers free access to three leading AI chatbots **ChatGPT**, **Google Bard**, and **Claude** through a single interface.
+<br>
 
 **Key features:**
 
@@ -12,9 +13,14 @@ This project implements a Python web API that offers free access to three leadin
 
 <br>
 
--   ✅ **_Google Bard_** integration available now.
--   ✅ **_Claude-2_** integration is also fully implemented and available.
--   ✅ **_ChatGPT_** integration is fully complete and available now.
+
+-   ✅ **_Google Bard_** Web to API integration available now.
+
+-   ✅ **_Claude-2_**  Web to API integration is also fully implemented and available.
+
+-   ✅ **_ChatGPT_** Web to API integration is fully complete and available now.
+
+-   ✅ ***Claude to ChatGPT:*** This adapter is now available and connects the ChatGPT API to the Claude web API.
 
 <br>
 
@@ -28,7 +34,7 @@ Please use them responsibly.
 This repository is up-to-date.
 
 <br>
-
+<hr>
 
 ### Prerequisites
 
@@ -42,7 +48,10 @@ Before using the APIs, sign up for free accounts to get access credentials if yo
 
 Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
+<br>
+
 **Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step.
+
 <br>
 
 ## Installation
@@ -52,7 +61,7 @@ Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [*
 ### Step 1. Clone Repository
 
 ```bash
-git clone https://github.com/Amm1rr/Free-Chatbot-API.git && cd Free-Chatbot-API
+git clone https://github.com/Amm1rr/WebAI-to-API.git && cd WebAI-to-API
 
 python -m venv .venv
 
@@ -100,6 +109,10 @@ http://128.0.0.1:8000/chatgpt
 
 http://128.0.0.1:8000/v1/chat/completions
 
+
+#---------- Claude -> ChatGPT JSON Response
+
+http://128.0.0.1:8000/v1/chat/completions/Claude
 
 ```
 
@@ -172,6 +185,7 @@ _____
 ```
 
 <br>
+<hr>
 
 ## Example
 
@@ -192,13 +206,18 @@ curl -X 'POST' \
 
 ```
 
+<br>
+
 **Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
 
-<br><br>
+<br>
+
+<hr>
 
 ## Usage
 
 #### How to Find Your Tokens
+
 
 **Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
@@ -289,10 +308,12 @@ which is your `Authorization` header session, is included in the request. ([Scre
 [How to Find Your Tokens](#usage)
 
 **Note**: Claude and Bard presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
+<br>
+
 
 #### Config File Path:
 
--   Free-Chatbot-API\src\Config.conf
+-   WebAI-to-API\src\Config.conf
 
 ```bash
 # Case-Sensative
@@ -311,10 +332,11 @@ ACCESS_TOKEN=[YOURS]
 ```
 
 <br>
+<hr>
 
 ## Sources
 
-[Google Bard API](https://github.com/ra83205/google-bard-api) | [Claude API](https://github.com/KoushikNavuluri/Claude-API) | [revChatGPT](https://github.com/acheong08/ChatGPT/)
+[Google Bard API](https://github.com/ra83205/google-bard-api) | [revChatGPT](https://github.com/acheong08/ChatGPT/)
 
 <br>
 

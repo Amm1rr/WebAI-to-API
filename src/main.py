@@ -39,7 +39,7 @@ CONFIG_FILE_NAME = "Config.conf"
 CONFIG_FOLDER = os.getcwd()
 
 # CONFIG_FOLDER = os.path.expanduser("~/.config")
-# CONFIG_FOLDER = Path(CONFIG_FOLDER) / "Free_Chatbot_API"
+# CONFIG_FOLDER = Path(CONFIG_FOLDER) / "WebAI_to_API"
 
 
 FixConfigPath = lambda: (
