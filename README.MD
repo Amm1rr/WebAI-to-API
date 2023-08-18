@@ -28,7 +28,7 @@ This project implements a Python web API that offers free access to three leadin
 
 <br><br>
 
-**NOTE:** This is a personal project involving the use of tools such as [ShellGPT](https://github.com/TheR1D/shell_gpt) , [ChatGPT Code Review](https://github.com/Amm1rr/ChatGPT-Code-Review) and...<br>
+**NOTE:** This is a research day project.<br>
 Please use them responsibly.
 
 This repository is up-to-date.
@@ -237,9 +237,7 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 
 [![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
 
-_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to
-send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**,
-which is your **Secure-1PSID** cookie, is included in the request. ([Screenshot](assets/Bard.jpg))
+_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts**, which is your **__Secure-1PSIDTS** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
 
 1. Login to [bard.google.com](https://bard.google.com)
 2. Open `Developer Tools` (Press **F12**)
