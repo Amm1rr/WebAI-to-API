@@ -553,6 +553,10 @@ async def ask_claude(request: Request, message: Message):
     if not message.message:
         message.message = "Hi, are you there?"
 
+    # TODO - Remove hard-coded values and implement streaming properly
+    # It's just a temporary solution to re-implement streaming response
+    message.stream = False
+
     if message.stream:
         return StreamingResponse(
             claude.stream_message(message.message, conversation_id),

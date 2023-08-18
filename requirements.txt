@@ -7,3 +7,5 @@ prompt_toolkit
 rich
 revChatGPT
 browser_cookie3
+#Claude
+curl_cffi
