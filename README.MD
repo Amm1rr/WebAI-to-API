@@ -50,7 +50,7 @@ Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [*
 
 <br>
 
-**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step.
+**Note**: [**Claude**](https://claude.ai/) ~~and [**Bard**](https://bard.google.com/)~~ offer Auto Login options - you can either log in through your browser and skip this step.
 
 <br>
 
