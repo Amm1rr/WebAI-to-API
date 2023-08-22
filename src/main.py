@@ -78,6 +78,7 @@ class MessageBard(BaseModel):
     message: str
     session_id: str = ""
     session_idTS: str = ""
+    session_idCC: str = ""
     stream: bool = True
 
 
@@ -298,6 +299,7 @@ async def ask_bard(request: Request, message: MessageBard):
     # Execute code without authenticating the resource
     session_id = message.session_id
     session_idTS = message.session_idTS
+    session_idCC = message.session_idCC
     # if not IsSession(session_id):
     #     session_id = os.getenv("SESSION_ID")
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
@@ -311,25 +313,29 @@ async def ask_bard(request: Request, message: MessageBard):
         Returns:
             str: The session ID.
         """
-        session_name = "Bard" if sessionId == "SESSION_ID" else "BardTS"
-        session_id = get_Cookie(session_name)
-        if not session_id:
-            config = configparser.ConfigParser()
-            config.read(CONFIG_FILE_PATH)
-            session_id = config.get("Bard", sessionId)
+        config = configparser.ConfigParser()
+        config.read(CONFIG_FILE_PATH)
+        sess_id = config.get("Bard", sessionId)
 
-        if not IsSession(session_id):
+        if not sess_id:
+            session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
+            sess_id = get_Cookie(session_name)
+
+        if not IsSession(sess_id):
             print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
 
-        return session_id
+        return sess_id
 
     if not session_id:
         session_id = get_session_id_Bard("SESSION_ID")
 
     if not session_idTS:
         session_idTS = get_session_id_Bard("SESSION_IDTS")
+    
+    if not session_idCC:
+        session_idCC = get_session_id_Bard("SESSION_IDCC")
 
-    chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS)
+    chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
 
     if not message.message:
         message.message = "Hi, are you there?"
@@ -337,8 +343,8 @@ async def ask_bard(request: Request, message: MessageBard):
     if message.stream:
         try:
             # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
-            if not chatbot.SNlM0e:
-                return {"Error": "Check the Bard session."}
+            # if not chatbot.SNlM0e:
+            #     return {"Error": "Check the Bard session."}
 
             return StreamingResponse(
                 chatbot.ask_bardStream(message.message),
@@ -368,8 +374,10 @@ async def ask_bard(request: Request, message: MessageBard):
     else:
         try:
             response = chatbot.ask_bard(message.message)
+            # print (response)
+            return (response)
             # print(response["choices"][0]["message"]["content"][0])
-            return response["choices"][0]["message"]["content"][0]
+            # return response["choices"][0]["message"]["content"][0]
         except requests.exceptions.ConnectionError:
             # Handle the ConnectionError exception here
             print(
@@ -437,7 +445,7 @@ async def getGPTClaude(chat: Chatbot, message: Message, conversation_id):
         print(f"Error : {str(e)}")
         yield f"Error : {str(e)}"
 
-@app.post("/v1/chat/completions/Claude")
+@app.post("claude/v1/chat/completions")
 def ask_gptClaude(request: Request, message: MessageChatGPT):
 
     claudeMessage = Message
@@ -831,7 +839,7 @@ def IsSession(session_id: str) -> bool:
     return False if not session_id else session_id.lower() != "none"
 
 
-def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
+def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
 
@@ -853,13 +861,17 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     domains = {
         "Bard": "google",
         "BardTS": "google",
+        "BardCC": "google",
         "Claude": "claude",
     }
     domain = domains[service_Name]
 
-    bardSessionName = "__Secure-1PSID"
     if service_Name.lower() == "bardts":
         bardSessionName = "__Secure-1PSIDTS"
+    elif service_Name.lower() == "bardcc":
+        bardSessionName = "__Secure-1PSIDCC"
+    else:
+        bardSessionName = "__Secure-1PSID"
 
     sessName = {
         "claude": "sessionKey",
@@ -867,7 +879,7 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
     }
     sessionName = sessName[domain]
 
-    cookies = browser_cookie3.load(domain)
+    cookies = browser_cookie3.load(domain_name=domain)
 
     return (
         filtered_cookies[-1].value
@@ -875,7 +887,7 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "Claude"]) -> str:
             filtered_cookies := [
                 cookie
                 for cookie in cookies
-                if sessionName.lower() in cookie.name.lower()
+                if sessionName == cookie.name
             ]
         )
         else None
@@ -897,7 +909,6 @@ if __name__ == "__main__":
         python main.py --host 0.0.0.0 --port 8000 --reload
 
     """
-
     parser = argparse.ArgumentParser(description="Run the UVicorn server.")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host IP address")
     parser.add_argument("--port", type=int, default=8000, help="Port number")

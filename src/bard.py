@@ -85,7 +85,7 @@ class ChatbotBard:
         "session",
     ]
 
-    def __init__(self, session_id, session_idTS):
+    def __init__(self, session_id, session_idTS, session_idCC):
         """
         Initialize the ChatbotBard instance.
         
@@ -108,6 +108,7 @@ class ChatbotBard:
         
         self.session.cookies.set("__Secure-1PSID", session_id) 
         self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
+        self.session.cookies.set("__Secure-1PSIDCC", session_idCC)
         self.session.proxies = load_proxies()
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
@@ -248,7 +249,7 @@ class ChatbotBard:
         )
 
         # Answer
-        # print(resp)
+        # print(resp.text)
 
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:

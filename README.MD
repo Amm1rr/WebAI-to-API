@@ -1,3 +1,6 @@
+**NOTE:** This is a research project. Please do not use it commercially and use it responsibly.
+
+
 # WebAI to API
 
 This project implements a Python web API that offers free access to three leading AI chatbots **ChatGPT**, **Google Bard**, and **Claude** through a single interface.
@@ -9,7 +12,7 @@ This project implements a Python web API that offers free access to three leadin
 -   Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
 -   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
 -   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
--   Full support for streaming responses.
+-   Support for streaming responses is available for Bard and ChatGPT (Claude Soon).
 
 <br>
 
@@ -27,9 +30,6 @@ This project implements a Python web API that offers free access to three leadin
 [![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
 <br><br>
-
-**NOTE:** This is a research day project.<br>
-Please use them responsibly.
 
 This repository is up-to-date.
 
@@ -92,27 +92,27 @@ Available **Endpoints:**
 ```bash
 #---------- Google Bard
 
-http://128.0.0.1:8000/bard
+http://127.0.0.1:8000/bard
 
 
 #---------- Claude
 
-http://128.0.0.1:8000/claude
+http://127.0.0.1:8000/claude
 
 
 #---------- ChatGPT
 
-http://128.0.0.1:8000/chatgpt
+http://127.0.0.1:8000/chatgpt
 
 
 #---------- OpenAI ChatGPT JSON Response
 
-http://128.0.0.1:8000/v1/chat/completions
+http://127.0.0.1:8000/v1/chat/completions
 
 
 #---------- Claude -> ChatGPT JSON Response
 
-http://128.0.0.1:8000/v1/chat/completions/Claude
+http://127.0.0.1:8000/claude/v1/chat/completions
 
 ```
 
@@ -125,9 +125,9 @@ http://128.0.0.1:8000/v1/chat/completions/Claude
 _____
 
     {
-      "session_id": "session-ID",
+      "session_id": "[Your_Session_ID]",
       "message": "Hi, Who are you?",
-      "stream": True
+      "stream": true
     }
 
 
@@ -189,9 +189,31 @@ _____
 
 ## Example
 
-try **Claude** with **cURL**
+Once you have launched the web server using [`src\python main.py`](#step-2-start-web-server):
 
-Once you have launched the webserver using **[`src\python main.py`](#step-2-start-web-server)** , run this cURL command in a terminal window:
+Note: The first argument to run the example determines whether to return streaming or not.
+
+```bash
+cd examples/
+
+
+python example_claude.py false
+python example_claude.py true
+
+python example_bard.py false
+python example_bard.py true
+
+python example_chatgpt1.py false
+python example_chatgpt1.py true
+
+python example_chatgpt2.py false
+python example_chatgpt2.py true
+
+```
+
+or try **Claude** with **cURL**
+
+run this cURL command in a terminal window:
 
 ```bash
 curl -X 'POST' \
@@ -201,7 +223,7 @@ curl -X 'POST' \
   -d '{
   "message": "who are you?",
   "session_id": "",
-  "stream": true
+  "stream": false
 }'
 
 ```
@@ -219,7 +241,12 @@ curl -X 'POST' \
 #### How to Find Your Tokens
 
 
-**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+~~**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.~~
+
+**Note**: [__Claude__](https://claude.ai/) offers two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+
+**Important**:
+"The auto session bug is caused by using multiple Google accounts or browser profiles. It needs more time to fully fix. A future update will address it. For now, manually copy sessions and cookies as a workaround like below instruction."
 
 <br>
 
@@ -237,13 +264,24 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 
 [![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
 
-_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts**, which is your **__Secure-1PSIDTS** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
+_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
+<br>
+
+| Name | Session Name |
+|-|-|  
+| `session_id` | `__Secure-1PSID` |
+| `session_idts` | `__Secure-1PSIDTS` |  
+| `session_idcc` | `__Secure-1PSCC` |
+
+
+
+
 
 1. Login to [bard.google.com](https://bard.google.com)
 2. Open `Developer Tools` (Press **F12**)
 3. Go to `Application Tab`
 4. Go to `Cookies Tab`
-5. Copy the content of `__Secure-1PSID` and `__Secure-1PSIDTS`. Copy the value of those cookie.
+5. Copy the content of `__Secure-1PSID` and `__Secure-1PSIDTS` and `__Secure-1PSIDCC`. Copy the value of those cookie.
 6. Set in **[Config.conf](#configuration)** file.
  </details>
  <br><hr><br>
@@ -305,7 +343,7 @@ which is your `Authorization` header session, is included in the request. ([Scre
 
 [How to Find Your Tokens](#usage)
 
-**Note**: Claude and Bard presents two authentication options - logging in through your browser or configuring Claude using the provided config file.
+**Note**: Claude ~~and Bard~~ present Auto Login options - logging in through your browser or configuring Claude ~~and Bard~~ using the provided config file.
 <br>
 
 
@@ -322,6 +360,7 @@ COOKIE=[YOURS]
 [Bard]
 SESSION_ID=[YOURS]
 SESSION_IDTS=[YOURS]
+SESSION_IDCC=[YOURS]
 
 [ChatGPT]
 ACCESS_TOKEN=[YOURS]
