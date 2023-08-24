@@ -445,7 +445,7 @@ async def getGPTClaude(chat: Chatbot, message: Message, conversation_id):
         print(f"Error : {str(e)}")
         yield f"Error : {str(e)}"
 
-@app.post("claude/v1/chat/completions")
+@app.post("/claude/v1/chat/completions")
 def ask_gptClaude(request: Request, message: MessageChatGPT):
 
     claudeMessage = Message
