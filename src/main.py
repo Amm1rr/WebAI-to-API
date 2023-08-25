@@ -460,9 +460,7 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
 
     if not cookie:
         cookie = get_Cookie("Claude")
-        if cookie:
-            cookie = f"sessionKey={cookie}"
-        else:
+        if not cookie:
             config = configparser.ConfigParser()
             config.read(filenames=CONFIG_FILE_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
@@ -534,9 +532,7 @@ async def ask_claude(request: Request, message: Message):
 
     if not cookie:
         cookie = get_Cookie("Claude")
-        if cookie:
-            cookie = f"sessionKey={cookie}"
-        else:
+        if not cookie:
             config = configparser.ConfigParser()
             config.read(filenames=CONFIG_FILE_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
