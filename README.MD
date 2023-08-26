@@ -17,21 +17,21 @@ This project implements a Python web API that offers free access to three leadin
 <br>
 
 
--   ✅ **_Google Bard_** Web to API integration available now.
+-   ✅ ***Google Bard*** Web to API integration available now.
 
--   ✅ **_Claude-2_**  Web to API integration is also fully implemented and available.
+-   ✅ ***Claude-2***  Web to API integration is also fully implemented and available.
 
--   ✅ **_ChatGPT_** Web to API integration is fully complete and available now.
+-   ✅ ***ChatGPT*** Web to API integration is fully complete and available now.
 
--   ✅ ***Claude to ChatGPT:*** This adapter is now available and connects the ChatGPT API to the Claude web API.
+-   ✅ ***ChatGPT to Claude:*** The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
 
--   ✅ ***Bard to ChatGPT:*** Soon...
+-   ✅ ***ChatGPT to Bard***: _Get ready for our next chapter_
 
 <br>
 
 [![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
-<br><br>
+<br>
 
 This repository is up-to-date.
 
