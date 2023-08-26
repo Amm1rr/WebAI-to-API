@@ -18,20 +18,17 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
 
-### Status  
+### Status
 
-✅ **Bard** integration complete
+✅ ***Google Bard*** Web to API integration available now.
 
-✅ **Claude** integration complete  
+✅ ***Claude-2*** Web to API integration is also fully implemented and available.
 
-✅ **ChatGPT** integration complete
+✅ ***ChatGPT*** Web to API integration is fully complete and available now.
 
+✅ ***ChatGPT to Claude***, The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
 
-### Latest Integrations
-
-- ChatGPT + Claude adapter ✅
-
-- ChatGPT + Bard integration 🔜
+🔜 ***ChatGPT to Bard***, Get ready for our next chapter
 
 
 <br>
