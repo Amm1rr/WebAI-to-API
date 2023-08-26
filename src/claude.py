@@ -26,7 +26,8 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}'
+        'Cookie': f'{self.cookie}',
+        'Cookie': f'sessionKey={self.cookie}'
     }
 
     response = requests.get(url, headers=headers,impersonate="chrome110")
@@ -113,7 +114,7 @@ class Client:
       'Origin': 'https://claude.ai',
       'DNT': '1',
       'Connection': 'keep-alive',
-      'Cookie': f'{self.cookie}',
+      'Cookie': f'sessionKey={self.cookie}',
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
@@ -181,7 +182,7 @@ class Client:
       'Origin': 'https://claude.ai',
       'DNT': '1',
       'Connection': 'keep-alive',
-      'Cookie': f'{self.cookie}',
+      'Cookie': f'sessionKey={self.cookie}',
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
@@ -254,7 +255,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}',
+        'Cookie': f'sessionKey={self.cookie}',
         'TE': 'trailers'
     }
 
@@ -280,7 +281,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}'
+        'Cookie': f'sessionKey={self.cookie}'
     }
 
     response = requests.get( url, headers=headers,impersonate="chrome110")
@@ -309,7 +310,7 @@ class Client:
         'Origin': 'https://claude.ai',
         'DNT': '1',
         'Connection': 'keep-alive',
-        'Cookie': self.cookie,
+        'Cookie': f'sessionKey={self.cookie}',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
@@ -356,7 +357,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}',
+        'Cookie': f'sessionKey={self.cookie}'
         'TE': 'trailers'
     }
 
@@ -396,7 +397,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}',
+        'Cookie': f'sessionKey={self.cookie}',
         'TE': 'trailers'
     }
 
