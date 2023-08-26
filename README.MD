@@ -1,5 +1,5 @@
 **NOTE:** This is a research project. Please do not use it commercially and use it responsibly.
-
+<hr>
 
 # WebAI to API
 
@@ -268,7 +268,7 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 
   <summary>
 
-**Google Bard**
+#### Bard
 
   </summary>
 
@@ -300,7 +300,7 @@ _`Google Bard:`_ Please obtain the cookies mentioned here from an authorized ses
 
   <summary>
 
-**Claude 2**
+#### Claude
 
   </summary>
 
@@ -327,7 +327,7 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 
   <summary>
 
-**ChatGPT**
+#### ChatGPT
 
   </summary>
 
@@ -352,6 +352,10 @@ which is your `Authorization` header session, is included in the request. ([Scre
 ## Configuration
 
 [How to Find Your Tokens](#usage)
+
+- [Google Bard](#bard)
+- [Claude](#claude)
+- [ChatGPT](#chatgpt)
 
 **Note**: Claude ~~and Bard~~ present Auto Login options - logging in through your browser or configuring Claude ~~and Bard~~ using the provided config file.
 <br>
