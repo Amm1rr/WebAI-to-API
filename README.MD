@@ -3,29 +3,35 @@
 
 # WebAI to API
 
-This project implements a Python web API that offers free access to three leading AI chatbots **ChatGPT**, **Google Bard**, and **Claude** through a single interface.
-<br>
+This project implements a web API that offers a unified interface to ChatGPT, Google Bard, and Claude – 3 in 1
 
-**Key features:**
+## Key Features
 
--   Unified API endpoints allow seamlessly querying ChatGPT, Google Bard, and Claude from one integration.
--   Leverages the free web/browser versions of each AI service by managing cookies and sessions. Avoid costs of paid API access.
--   Simple API for text completion, question answering, and conversational queries. Integrate AI capabilities easily.
--   Lightweight Python server using FastAPI. Easily self-host locally or on your own infrastructure.
--   Support for streaming responses is available for Bard and ChatGPT (Claude Soon).
+- **Unified API:** Single integration to query ChatGPT, Bard, and Claude. No juggling multiple APIs.
 
-<br>
+- **Conversational interface:** Text completion, QA, discussions. Put advanced AI to work immediately.
+
+- **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
+
+- **Streaming support:** Real-time responses from ChatGPT and Bard. Claude streaming coming soon.
+
+- **Lightweight and scalable:** Built with FastAPI for high performance.
 
 
--   ✅ ***Google Bard*** Web to API integration available now.
+## Status  
 
--   ✅ ***Claude-2***  Web to API integration is also fully implemented and available.
+✅ **Bard** integration complete
 
--   ✅ ***ChatGPT*** Web to API integration is fully complete and available now.
+✅ **Claude** integration complete  
 
--   ✅ ***ChatGPT to Claude:*** The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
+✅ **ChatGPT** integration complete
 
--   ✅ ***ChatGPT to Bard***: _Get ready for our next chapter_
+## Latest Integrations
+
+- ChatGPT + Claude adapter ✅
+
+- ChatGPT + Bard integration 🔜
+
 
 <br>
 
