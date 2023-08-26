@@ -209,7 +209,7 @@ async def ask_gpt(request: Request, message: Message):
     response = []
     if message.stream == True:
         try:
-            yield StreamingResponse(
+            return StreamingResponse(
                 getGPTData(chat=chatbot, message=message),
                 media_type="text/event-stream",
             )
@@ -346,7 +346,7 @@ async def ask_bard(request: Request, message: MessageBard):
             # if not chatbot.SNlM0e:
             #     return {"Error": "Check the Bard session."}
 
-            yield StreamingResponse(
+            return StreamingResponse(
                 chatbot.ask_bardStream(message.message),
                 media_type="text/event-stream",
             )
@@ -486,32 +486,32 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
         claudeMessage.message = "Hi, are you there?"
 
     if claudeMessage.stream:
-        yield StreamingResponse(
+        return StreamingResponse(
                 getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
                 media_type="application/json",
             )
     else:
       
-      resp = claude.send_message(claudeMessage.message, conversation_id)
+        resp = claude.send_message(claudeMessage.message, conversation_id)
   
-      openairesp = {
-          "id": f"chatcmpl-{str(time.time())}",
-          "object": "chat.completion.chunk",
-          "created": int(time.time()),
-          "model": "gpt-3.5-turbo",
-          "choices": [
-              {
-                  "message": {
-                      "role": "assistant",
-                      "content": resp,
-                  },
-                  "index": 0,
-                  "finish_reason": "stop",
-              }
-          ],
-      }
+        openairesp = {
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": resp,
+                    },
+                    "index": 0,
+                    "finish_reason": "stop",
+                }
+            ],
+        }
   
-      return JSONResponse(openairesp)
+        return JSONResponse(openairesp)
 
 
 
@@ -564,7 +564,7 @@ async def ask_claude(request: Request, message: Message):
     message.stream = False
 
     if message.stream:
-        yield StreamingResponse(
+        return StreamingResponse(
             claude.stream_message(message.message, conversation_id),
             media_type="text/event-stream",
         )
@@ -701,7 +701,7 @@ def ask_chatgpt(request: Request, message: MessageChatGPT):
     response = []
     if message.stream == True:
         try:
-            yield StreamingResponse(
+            return StreamingResponse(
                 getChatGPTData(chat=chatbot, message=message),
                 media_type="application/json",
             )
