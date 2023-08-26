@@ -28,7 +28,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 
 ✅ ***ChatGPT to Claude***, The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
 
-🔜 ***ChatGPT to Bard***, Get ready for our next chapter
+🔜 ***ChatGPT to Bard***, Get ready for next chapter
 
 
 <br>
