@@ -25,6 +25,8 @@ This project implements a Python web API that offers free access to three leadin
 
 -   ✅ ***Claude to ChatGPT:*** This adapter is now available and connects the ChatGPT API to the Claude web API.
 
+-   ✅ ***Bard to ChatGPT:*** Soon...
+
 <br>
 
 [![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
