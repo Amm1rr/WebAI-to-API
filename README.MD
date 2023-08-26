@@ -3,7 +3,7 @@
 
 # WebAI to API
 
-This project implements a web API that offers a unified interface to ChatGPT, Google Bard, and Claude – 3 in 1
+This project implements a web API that offers a unified interface to ChatGPT, Google Bard, and Claude, 3 in 1
 
 ### Key Features
 
@@ -25,6 +25,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 ✅ **Claude** integration complete  
 
 ✅ **ChatGPT** integration complete
+
 
 ### Latest Integrations
 
