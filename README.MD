@@ -5,7 +5,7 @@
 
 This project implements a web API that offers a unified interface to ChatGPT, Google Bard, and Claude – 3 in 1
 
-## Key Features
+### Key Features
 
 - **Unified API:** Single integration to query ChatGPT, Bard, and Claude. No juggling multiple APIs.
 
@@ -18,7 +18,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
 
-## Status  
+### Status  
 
 ✅ **Bard** integration complete
 
@@ -26,7 +26,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 
 ✅ **ChatGPT** integration complete
 
-## Latest Integrations
+### Latest Integrations
 
 - ChatGPT + Claude adapter ✅
 
