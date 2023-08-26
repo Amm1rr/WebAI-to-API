@@ -89,6 +89,14 @@ python main.py
 
 <br>
 
+Now the **API documentation** should be available at the following address:
+
+```
+http://127.0.0.1:8000/docs
+```
+
+<br>
+
 Available **Endpoints:**
 
 ```bash
