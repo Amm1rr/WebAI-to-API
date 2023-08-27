@@ -127,9 +127,9 @@ async def getGPTData(chat: Chatbot, message: Message):
                 "created": int(time.time()),
                 "model": "gpt-3.5-turbo",
                 "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 100,
-                    "total_tokens": 100,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
                 },
                 "choices": [
                     {
