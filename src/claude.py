@@ -11,7 +11,7 @@ class Client:
 
   def fix_sessionKey(self, cookie):
     if "sessionKey=" not in cookie:
-        cooki = "sessionKey=" + cookie
+        cookie = "sessionKey=" + cookie
     return cookie
 
   def __init__(self, cookie):
