@@ -85,10 +85,11 @@ class ChatbotBard:
         "session",
     ]
 
-    #def __init__(self, session_id, session_idTS, session_idCC):
-    def __init__(self, cookies: dict):
+    def __init__(self, cookies: dict = None, session_id:str = None, session_idTS:str = None, session_idCC:str = None):
         """
         Initialize the ChatbotBard instance.
+        
+        Note: you should set either the "cookies" parameter or the sessions.
         
         Parameters:
             session_id (str): The __Secure-1PSID cookie value.
@@ -107,10 +108,12 @@ class ChatbotBard:
         self.session = Session()
         self.session.headers = self._get_headers()
         
-        #self.session.cookies.set("__Secure-1PSID", session_id) 
-        #self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
-        #self.session.cookies.set("__Secure-1PSIDCC", session_idCC)
-        self.session.cookies.update(cookies)
+        if not cookies:
+          self.session.cookies.set("__Secure-1PSID", session_id) 
+          self.session.cookies.set("__Secure-1PSIDTS", session_idTS)
+          self.session.cookies.set("__Secure-1PSIDCC", session_idCC)
+        else:
+          self.session.cookies.update(cookies)
         
         self.session.proxies = load_proxies()
         self.session.mount("https://", adapter)
