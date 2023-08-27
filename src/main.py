@@ -319,24 +319,26 @@ async def ask_bard(request: Request, message: MessageBard):
 
         if not sess_id:
             session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
-            sess_id = get_Cookie(session_name)
+            #sess_id = get_Cookie(session_name)
+            sess_id = get_cookies(".google.com")
 
         if not IsSession(sess_id):
             print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
 
         return sess_id
 
-    if not session_id:
-        session_id = get_session_id_Bard("SESSION_ID")
+    #if not session_id:
+    #    session_id = get_session_id_Bard("SESSION_ID")
 
-    if not session_idTS:
-        session_idTS = get_session_id_Bard("SESSION_IDTS")
+    #if not session_idTS:
+    #    session_idTS = get_session_id_Bard("SESSION_IDTS")
     
-    if not session_idCC:
-        session_idCC = get_session_id_Bard("SESSION_IDCC")
+    #if not session_idCC:
+    #   session_idCC = get_session_id_Bard("SESSION_IDCC")
 
-    chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-
+    #chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+    chatbot = ChatbotBard(cookies)
+    
     if not message.message:
         message.message = "Hi, are you there?"
 
