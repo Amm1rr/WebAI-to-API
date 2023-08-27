@@ -121,12 +121,14 @@ class ChatbotBard:
     
     def _get_headers(self):
         return {
+            'authority': 'bard.google.com',
             "Host": "bard.google.com",
             "X-Same-Domain": "1",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
             "Origin": "https://bard.google.com",
             "Referer": "https://bard.google.com/",
+            'x-same-domain': '1'
         }
     def __get_snlm0e(self):
         try:
