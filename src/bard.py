@@ -85,7 +85,8 @@ class ChatbotBard:
         "session",
     ]
 
-    def __init__(self, session_id, session_idTS, session_idCC, cookies: dict):
+    #def __init__(self, session_id, session_idTS, session_idCC):
+    def __init__(self, cookies: dict):
         """
         Initialize the ChatbotBard instance.
         
