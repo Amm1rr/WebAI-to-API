@@ -303,7 +303,7 @@ async def ask_bard(request: Request, message: MessageBard):
     # if not IsSession(session_id):
     #     session_id = os.getenv("SESSION_ID")
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
-
+    cookies = None
     def get_session_id_Bard(sessionId: str = "SESSION_ID"):
         """Get the session ID for Bard.
 
@@ -318,14 +318,16 @@ async def ask_bard(request: Request, message: MessageBard):
         sess_id = config.get("Bard", sessionId)
 
         if not sess_id:
+            sessions = get_cookies(".google.com")
+            return sessions
+        else:
             session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
-            #sess_id = get_Cookie(session_name)
-            sess_id = get_cookies(".google.com")
-
-        if not IsSession(sess_id):
-            print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
-
-        return sess_id
+              sess_id = get_Cookie(session_name)
+              
+            if not IsSession(sess_id):
+              print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
+  
+            return sess_id
 
     #if not session_id:
     #    session_id = get_session_id_Bard("SESSION_ID")
@@ -335,9 +337,16 @@ async def ask_bard(request: Request, message: MessageBard):
     
     #if not session_idCC:
     #   session_idCC = get_session_id_Bard("SESSION_IDCC")
-
-    #chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-    chatbot = ChatbotBard(cookies)
+    chatbot = None
+    if not (session_id or session_idTS or session_idCC):
+      cookies = get_session_id_Bard()
+      if type(cookies) == dict:
+        chatbot = ChatbotBard(cookies)
+      else:
+        chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        
+    else:
+      chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
     
     if not message.message:
         message.message = "Hi, are you there?"
