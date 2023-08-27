@@ -317,7 +317,7 @@ async def ask_bard(request: Request, message: MessageBard):
             return sessions
         else:
             session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
-              sess_id = get_Cookie(session_name)
+            sess_id = get_Cookie(session_name)
               
             if not IsSession(sess_id):
               print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
