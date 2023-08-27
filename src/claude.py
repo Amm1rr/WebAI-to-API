@@ -9,8 +9,13 @@ from datetime import datetime
 
 class Client:
 
+  def fix_sessionKey(self, cookie):
+    if "sessionKey=" not in cookie:
+        cooki = "sessionKey=" + cookie
+    return cookie
+
   def __init__(self, cookie):
-    self.cookie = cookie
+    self.cookie = self.fix_sessionKey(cookie)
     self.organization_id = self.get_organization_id()
 
   def get_organization_id(self):
@@ -26,7 +31,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}'
+        'Cookie': self.cookie
     }
 
     response = requests.get(url, headers=headers,impersonate="chrome110")
@@ -34,6 +39,7 @@ class Client:
     uuid = res[0]['uuid']
 
     return uuid
+
 
   def get_content_type(self, file_path):
     # Function to determine content type based on file extension
@@ -62,7 +68,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}'
+        'Cookie': self.cookie
     }
 
     response = requests.get(url, headers=headers,impersonate="chrome110")
@@ -113,7 +119,7 @@ class Client:
       'Origin': 'https://claude.ai',
       'DNT': '1',
       'Connection': 'keep-alive',
-      'Cookie': f'sessionKey={self.cookie}',
+      'Cookie': self.cookie,
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
@@ -181,7 +187,7 @@ class Client:
       'Origin': 'https://claude.ai',
       'DNT': '1',
       'Connection': 'keep-alive',
-      'Cookie': f'sessionKey={self.cookie}',
+      'Cookie': self.cookie,
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
@@ -254,7 +260,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}',
+        'Cookie': self.cookie,
         'TE': 'trailers'
     }
 
@@ -280,7 +286,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}'
+        'Cookie': self.cookie
     }
 
     response = requests.get( url, headers=headers,impersonate="chrome110")
@@ -309,7 +315,7 @@ class Client:
         'Origin': 'https://claude.ai',
         'DNT': '1',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}',
+        'Cookie': self.cookie,
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
@@ -356,7 +362,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}',
+        'Cookie': self.cookie,
         'TE': 'trailers'
     }
 
@@ -396,7 +402,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}',
+        'Cookie': self.cookie,
         'TE': 'trailers'
     }
 
