@@ -70,15 +70,11 @@ app.add_middleware(
 
 class Message(BaseModel):
     message: str
-    session_id: str = ""
     stream: bool = True
 
 
 class MessageBard(BaseModel):
     message: str
-    session_id: str = ""
-    session_idTS: str = ""
-    session_idCC: str = ""
     stream: bool = True
 
 
@@ -90,7 +86,6 @@ class MessageChatGPT(BaseModel):
     model: str = "gpt-3.5-turbo"
     temperature: float = 0.9
     top_p: float = 0.8
-    session_id: str = ""
     stream: bool = True
 
 
@@ -195,7 +190,7 @@ async def ask_gpt(request: Request, message: Message):
         Error: If ChatGPT API error occurs.
 
     """
-    access_token = message.session_id
+    access_token = None  #message.session_id
     # if not IsSession(access_token):
     #     access_token = os.getenv("OPENAI_API_SESSION")
     if not IsSession(access_token):
@@ -297,9 +292,9 @@ async def ask_bard(request: Request, message: MessageBard):
 
     """
     # Execute code without authenticating the resource
-    session_id = message.session_id
-    session_idTS = message.session_idTS
-    session_idCC = message.session_idCC
+    session_id = None #message.session_id
+    session_idTS = None #message.session_idTS
+    session_idCC = None #message.session_idCC
     # if not IsSession(session_id):
     #     session_id = os.getenv("SESSION_ID")
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
@@ -461,10 +456,10 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
 
     claudeMessage = Message
     claudeMessage.message = str(message.messages)
-    claudeMessage.session_id = message.session_id
+    claudeMessage.session_id = None # message.session_id
     claudeMessage.stream = message.stream
 
-    cookie = message.session_id
+    cookie = None #message.session_id
 
     # if not cookie:
     #     cookie = os.environ.get("CLAUDE_COOKIE")
@@ -538,7 +533,7 @@ async def ask_claude(request: Request, message: Message):
         str: JSON string of Claude response.
 
     """
-    cookie = message.session_id
+    cookie = None #message.session_id
 
     # if not cookie:
     #     cookie = os.environ.get("CLAUDE_COOKIE")
