@@ -81,7 +81,7 @@ class Client:
       print(f"Error: {response.status_code} - {response.text}")
 
   # Send Message to Claude
-  def send_message(self, prompt, conversation_id, attachment=None,timeout=500):
+  def send_message(self, prompt, conversation_id, attachment=None,timeout=120):
     url = "https://claude.ai/api/append_message"
 
     # Upload attachment if provided
@@ -126,7 +126,7 @@ class Client:
       'TE': 'trailers'
     }
 
-    response = requests.post( url, headers=headers, data=payload,impersonate="chrome110",timeout=500)
+    response = requests.post( url, headers=headers, data=payload,impersonate="chrome110",timeout=120)
     decoded_data = response.content.decode("utf-8")
     decoded_data = re.sub('\n+', '\n', decoded_data).strip()
     data_strings = decoded_data.split('\n')
@@ -143,7 +143,7 @@ class Client:
     return answer
   
   # Send and Response Stream Message to Claude
-  def stream_message(self, prompt, conversation_id, attachment=None,timeout=500):
+  def stream_message(self, prompt, conversation_id, attachment=None,timeout=120):
 
     # for i in range(10):
         #     yield b'some fake data\n'
@@ -198,7 +198,7 @@ class Client:
     oldChunk = ""
     seen_lines = set()
 
-    with requests.post( url, headers=headers, data=payload,impersonate="chrome110",timeout=500)  as response:
+    with requests.post( url, headers=headers, data=payload,impersonate="chrome110",timeout=120)  as response:
         for line in response.iter_lines():
             if line:
                 # decoded_data = line.content.decode("utf-8")
