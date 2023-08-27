@@ -26,7 +26,6 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}',
         'Cookie': f'sessionKey={self.cookie}'
     }
 
@@ -63,7 +62,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'{self.cookie}'
+        'Cookie': f'sessionKey={self.cookie}'
     }
 
     response = requests.get(url, headers=headers,impersonate="chrome110")
@@ -357,7 +356,7 @@ class Client:
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
         'Connection': 'keep-alive',
-        'Cookie': f'sessionKey={self.cookie}'
+        'Cookie': f'sessionKey={self.cookie}',
         'TE': 'trailers'
     }
 
