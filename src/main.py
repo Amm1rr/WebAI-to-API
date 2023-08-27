@@ -836,6 +836,12 @@ def IsSession(session_id: str) -> bool:
         return False
     return False if not session_id else session_id.lower() != "none"
 
+def get_cookies(cookie_domain: str) -> dict: 
+     if cookie_domain not in _cookies: 
+         _cookies[cookie_domain] = {} 
+         for cookie in browser_cookie3.load(cookie_domain): 
+             _cookies[cookie_domain][cookie.name] = cookie.value 
+     return _cookies[cookie_domain]
 
 def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
     """
