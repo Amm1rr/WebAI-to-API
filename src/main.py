@@ -842,6 +842,8 @@ def IsSession(session_id: str) -> bool:
         return False
     return False if not session_id else session_id.lower() != "none"
 
+
+_cookies = {}
 def get_cookies(cookie_domain: str) -> dict: 
      if cookie_domain not in _cookies: 
          _cookies[cookie_domain] = {} 
