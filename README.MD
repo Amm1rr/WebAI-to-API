@@ -139,7 +139,6 @@ http://127.0.0.1:8000/claude/v1/chat/completions
 _____
 
     {
-      "session_id": "[Your_Session_ID]",
       "message": "Hi, Who are you?",
       "stream": true
     }
@@ -236,7 +235,6 @@ curl -X 'POST' \
   -H 'Content-Type: application/json' \
   -d '{
   "message": "who are you?",
-  "session_id": "",
   "stream": false
 }'
 
