@@ -56,7 +56,7 @@ Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [*
 
 <br>
 
-**Note**: [**Claude**](https://claude.ai/) ~~and [**Bard**](https://bard.google.com/)~~ offer Auto Login options - you can either log in through your browser and skip this step.
+**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
 
 <br>
 
@@ -253,9 +253,7 @@ curl -X 'POST' \
 #### How to Find Your Tokens
 
 
-~~**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.~~
-
-**Note**: [__Claude__](https://claude.ai/) offers two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 **Important**:
 "The auto session bug is caused by using multiple Google accounts or browser profiles. It needs more time to fully fix. A future update will address it. For now, manually copy sessions and cookies as a workaround like below instruction."
@@ -276,6 +274,10 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 
 [![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
 
+**Method 1:** <br>
+For Bard, all you need to do is [login](https://bard.google.com/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
+
+**Method 2:** <br>
 _`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
 <br>
 
@@ -309,7 +311,7 @@ _`Google Bard:`_ Please obtain the cookies mentioned here from an authorized ses
 [![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
 
 **Method 1:** <br>
-For Claude, all you need to do is [login](https://claude.ai/) to your account using your web browser. (Firefox, Chrome, Safari)
+For Claude, all you need to do is [login](https://claude.ai/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
 
 **Method 2:** <br>
 _`Claude:`_ You can get cookie from the browser's developer tools network tab ( see for any [claude.ai](https://claude.ai/) requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
@@ -359,7 +361,7 @@ which is your `Authorization` header session, is included in the request. ([Scre
 - [Claude](#claude)
 - [ChatGPT](#chatgpt)
 
-**Note**: Claude ~~and Bard~~ present Auto Login options - logging in through your browser or configuring Claude ~~and Bard~~ using the provided config file.
+**Note**: Claude and Bard present Auto Login options - logging in through your browser or configuring Claude and Bard using the provided config file.
 <br>
 
 
