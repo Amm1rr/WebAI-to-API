@@ -256,7 +256,7 @@ curl -X 'POST' \
 **Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 **Important**:
-"The auto session bug is caused by using multiple Google accounts or browser profiles. It needs more time to fully fix. A future update will address it. For now, manually copy sessions and cookies as a workaround like below instruction."
+"The auto login by browser issue is caused by using multiple accounts or browser profiles. It will take some time to fully resolve. A future update will address it. For now, if you have problems logging in with your browsers, try logging in with just one browser or manually copy sessions and cookies as a workaround, as described in the instructions below."
 
 <br>
 
