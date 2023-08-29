@@ -37,7 +37,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 
 <br>
 
-This repository is up-to-date.
+This repository is up-to-date.<br>
 Please don't forget to give a Star ⭐
 
 <br>
