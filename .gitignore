@@ -8,3 +8,4 @@ Issues/
 /src/__pycache__
 /src/adapter/
 src/claude_stream.py
+.idea/
