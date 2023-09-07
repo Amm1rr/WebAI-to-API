@@ -466,20 +466,20 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
 
     if not cookie:
         cookie = get_Cookie("Claude")
-        if not cookie:
-            config = configparser.ConfigParser()
-            config.read(filenames=CONFIG_FILE_PATH)
-            cookie = config.get("Claude", "COOKIE", fallback=None)
-            if not cookie:
-                response_error = {
-                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                }
+    if not cookie:
+        config = configparser.ConfigParser()
+        config.read(filenames=CONFIG_FILE_PATH)
+        cookie = config.get("Claude", "COOKIE", fallback=None)
+    if not cookie:
+        response_error = {
+            "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+        }
 
-                print(response_error)
-                return response_error
-                            # raise ValueError(
-                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                            # )
+        print(response_error)
+        return response_error
+                    # raise ValueError(
+                    #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                    # )
 
     claude = Client(cookie)
     conversation_id = None
@@ -496,28 +496,26 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
                 getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
                 media_type="application/json",
             )
-    else:
-      
-        resp = claude.send_message(claudeMessage.message, conversation_id)
-  
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": resp,
-                    },
-                    "index": 0,
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-  
-        return JSONResponse(openairesp)
+    resp = claude.send_message(claudeMessage.message, conversation_id)
+
+    openairesp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": resp,
+                },
+                "index": 0,
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+    return JSONResponse(openairesp)
 
 
 
@@ -540,20 +538,20 @@ async def ask_claude(request: Request, message: Message):
 
     if not cookie:
         cookie = get_Cookie("Claude")
-        if not cookie:
-            config = configparser.ConfigParser()
-            config.read(filenames=CONFIG_FILE_PATH)
-            cookie = config.get("Claude", "COOKIE", fallback=None)
-            if not cookie:
-                response_error = {
-                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                }
+    if not cookie:
+        config = configparser.ConfigParser()
+        config.read(filenames=CONFIG_FILE_PATH)
+        cookie = config.get("Claude", "COOKIE", fallback=None)
+    if not cookie:
+        response_error = {
+            "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+        }
 
-                print(response_error)
-                return response_error
-                            # raise ValueError(
-                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                            # )
+        print(response_error)
+        return response_error
+                    # raise ValueError(
+                    #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                    # )
 
     claude = Client(cookie)
     conversation_id = None
