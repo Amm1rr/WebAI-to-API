@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+
+  web_ai:
+    image: cornatul/webai.ai
+    container_name: web_ai_server
+    restart: always
+    volumes:
+      - ./:/app/
+    ports:
+      - "5000:5000"
