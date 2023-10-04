@@ -505,28 +505,26 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
                 getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
                 media_type="application/json",
             )
-    else:
-      
-        resp = claude.send_message(claudeMessage.message, conversation_id)
-  
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": resp,
-                    },
-                    "index": 0,
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-  
-        return JSONResponse(openairesp)
+    resp = claude.send_message(claudeMessage.message, conversation_id)
+
+    openairesp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": resp,
+                },
+                "index": 0,
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+    return JSONResponse(openairesp)
 
 
 
