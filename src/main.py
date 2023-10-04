@@ -38,6 +38,9 @@ from anyio import Path
 CONFIG_FILE_NAME = "Config.conf"
 CONFIG_FOLDER = os.getcwd()
 
+"""Disable search on files cookie(fix 'PermissionError: [Errno 1] Operation not permitted') now used only for Claude"""
+ISCONFIGONLY = False
+
 # CONFIG_FOLDER = os.path.expanduser("~/.config")
 # CONFIG_FOLDER = Path(CONFIG_FOLDER) / "WebAI_to_API"
 
@@ -465,8 +468,14 @@ def ask_gptClaude(request: Request, message: MessageChatGPT):
     #     cookie = os.environ.get("CLAUDE_COOKIE")
 
     if not cookie:
-        cookie = get_Cookie("Claude")
-        if not cookie:
+        # if error by system(permission denided)
+        try:
+            if ISCONFIGONLY:
+                raise Exception()
+            cookie = get_Cookie("Claude")
+            if not cookie:
+                raise Exception()
+        except Exception as _:
             config = configparser.ConfigParser()
             config.read(filenames=CONFIG_FILE_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
@@ -539,8 +548,14 @@ async def ask_claude(request: Request, message: Message):
     #     cookie = os.environ.get("CLAUDE_COOKIE")
 
     if not cookie:
-        cookie = get_Cookie("Claude")
-        if not cookie:
+        # if error by system(permission denided)
+        try:
+            if ISCONFIGONLY:
+                raise Exception()
+            cookie = get_Cookie("Claude")
+            if not cookie:
+                raise Exception()
+        except Exception as _:
             config = configparser.ConfigParser()
             config.read(filenames=CONFIG_FILE_PATH)
             cookie = config.get("Claude", "COOKIE", fallback=None)
