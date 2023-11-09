@@ -3,11 +3,11 @@
 
 # WebAI to API
 
-This project implements a web API that offers a unified interface to ChatGPT, Google Bard, and Claude, 3 in 1
+This project implements a web API that offers a unified interface to ~ChatGPT,~ Google Bard, and Claude.
 
 ### Key Features
 
-- **Unified API:** Single integration to query ChatGPT, Bard, and Claude. No juggling multiple APIs.
+- **Unified API:** Single integration to query ~ChatGPT,~ Bard, and Claude. No juggling multiple APIs.
 
 - **Conversational interface:** Text completion, QA, discussions. Put advanced AI to work immediately.
 
@@ -24,7 +24,7 @@ This project implements a web API that offers a unified interface to ChatGPT, Go
 
 ✅ ***Claude-2*** Web to API integration is also fully implemented and available.
 
-✅ ***ChatGPT*** Web to API integration is fully complete and available now.
+✅ ***ChatGPT*** ~Web to API integration is fully complete and available now.~
 
 ✅ ***ChatGPT to Claude***, The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
 
@@ -49,7 +49,7 @@ Python version >= 3.10
 
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
--   ChatGPT: https://openai.com/api/
+-   ~ChatGPT: https://openai.com/api/~
 -   Google Bard: https://bard.google.com/
 -   Claude: https://claude.ai/
 
@@ -286,7 +286,7 @@ _`Google Bard:`_ Please obtain the cookies mentioned here from an authorized ses
 |-|-|  
 | `session_id` | `__Secure-1PSID` |
 | `session_idts` | `__Secure-1PSIDTS` |  
-| `session_idcc` | `__Secure-1PSCC` |
+| `session_idcc` | `__Secure-1PSIDCC` |
 
 
 
