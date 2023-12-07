@@ -143,6 +143,8 @@ class ChatbotBard:
             print(f"ERROR: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
             return None
 
+        print(resp.text)
+
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
             print("Error: Failed to retrieve the Google Bard website.")
@@ -152,6 +154,7 @@ class ChatbotBard:
             # - OR
             pattern = r"SNlM0e\":\"(.*?)\""
             if match := re.search(pattern, resp.text):
+                print(match[1])
                 return match[1]
             print("Error: Session not found.")
             # raise ValueError("Error: Session not found.")
@@ -228,7 +231,8 @@ class ChatbotBard:
         """
         # url params
         params = {
-            "bl": "boq_assistant-bard-web-server_20230326.21_p0",
+            #"bl": "boq_assistant-bard-web-server_20230326.21_p0",
+            "bl": "boq_assistant-bard-web-server_20231205.02_p1",
             "_reqid": str(self._reqid),
             "rt": "c",
         }
@@ -248,9 +252,12 @@ class ChatbotBard:
         # Question
         # print(message)
 
+        # full url: https://bard.google.com/u/2/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=boq_assistant-bard-web-server_20231205.02_p1&f.sid=-926918871858985742&hl=en&_reqid=1073829&rt=c
+
         # do the request!
         resp = self.session.post(
-            "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+            #"https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+            "https://bard.google.com/u/2/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
             params=params,
             data=data,
             timeout=120,
