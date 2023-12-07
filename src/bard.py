@@ -143,8 +143,6 @@ class ChatbotBard:
             print(f"ERROR: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
             return None
 
-        print(resp.text)
-
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
             print("Error: Failed to retrieve the Google Bard website.")
