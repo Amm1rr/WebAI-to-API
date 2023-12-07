@@ -61,7 +61,6 @@ else:
 
         # Print the response
         result = response.json()
-        #print(result)
         print(result["choices"])
 
         # return result["response"]
