@@ -569,7 +569,7 @@ async def ask_claude(request: Request, message: Message):
                             # raise ValueError(
                             #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
                             # )
-
+    
     claude = Client(cookie)
     conversation_id = None
 
@@ -580,17 +580,14 @@ async def ask_claude(request: Request, message: Message):
     if not message.message:
         message.message = "Hi, are you there?"
 
-    # TODO - Remove hard-coded values and implement streaming properly
-    # It's just a temporary solution to re-implement streaming response
-    message.stream = False
-
     if message.stream:
-        return StreamingResponse(
-            claude.stream_message(message.message, conversation_id),
-            media_type="text/event-stream",
-        )
+        res = await claude.stream_message(message.message, conversation_id)
+        # print(res)
+        return res
     else:
-        return claude.send_message(message.message, conversation_id)
+        res = claude.send_message(message.message, conversation_id)
+        # print(res)
+        return res
 
 
 #############################################
