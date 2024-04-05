@@ -127,20 +127,20 @@ class ChatbotBard:
     
     def _get_headers(self):
         return {
-            'authority': 'bard.google.com',
-            "Host": "bard.google.com",
+            'authority': 'gemini.google.com',
+            "Host": "gemini.google.com",
             "X-Same-Domain": "1",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-            "Origin": "https://bard.google.com",
-            "Referer": "https://bard.google.com/",
+            "Origin": "https://gemini.google.com",
+            "Referer": "https://gemini.google.com/",
             'x-same-domain': '1'
         }
     def __get_snlm0e(self):
         try:
-            resp = self.session.get(url="https://bard.google.com/", timeout=10)
+            resp = self.session.get(url="https://gemini.google.com/", timeout=10)
         except Exception as e:
-            print(f"ERROR: Unable to access the Google Bard website. Please check your internet connection.\n\n{str(e)}")
+            print(f"ERROR: Unable to access the Google Gemini website. Please check your internet connection.\n\n{str(e)}")
             return None
 
         # Find "SNlM0e":"<ID>"
@@ -164,13 +164,13 @@ class ChatbotBard:
 
     def ask(self, message: str) -> dict:
         """
-        Send a message to Google Bard and return the response.
-        :param message: The message to send to Google Bard.
-        :return: A dict containing the response from Google Bard.
+        Send a message to Google Gemini and return the response.
+        :param message: The message to send to Google Gemini.
+        :return: A dict containing the response from Google Gemini.
         """
         # url params
         params = {
-            "bl": "boq_assistant-bard-web-server_20230326.21_p0",
+            "bl": "boq_assistant-bard-web-server_20240403.10_p0",
             "_reqid": str(self._reqid),
             "rt": "c",
         }
@@ -192,7 +192,7 @@ class ChatbotBard:
 
         # do the request!
         resp = self.session.post(
-            "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+            "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
             params=params,
             data=data,
             timeout=120,
@@ -228,7 +228,7 @@ class ChatbotBard:
         """
         # url params
         params = {
-            "bl": "boq_assistant-bard-web-server_20231205.02_p1",
+            "bl": "boq_assistant-bard-web-server_20240403.10_p0",
             "_reqid": str(self._reqid),
             "rt": "c",
         }
@@ -250,7 +250,7 @@ class ChatbotBard:
 
         # do the request!
         resp = self.session.post(
-            "https://bard.google.com/u/2/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+            "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
             params=params,
             data=data,
             timeout=120,
@@ -296,12 +296,12 @@ class ChatbotBard:
 
         # url params
         params = {
-            "bl": "boq_assistant-bard-web-server_20230326.21_p0",
+            "bl": "boq_assistant-bard-web-server_20240403.10_p0",
             "_reqid": str(self._reqid),
             "rt": "c",
         }
 
-        url = "https://bard.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
+        url = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
 
         # message arr -> data["f.req"]. Message is double json stringified
         message_struct = [
@@ -353,7 +353,7 @@ class ChatbotBard:
 # if __name__ == "__main__":
 #     print(
 #         """
-#         Bard - A command-line interface to Google's Bard (https://bard.google.com/)
+#         Bard - A command-line interface to Google's Gemini (https://gemini.google.com/)
 #         Repo: github.com/acheong08/Bard
 #         Enter `alt+enter` or `esc+enter` to send a message.
 #         """,

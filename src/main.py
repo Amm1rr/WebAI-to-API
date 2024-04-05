@@ -272,12 +272,12 @@ async def ask_gpt(request: Request, message: Message):
 
 #############################################
 ####                                     ####
-#####             The Bard              #####
+#####             The Gemini            #####
 ####                                     ####
 
 
-@app.post("/bard")
-async def ask_bard(request: Request, message: MessageBard):
+@app.post("/gemini")
+async def ask_gemini(request: Request, message: MessageBard):
     """API endpoint to get response from Anthropic's Claude/Bard.
 
     Args:
@@ -311,10 +311,15 @@ async def ask_bard(request: Request, message: MessageBard):
         Returns:
             str: The session ID.
         """
-        config = configparser.ConfigParser()
-        config.read(CONFIG_FILE_PATH)
-        sess_id = config.get("Bard", sessionId)
+        # try:
+        #     config = configparser.ConfigParser()
+        #     config.read(CONFIG_FILE_PATH)
+        #     sess_id = config.get("Germini", sessionId)
 
+        # except Exception as e:
+        #     print(e)
+        #     sess_id = None
+        sess_id = None
         if not sess_id:
             sessions = get_cookies(".google.com")
             return sessions
@@ -411,7 +416,7 @@ async def ask_bard(request: Request, message: MessageBard):
 
 #############################################
 ####                                     ####
-#####              Claude2              #####
+#####              Claude 3             #####
 ####                                     ####
 
 async def getGPTClaude(chat: Chatbot, message: Message, conversation_id):
@@ -582,11 +587,11 @@ async def ask_claude(request: Request, message: Message):
 
     if message.stream:
         res = await claude.stream_message(message.message, conversation_id)
-        # print(res)
+        print(res)
         return res
     else:
         res = claude.send_message(message.message, conversation_id)
-        # print(res)
+        print(res)
         return res
 
 

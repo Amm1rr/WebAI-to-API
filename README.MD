@@ -3,32 +3,32 @@
 
 # WebAI to API
 
-This project implements a web API that offers a unified interface to ~ChatGPT,~ Google Bard, and Claude.
+This project implements a web API that offers a unified interface to ~ChatGPT,~ Google Gemini, and Claude 3.
 
 ### Key Features
 
-- **Unified API:** Single integration to query ~ChatGPT,~ Bard, and Claude. No juggling multiple APIs.
+- **Unified API:** Single integration to query ~ChatGPT,~ Gemini, and Claude. No juggling multiple APIs.
 
 - **Conversational interface:** Text completion, QA, discussions. Put advanced AI to work immediately.
 
 - **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
 
-- **Streaming support:** Real-time responses from ChatGPT and Bard. Claude streaming coming soon.
+- **Streaming support:** Real-time responses from ~ChatGPT and~ Gemini. Claude streaming coming soon.
 
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
 
 ### Status
 
-✅ ***Google Bard*** Web to API integration available now.
+✅ ***Google Gemini*** Web to API integration available now.
 
-✅ ***Claude-2*** Web to API integration is also fully implemented and available.
+✅ ***Claude-3*** Web to API integration is also fully implemented and available.
 
 ✅ ***ChatGPT*** ~Web to API integration is fully complete and available now.~
 
 ✅ ***ChatGPT to Claude***, The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
 
-🔜 ***ChatGPT to Bard***, Get ready for next chapter
+🔜 ***ChatGPT to Gemini***, Get ready for next chapter
 
 
 <br>
@@ -50,14 +50,14 @@ Python version >= 3.10
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
 -   ~ChatGPT: https://openai.com/api/~
--   Google Bard: https://bard.google.com/
+-   Google Gemini: https://gemini.google.com/
 -   Claude: https://claude.ai/
 
 Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
 <br>
 
-**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
+**Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
 
 <br>
 
@@ -105,9 +105,9 @@ http://127.0.0.1:8000/docs
 Available **Endpoints:**
 
 ```bash
-#---------- Google Bard
+#---------- Google Gemini
 
-http://127.0.0.1:8000/bard
+http://127.0.0.1:8000/gemini
 
 
 #---------- Claude
@@ -254,7 +254,7 @@ curl -X 'POST' \
 #### How to Find Your Tokens
 
 
-**Note**: [**Claude**](https://claude.ai/) and [**Bard**](https://bard.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+**Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 **Important**:
 "The auto login by browser issue is caused by using multiple accounts or browser profiles. It will take some time to fully resolve. A future update will address it. For now, if you have problems logging in with your browsers, try logging in with just one browser or manually copy sessions and cookies as a workaround, as described in the instructions below."
@@ -269,17 +269,17 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 
   <summary>
 
-#### Bard
+#### Gemini
 
   </summary>
 
 [![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
 
 **Method 1:** <br>
-For Bard, all you need to do is [login](https://bard.google.com/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
+For Gemini, all you need to do is [login](https://gemini.google.com/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
 
 **Method 2:** <br>
-_`Google Bard:`_ Please obtain the cookies mentioned here from an authorized session on bard.google.com. The cookies can be used to send POST requests to the /bard endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
+_`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized session on gemini.google.com. The cookies can be used to send POST requests to the /gemini endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
 <br>
 
 | Name | Session Name |
@@ -292,7 +292,7 @@ _`Google Bard:`_ Please obtain the cookies mentioned here from an authorized ses
 
 
 
-1. Login to [bard.google.com](https://bard.google.com)
+1. Login to [gemini.google.com](https://gemini.google.com)
 2. Open `Developer Tools` (Press **F12**)
 3. Go to `Application Tab`
 4. Go to `Cookies Tab`
@@ -358,11 +358,11 @@ which is your `Authorization` header session, is included in the request. ([Scre
 
 [How to Find Your Tokens](#usage)
 
-- [Google Bard](#bard)
+- [Google Gemini](#gemini)
 - [Claude](#claude)
 - [ChatGPT](#chatgpt)
 
-**Note**: Claude and Bard present Auto Login options - logging in through your browser or configuring Claude and Bard using the provided config file.
+**Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
 <br>
 
 
@@ -376,7 +376,7 @@ which is your `Authorization` header session, is included in the request. ([Scre
 [Claude]
 COOKIE=[YOURS]
 
-[Bard]
+[Gemini]
 SESSION_ID=[YOURS]
 SESSION_IDTS=[YOURS]
 SESSION_IDCC=[YOURS]
@@ -392,7 +392,7 @@ ACCESS_TOKEN=[YOURS]
 
 ## Sources
 
-[Google Bard API](https://github.com/ra83205/google-bard-api) | [revChatGPT](https://github.com/acheong08/ChatGPT/)
+[Google Gemini API](https://github.com/ra83205/google-bard-api) | ~[revChatGPT](https://github.com/acheong08/ChatGPT/)~
 
 <br>
 

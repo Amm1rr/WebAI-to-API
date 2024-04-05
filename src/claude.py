@@ -5,8 +5,6 @@ import json, os, uuid
 from curl_cffi import requests
 import requests as req
 import re
-import aiohttp
-import asyncio
 from datetime import datetime
 import httpx
 
