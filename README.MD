@@ -388,13 +388,6 @@ ACCESS_TOKEN=[YOURS]
 ```
 
 <br>
-<hr>
-
-## Sources
-
-[Google Gemini API](https://github.com/ra83205/google-bard-api) | ~[revChatGPT](https://github.com/acheong08/ChatGPT/)~
-
-<br>
 
 ## Licensing
 
