@@ -277,9 +277,10 @@ class ChatbotBard:
         self.choice_id = results["choices"][0]["id"]
         self._reqid += 100000
 
-        return {
-            "choices": [{"message": {"content": results["choices"][0]["content"]}}]
-        }
+        # return {
+        #     "choices": [{"message": {"content": results["choices"][0]["content"]}}]
+        # }
+        return results["choices"][0]["content"][0]
 
     def ask_bardStream(self, message: str) -> dict:
         """

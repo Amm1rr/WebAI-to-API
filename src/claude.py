@@ -188,8 +188,11 @@ class Client:
                     if len(parts) == 2:
                         event_type, data = parts
                         if data != 'completion' and data != 'ping':
+                          try:
                             event_data = json.loads(data)
                             events.append(event_data['completion'])
+                          except json.JSONDecodeError:
+                            print("CLAUDE STREAM ERROR: ", data)
             # print(events)
             return events
 
@@ -202,7 +205,7 @@ class Client:
       if attachment_response:
         attachments = [attachment_response]
       else:
-        return {"Error: Invalid file format. Please try again."}
+        yield {"Error: Invalid file format. Please try again."}
 
 
     # Ensure attachments is an empty list when no attachment is provided
@@ -244,9 +247,9 @@ class Client:
                 text_res += text
 
         answer = ''.join(text_res).strip()
-        # print(answer)
+        print(answer)
     
-    return answer
+    yield answer
 
 
   # Deletes the conversation

@@ -22,8 +22,6 @@ from h11 import Response
 from pydantic import BaseModel
 
 # Local Imports
-from revChatGPT.V1 import Chatbot
-from revChatGPT.typings import Error
 from bard import ChatbotBard
 from claude import Client
 from anyio import Path
@@ -91,185 +89,6 @@ class MessageChatGPT(BaseModel):
     top_p: float = 0.8
     stream: bool = True
 
-
-#############################################
-####                                     ####
-#####              ChatGPT              #####
-####                                     ####
-
-
-async def getGPTData(chat: Chatbot, message: Message):
-    """Gets response data from ChatGPT API.
-
-    Args:
-        chat (Chatbot): Chatbot client object
-        message (Message): Message request object
-
-    Yields:
-        str: ChatGPT response chunks
-
-    Raises:
-        ConnectionError: If internet connection or API server is unavailable
-        HTTPError: If HTTP error response received from API
-        RequestException: If other request error occurs
-        Exception: For any other errors
-
-    """
-    try:
-        prev_text = ""
-        for data in chat.ask(message.message):
-            msg = data["message"][len(prev_text) :]
-            openai_response = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "gpt-3.5-turbo",
-                "usage": {
-                    "prompt_tokens": None,
-                    "completion_tokens": None,
-                    "total_tokens": None,
-                },
-                "choices": [
-                    {
-                        "delta": {
-                            "role": "assistant",
-                            "content": msg,
-                        },
-                        "index": 0,
-                        "finish_reason": "[DONE]",
-                    }
-                ],
-            }
-
-            js = json.dumps(openai_response, indent=2)
-            # print(js)
-
-            prev_text = data["message"]
-
-            try:
-                yield (f"{msg}")
-            except:
-                continue
-
-    except requests.exceptions.ConnectionError:
-        # Handle the ConnectionError exception here
-        print(
-            "Connection error occurred. Please check your internet connection or the server's availability."
-        )
-        yield (
-            "Connection error occurred. Please check your internet connection or the server's availability."
-        )
-
-    except requests.exceptions.HTTPError as http_err:
-        # Handle HTTPError (e.g., 404, 500) if needed
-        print(f"HTTP error occurred: {http_err}")
-        yield (f"HTTP error occurred: {http_err}")
-
-    except requests.exceptions.RequestException as req_err:
-        # Handle other request exceptions if needed
-        print(f"Request error occurred: {req_err}")
-        yield (f"Request error occurred: {req_err}")
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        yield (str(f"Error: {str(e)}"))
-
-
-@app.post("/chatgpt")
-async def ask_gpt(request: Request, message: Message):
-    """API endpoint to get response from ChatGPT.
-
-    Args:
-        request (Request): API request object.
-        message (Message): Message request object.
-
-    Returns:
-        str: ChatGPT response.
-
-    Raises:
-        ConnectionError: If internet connection or API server is unavailable.
-        HTTPError: If HTTP error response received from API.
-        RequestException: If other request error occurs.
-        Error: If ChatGPT API error occurs.
-
-    """
-    access_token = None  #message.session_id
-    # if not IsSession(access_token):
-    #     access_token = os.getenv("OPENAI_API_SESSION")
-    if not IsSession(access_token):
-        config = configparser.ConfigParser()
-        config.read(filenames=CONFIG_FILE_PATH)
-        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
-        if not IsSession(access_token):
-            return f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-    chatbot = Chatbot(config={"access_token": access_token})
-
-    response = []
-    if message.stream == True:
-        try:
-            return StreamingResponse(
-                getGPTData(chat=chatbot, message=message),
-                media_type="text/event-stream",
-            )
-
-        # return "".join(response)
-        # # return {"response": "".join(response)}
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(e)
-                return e
-    else:
-        try:
-            for data in chatbot.ask(message.message):
-                response = data["message"]
-
-            return response
-        except requests.exceptions.ConnectionError:
-            # Handle the ConnectionError exception here
-            print(
-                "Connection error occurred. Please check your internet connection or the server's availability."
-            )
-            return "Connection error occurred. Please check your internet connection or the server's availability."
-
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTPError (e.g., 404, 500) if needed
-            print(f"HTTP error occurred: {http_err}")
-            return f"HTTP error occurred: {http_err}"
-
-        except requests.exceptions.RequestException as req_err:
-            # Handle other request exceptions if needed
-            print(f"Request error occurred: {req_err}")
-            return f"Request error occurred: {req_err}"
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print("Error 01: ")
-            else:
-                print("Error 02: ")
-
-            return e
-
-
 #############################################
 ####                                     ####
 #####             The Gemini            #####
@@ -311,15 +130,15 @@ async def ask_gemini(request: Request, message: MessageBard):
         Returns:
             str: The session ID.
         """
-        # try:
-        #     config = configparser.ConfigParser()
-        #     config.read(CONFIG_FILE_PATH)
-        #     sess_id = config.get("Germini", sessionId)
+        try:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE_PATH)
+            sess_id = config.get("Germini", sessionId)
 
-        # except Exception as e:
-        #     print(e)
-        #     sess_id = None
-        sess_id = None
+        except Exception as e:
+            # print(e)
+            sess_id = None
+        
         if not sess_id:
             sessions = get_cookies(".google.com")
             return sessions
@@ -419,122 +238,6 @@ async def ask_gemini(request: Request, message: MessageBard):
 #####              Claude 3             #####
 ####                                     ####
 
-async def getGPTClaude(chat: Chatbot, message: Message, conversation_id):
-    try:
-        prev_text = ""
-        for chunck in chat.stream_message(message.message, conversation_id):
-            # remove b' and ' at the beginning and end and ignore case
-            # line = str(chunck)[2:-1]
-            line = str(chunck)
-            if not line or line is None:
-                continue
-            if line == "[DONE]":
-                break
-
-            # res_text = chunck[len(prev_text) :]
-            # prev_text = message
-
-            OpenAIResp = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "gpt-3.5-turbo",
-                "choices": [
-                    {
-                        "delta": {
-                            "role": "assistant",
-                            "content": chunck,
-                        },
-                        "index": 0,
-                        "finish_reason": "",
-                    }
-                ],
-            }
-
-            jsonresp = json.dumps(OpenAIResp)
-
-            yield f"{jsonresp}\n"
-
-    except Exception as e:
-        print(f"Error : {str(e)}")
-        yield f"Error : {str(e)}"
-
-@app.post("/claude/v1/chat/completions")
-def ask_gptClaude(request: Request, message: MessageChatGPT):
-
-    claudeMessage = Message
-    claudeMessage.message = str(message.messages)
-    claudeMessage.session_id = None # message.session_id
-    claudeMessage.stream = message.stream
-
-    cookie = None #message.session_id
-
-    # if not cookie:
-    #     cookie = os.environ.get("CLAUDE_COOKIE")
-
-    if not cookie:
-        # if error by system(permission denided)
-        try:
-            if ISCONFIGONLY:
-                raise Exception()
-            cookie = get_Cookie("Claude")
-            if not cookie:
-                raise Exception()
-        except Exception as _:
-            config = configparser.ConfigParser()
-            config.read(filenames=CONFIG_FILE_PATH)
-            cookie = config.get("Claude", "COOKIE", fallback=None)
-            if not cookie:
-                response_error = {
-                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                }
-
-                print(response_error)
-                return response_error
-                            # raise ValueError(
-                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                            # )
-
-    claude = Client(cookie)
-    conversation_id = None
-
-    if not conversation_id:
-        conversation = claude.create_new_chat()
-        conversation_id = conversation["uuid"]
-
-    if not claudeMessage.message:
-        claudeMessage.message = "Hi, are you there?"
-
-    if claudeMessage.stream:
-        return StreamingResponse(
-                getGPTClaude(chat=claude, message=claudeMessage, conversation_id=conversation_id),
-                media_type="application/json",
-            )
-    else:
-      
-        resp = claude.send_message(claudeMessage.message, conversation_id)
-  
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": resp,
-                    },
-                    "index": 0,
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-  
-        return JSONResponse(openairesp)
-
-
-
 @app.post("/claude")
 async def ask_claude(request: Request, message: Message):
     """API endpoint to get Claude response.
@@ -586,12 +289,15 @@ async def ask_claude(request: Request, message: Message):
         message.message = "Hi, are you there?"
 
     if message.stream:
-        res = await claude.stream_message(message.message, conversation_id)
-        print(res)
-        return res
+        res = claude.stream_message(message.message, conversation_id)
+        # print(res)
+        return StreamingResponse(
+                res,
+                media_type="text/event-stream",
+            )
     else:
         res = claude.send_message(message.message, conversation_id)
-        print(res)
+        # print(res)
         return res
 
 
@@ -601,7 +307,7 @@ async def ask_claude(request: Request, message: Message):
 ####        `/v1/chat/completions`       ####
 
 
-async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
+async def getChatGPTData(message: MessageChatGPT):
     """Gets AI response data from ChatGPT Website.
 
     Args:
@@ -611,191 +317,55 @@ async def getChatGPTData(chat: Chatbot, message: MessageChatGPT):
     Yields:
         str: JSON response chunks.
     """
-    try:
-        prev_text = ""
-        for data in chat.ask(str(message.messages[0])):
-            # remove b' and ' at the beginning and end and ignore case
-            # line = str(data)[2:-1]
-            line = str(data)
-            if not line or line is None:
-                continue
-            if "data: " in line:
-                line = line[6:]
-            if line == "[DONE]":
-                break
+    jsonresp = {
+        "author": author,
+        "message": res_text,
+        "conversation_id": cid,
+        "parent_id": pid,
+        "model": model,
+        "finish_details": finish_details,
+        "end_turn": line["end_turn"],
+        "recipient": line["recipient"],
+        "citations": line["citations"],
+    }
 
-            # DO NOT REMOVE THIS
-            # line = line.replace('\\"', '"')
-            # line = line.replace("\\'", "'")
-            # line = line.replace("\\\'", "\\")
-
-            try:
-                # https://stackoverflow.com/questions/4162642/single-vs-double-quotes-in-json/4162651#4162651
-                # import ast
-                # line = ast.literal_eval(line)
-                line = eval(line)
-                line = json.loads(json.dumps(line))
-
-            # except json.decoder.JSONDecodeError as e:
-            except Exception as e:
-                print(f"ERROR Decode: {e}")
-                continue
-
-            # if line.get("message").get("author").get("role") != "assistant":
-            if line.get("author").get("role") != "assistant":
-                continue
-
-            cid = line["conversation_id"]
-            pid = line["parent_id"]
-
-            author = {}
-            author = line.get("author", {})
-
-            message = line["message"]
-
-            model = line["model"]
-            finish_details = line["finish_details"]
-
-            res_text = message[len(prev_text) :]
-            prev_text = message
-
-            jsonresp = {
-                "author": author,
-                "message": res_text,
-                "conversation_id": cid,
-                "parent_id": pid,
-                "model": model,
-                "finish_details": finish_details,
-                "end_turn": line["end_turn"],
-                "recipient": line["recipient"],
-                "citations": line["citations"],
+    OpenAIResp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "delta": {
+                    "role": "assistant",
+                    "content": res_text,
+                },
+                "index": 0,
+                "finish_reason": finish_details,
             }
+        ],
+    }
 
-            OpenAIResp = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "delta": {
-                            "role": "assistant",
-                            "content": res_text,
-                        },
-                        "index": 0,
-                        "finish_reason": finish_details,
-                    }
-                ],
-            }
+    # openairesp = {
+    # "id": f"chatcmpl-{str(time.time())}",
+    # "object": "chat.completion.chunk",
+    # "created": int(time.time()),
+    # "model": "gpt-3.5-turbo",
+    # "choices": [
+    #     {
+    #         "message": {
+    #             "role": "assistant",
+    #             "content": resp,
+    #         },
+    #         "index": 0,
+    #         "finish_reason": "stop",
+    #     }
+    # ],
 
-            jsonresp = json.dumps(OpenAIResp)
+    jsonresp = json.dumps(OpenAIResp)
 
-            yield f"{jsonresp}\n"
-
-    except Exception as e:
-        print(f"Error : {str(e)}")
-        yield f"Error : {str(e)}"
-
-
-@app.post("/v1/chat/completions")
-def ask_chatgpt(request: Request, message: MessageChatGPT):
-    """API endpoint to get ChatGPT response.
-
-    Args:
-        request (Request): API request object.
-        message (MessageChatGPT): Message request object.
-
-    Returns:
-        str: ChatGPT response.
-    """
-    access_token = os.getenv("OPENAI_API_SESSION")
-    if not IsSession(access_token):
-        config = configparser.ConfigParser()
-        config.read(filenames=CONFIG_FILE_PATH)
-        access_token = config.get("ChatGPT", "ACCESS_TOKEN", fallback=None)
-        if not IsSession(access_token):
-            return f"You should set ACCESS_TOKEN in {CONFIG_FILE_NAME} file or send it as an argument."
-    chatbot = Chatbot(
-        config={
-            "access_token": access_token,
-        }
-    )
-
-    response = []
-    if message.stream == True:
-        try:
-            return StreamingResponse(
-                getChatGPTData(chat=chatbot, message=message),
-                media_type="application/json",
-            )
-
-        # return "".join(response)
-        # # return {"response": "".join(response)}
-
-        except Exception as e:
-            if isinstance(e, Error):
-                try:
-                    # err = e.message
-                    # if e.__notes__:
-                    #     err = f"{err} \n\n {e.__notes__}"
-                    js = json.loads(e.message)
-                    print(js["detail"]["message"])
-                    return js["detail"]["message"]
-                except:
-                    print(e)
-                    return e
-            else:
-                print(e)
-                return e
-    else:
-        # try:
-        # print(" # Normal Request #")
-        for data in chatbot.ask(str(message.messages)):
-            # response = data["message"]
-            response = data
-
-        jsonresp = eval(str(response))
-        jsonresp = json.dumps(jsonresp)
-        jsonresp = json.loads(jsonresp)
-
-        openairesp = {
-            "id": f"chatcmpl-{str(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gpt-3.5-turbo",
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": jsonresp["message"],
-                    },
-                    "index": 0,
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-
-        # print(openairesp)
-        return JSONResponse(openairesp)
-        # print(response)
-        # except Exception as e:
-        #     print(str(e))
-        #     return e
-        # if isinstance(e, Error):
-        #     try:
-        #         # err = e.message
-        #         # if e.__notes__:
-        #         #     err = f"{err} \n\n {e.__notes__}"
-        #         js = json.loads(e.message)
-        #         print(js["detail"]["message"])
-        #         return js["detail"]["message"]
-        #     except:
-        #         print(str(e))
-        #         return e
-        # else:
-
-
-
+    yield f"{jsonresp}\n"
+    
 #############################################
 ####                                     ####
 #####        Develope Functions         #####
