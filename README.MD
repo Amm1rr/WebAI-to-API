@@ -3,17 +3,17 @@
 
 # WebAI to API
 
-This project implements a web API that offers a unified interface to ~ChatGPT,~ Google Gemini, and Claude 3.
+This project implements a web API that offers a unified interface to Google Gemini, and Claude 3.
 
 ### Key Features
 
-- **Unified API:** Single integration to query ~ChatGPT,~ Gemini, and Claude. No juggling multiple APIs.
+- **Unified API:** Single integration to query Gemini, and Claude. No juggling multiple APIs.
 
 - **Conversational interface:** Text completion, QA, discussions. Put advanced AI to work immediately.
 
 - **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
 
-- **Streaming support:** Real-time responses from ~ChatGPT and~ Gemini. Claude streaming coming soon.
+- **Streaming support:** Real-time responses from Gemini and Claude streaming.
 
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
@@ -24,11 +24,7 @@ This project implements a web API that offers a unified interface to ~ChatGPT,~ 
 
 ✅ ***Claude-3*** Web to API integration is also fully implemented and available.
 
-✅ ***ChatGPT*** ~Web to API integration is fully complete and available now.~
-
-✅ ***ChatGPT to Claude***, The new adapter connects the ChatGPT API to Claude. Developers can now build apps using the ChatGPT API to get Claude's AI responses.
-
-🔜 ***ChatGPT to Gemini***, Get ready for next chapter
+✅ ~***ChatGPT*** Web to API integration is fully complete and available now.~ (Discontinued)
 
 
 <br>
@@ -49,7 +45,6 @@ Python version >= 3.10
 
 Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
 
--   ~ChatGPT: https://openai.com/api/~
 -   Google Gemini: https://gemini.google.com/
 -   Claude: https://claude.ai/
 
@@ -114,21 +109,6 @@ http://127.0.0.1:8000/gemini
 
 http://127.0.0.1:8000/claude
 
-
-#---------- ChatGPT
-
-http://127.0.0.1:8000/chatgpt
-
-
-#---------- OpenAI ChatGPT JSON Response
-
-http://127.0.0.1:8000/v1/chat/completions
-
-
-#---------- Claude -> ChatGPT JSON Response
-
-http://127.0.0.1:8000/claude/v1/chat/completions
-
 ```
 
 <br><br>
@@ -159,40 +139,15 @@ _____
 --------------------
 
 
-# OpenAI Response Output:
+# Response Output:
 _____
 
 # Streaming
-  {
-    "id": "chatcmpl-123",
-    "object": "chat.completion.chunk",
-    "created": 1677652288,
-    "model": "gpt-3.5-turbo",
-    "choices": [{
-      "index": 0,
-      "delta": {
-        "content": "Hello",
-      },
-      "finish_reason": "stop"
-    }]
-  }
+  "String"
 
 
 # Not Streaming
-  {
-    "id": "chatcmpl-123",
-    "object": "chat.completion",
-    "created": 1677652288,
-    "model": "gpt-3.5-turbo",
-    "choices": [{
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "\n\nHello there, how may I assist you today?",
-      },
-      "finish_reason": "stop"
-    }]
-  }
+  "String"
 
 
 
@@ -216,12 +171,6 @@ python example_claude.py true
 
 python example_bard.py false
 python example_bard.py true
-
-python example_chatgpt1.py false
-python example_chatgpt1.py true
-
-python example_chatgpt2.py false
-python example_chatgpt2.py true
 
 ```
 
@@ -326,32 +275,6 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 
 </details>
 
-<br><hr><br>
-
-<details>
-
-  <summary>
-
-#### ChatGPT
-
-  </summary>
-
-[![Image](assets/ChatGPT-Thumb.jpg)](assets/ChatGPT.jpg)
-
-_`ChatGPT:`_ Please obtain the sessions mentioned here from an authorized session on chat.openai.com. The sessions can be used to
-send POST requests to the /chatgpt endpoint along with a message in a JSON payload. It is important that the session_id,
-which is your `Authorization` header session, is included in the request. ([Screenshot](assets/ChatGPT.jpg))
-
-1. Login to [chat.openai.com](https://chat.openai.com)
-2. at least ask any question.
-3. Open `Developer Tools` (Press **F12**)
-4. Go to `Network Tab`
-5. Select an ajax request (like step 4 in [picture](assets/ChatGPT.jpg))
-6. Copy the content of `Authorization`
-7. Set in [**Config.conf**](#configuration) file.
-
-</details>
-
 <br><hr>
 
 ## Configuration
@@ -360,7 +283,6 @@ which is your `Authorization` header session, is included in the request. ([Scre
 
 - [Google Gemini](#gemini)
 - [Claude](#claude)
-- [ChatGPT](#chatgpt)
 
 **Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
 <br>
@@ -380,10 +302,6 @@ COOKIE=[YOURS]
 SESSION_ID=[YOURS]
 SESSION_IDTS=[YOURS]
 SESSION_IDCC=[YOURS]
-
-[ChatGPT]
-ACCESS_TOKEN=[YOURS]
-
 
 ```
 
