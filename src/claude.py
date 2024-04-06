@@ -193,6 +193,7 @@ class Client:
                             events.append(event_data['completion'])
                           except json.JSONDecodeError:
                             print("CLAUDE STREAM ERROR: ", data)
+                          
             # print(events)
             return events
 
@@ -246,10 +247,10 @@ class Client:
             for text in response_parse_text:
                 text_res += text
 
-        answer = ''.join(text_res).strip()
+        answer = ''.join(text_res)
         print(answer)
     
-    yield answer
+        yield answer
 
 
   # Deletes the conversation

@@ -14,7 +14,7 @@ import anyio
 import browser_cookie3
 import uvicorn
 import requests
-from aiohttp import request
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
