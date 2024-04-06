@@ -166,7 +166,7 @@ class Client:
         text_res += text
     
     answer = ''.join(text_res).strip()
-    # print(answer)
+    print(answer)
     return answer
 
   # Send and Response Stream Message to Claude

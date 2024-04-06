@@ -280,6 +280,7 @@ class ChatbotBard:
         # return {
         #     "choices": [{"message": {"content": results["choices"][0]["content"]}}]
         # }
+        print(results["choices"][0]["content"][0])
         return results["choices"][0]["content"][0]
 
     def ask_bardStream(self, message: str) -> dict:
@@ -348,6 +349,7 @@ class ChatbotBard:
                 "choices": [{"message": {"content": results["choices"][0]["content"]}}]
             }
 
+            print(json_data["choices"][0]["message"]["content"][0])
             yield json_data["choices"][0]["message"]["content"][0]
 
 
