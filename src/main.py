@@ -1,6 +1,5 @@
 # Standard Library Imports
 import argparse
-import asyncio
 import configparser
 import json
 import os
@@ -10,10 +9,8 @@ from typing import Literal
 import urllib.parse
 
 # Third-Party Imports
-import anyio
 import browser_cookie3
 import uvicorn
-import requests
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

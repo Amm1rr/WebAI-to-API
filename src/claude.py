@@ -3,7 +3,6 @@
 
 import json, os, uuid
 from curl_cffi import requests
-import requests as req
 import re
 from datetime import datetime
 import httpx
