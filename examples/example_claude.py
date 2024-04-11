@@ -31,17 +31,34 @@ params = {
     "stream": stream,
 }
 
-## Make the API request
-#
-response = requests.post(API_ENDPOINT, json=params)
+response = requests.get(API_ENDPOINT, stream=stream)
+    
+# Check if the response is streaming
+if stream:
+    print("Handling streaming response...")
+    for chunk in response.iter_content(chunk_size=1024): 
+        if chunk:  # filter out keep-alive new chunks
+            # Process streaming data here (e.g., write to file)
+            print(chunk)  # Just an example; in a real scenario, you'd process the chunk
+else:
+    print("Handling non-streaming response...")
+    # Process the entire content at once
+    content = response.content
+    print(content)  # Assuming the content is text-readable for demonstration
 
-## Print the response
-#
-try:
-    if stream:
-        print(response.text, end="", flush=True)
-    else:
-        print(response.text)
-except Exception as e:
-    print(f"Error: {e}")
+
+
+# ## Make the API request
+# #
+# response = requests.post(API_ENDPOINT, json=params)
+
+# ## Print the response
+# #
+# try:
+#     if stream:
+#         print(response.text, end="", flush=True)
+#     else:
+#         print(response.text)
+# except Exception as e:
+#     print(f"Error: {e}")
 

@@ -76,16 +76,6 @@ class MessageBard(BaseModel):
     stream: bool = True
 
 
-"""ChatGPT request message data model."""
-
-
-class MessageChatGPT(BaseModel):
-    messages: list[dict[str, str]]
-    model: str = "gpt-3.5-turbo"
-    temperature: float = 0.9
-    top_p: float = 0.8
-    stream: bool = True
-
 #############################################
 ####                                     ####
 #####             The Gemini            #####
@@ -156,78 +146,89 @@ async def ask_gemini(request: Request, message: MessageBard):
     
     #if not session_idCC:
     #   session_idCC = get_session_id_Bard("SESSION_IDCC")
-    chatbot = None
+    gemini = None
     if not (session_id or session_idTS or session_idCC):
       cookies = get_session_id_Bard()
       if type(cookies) == dict:
-        chatbot = ChatbotBard(cookies)
+        gemini = ChatbotBard(cookies)
       else:
-        chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        gemini = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
         
     else:
-      chatbot = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+      gemini = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
     
     if not message.message:
         message.message = "Hi, are you there?"
+    
+    conversation_id = None
 
     if message.stream:
-        try:
+        # try:
             # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
             # if not chatbot.SNlM0e:
             #     return {"Error": "Check the Bard session."}
 
-            return StreamingResponse(
-                chatbot.ask_bardStream(message.message),
-                media_type="text/event-stream",
-            )
-        except requests.exceptions.ConnectionError:
-            # Handle the ConnectionError exception here
-            print(
-                "Connection error occurred. Please check your internet connection or the server's availability."
-            )
-            return "Connection error occurred. Please check your internet connection or the server's availability."
 
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTPError (e.g., 404, 500) if needed
-            print(f"HTTP error occurred: {http_err}")
-            return f"HTTP error occurred: {http_err}"
+            if message.stream:
+                res = gemini.ask_bard(message=message.message)
+                # print(res)
+                return StreamingResponse(
+                        res,
+                        media_type="text/event-stream",
+                    )
+            else:
+                res = await gemini.ask_bardStream(message=message.message)
+                # print(res)
+                return res
+        
+        # except requests.exceptions.ConnectionError:
+        #     # Handle the ConnectionError exception here
+        #     print(
+        #         "Connection error occurred. Please check your internet connection or the server's availability."
+        #     )
+        #     return "Connection error occurred. Please check your internet connection or the server's availability."
 
-        except requests.exceptions.RequestException as req_err:
-            # Handle other request exceptions if needed
-            print(f"Request error occurred: {req_err}")
-            return f"Request error occurred: {req_err}"
+        # except requests.exceptions.HTTPError as http_err:
+        #     # Handle HTTPError (e.g., 404, 500) if needed
+        #     print(f"HTTP error occurred: {http_err}")
+        #     return f"HTTP error occurred: {http_err}"
 
-        except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
-            return f"Error Occurred: {req_err}"
+        # except requests.exceptions.RequestException as req_err:
+        #     # Handle other request exceptions if needed
+        #     print(f"Request error occurred: {req_err}")
+        #     return f"Request error occurred: {req_err}"
+
+        # except Exception as req_err:
+        #     print(f"Error Occurred: {req_err}")
+        #     return f"Error Occurred: {req_err}"
 
     else:
-        try:
-            response = chatbot.ask_bard(message.message)
+        # try:
+            response = gemini.ask_bard(message.message)
             # print (response)
             return (response)
             # print(response["choices"][0]["message"]["content"][0])
             # return response["choices"][0]["message"]["content"][0]
-        except requests.exceptions.ConnectionError:
-            # Handle the ConnectionError exception here
-            print(
-                "Connection error occurred. Please check your internet connection or the server's availability."
-            )
-            return "Connection error occurred. Please check your internet connection or the server's availability."
+        # except requests.exceptions.ConnectionError:
+        #     # Handle the ConnectionError exception here
+        #     print(
+        #         "Connection error occurred. Please check your internet connection or the server's availability."
+        #     )
+        #     return "Connection error occurred. Please check your internet connection or the server's availability."
 
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTPError (e.g., 404, 500) if needed
-            print(f"HTTP error occurred: {http_err}")
-            return f"HTTP error occurred: {http_err}"
+        # except requests.exceptions.HTTPError as http_err:
+        #     # Handle HTTPError (e.g., 404, 500) if needed
+        #     print(f"HTTP error occurred: {http_err}")
+        #     return f"HTTP error occurred: {http_err}"
 
-        except requests.exceptions.RequestException as req_err:
-            # Handle other request exceptions if needed
-            print(f"Request error occurred: {req_err}")
-            return f"Request error occurred: {req_err}"
+        # except requests.exceptions.RequestException as req_err:
+        #     # Handle other request exceptions if needed
+        #     print(f"Request error occurred: {req_err}")
+        #     return f"Request error occurred: {req_err}"
 
-        except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
-            return f"Error Occurred: {req_err}"
+        # except Exception as req_err:
+        #     print(f"Error Occurred: {req_err}")
+        #     return f"Error Occurred: {req_err}"
 
 
 #############################################
@@ -303,28 +304,47 @@ async def ask_claude(request: Request, message: Message):
 ######      ChatGPT JSON Response      ######
 ####        `/v1/chat/completions`       ####
 
-
-async def getChatGPTData(message: MessageChatGPT):
-    """Gets AI response data from ChatGPT Website.
+@app.post("/v1/chat/completions")
+async def ask_ai(request: Request, message: Message, model: str):
+    """API endpoint to get ChatGPT JSON response.
 
     Args:
-        chat (Chatbot): Chatbot client object.
-        message (MessageChatGPT): Message request object.
+        request (Request): API request object.
+        message (Message): Message request object.
+        model (String): Model name string.
+
+    Returns:
+        str: JSON string of ChatGPT JSON response.
+
+    """
+    if not message.message:
+        message.message = "Hi, are you there?"
+    
+    if not model == "claude":
+        model = "gemini"
+    
+        if message.stream:
+            res = await ask_gemini(request=Request,message=message)
+            respon = ConvertToChatGPT(request=Request,message=res, model="gemini")
+            return StreamingResponse(
+                respon,
+                media_type="text/event-stream",
+            )
+        else:
+            res = ask_gemini(request=Request,message=message)
+            respon = ConvertToChatGPT(request=Request,message=res, model="gemini")
+            return respon
+
+async def ConvertToChatGPT(request: Request, message: str, model: str):
+    """Convert response to ChatGPT JSON format.
+
+    Args:
+        message (String): Response string.
+        model (String): Model name string.
 
     Yields:
         str: JSON response chunks.
     """
-    jsonresp = {
-        "author": author,
-        "message": res_text,
-        "conversation_id": cid,
-        "parent_id": pid,
-        "model": model,
-        "finish_details": finish_details,
-        "end_turn": line["end_turn"],
-        "recipient": line["recipient"],
-        "citations": line["citations"],
-    }
 
     OpenAIResp = {
         "id": f"chatcmpl-{str(time.time())}",
@@ -335,10 +355,10 @@ async def getChatGPTData(message: MessageChatGPT):
             {
                 "delta": {
                     "role": "assistant",
-                    "content": res_text,
+                    "content": message,
                 },
                 "index": 0,
-                "finish_reason": finish_details,
+                "finish_reason": "Stop",
             }
         ],
     }
