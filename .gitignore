@@ -10,3 +10,4 @@ Issues/
 src/claude_stream.py
 .idea/
 Changes.txt
+gui/
