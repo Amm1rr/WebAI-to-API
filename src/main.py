@@ -5,11 +5,12 @@ import json
 import os
 import sys
 import time
-from typing import Literal
+
 import urllib.parse
 
+import utility
+
 # Third-Party Imports
-import browser_cookie3
 import uvicorn
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,7 +20,7 @@ from h11 import Response
 from pydantic import BaseModel
 
 # Local Imports
-from bard import ChatbotBard
+from bard import ChatbotGemini
 from claude import Client
 from anyio import Path
 
@@ -104,39 +105,11 @@ async def ask_gemini(request: Request, message: MessageBard):
     session_id = None #message.session_id
     session_idTS = None #message.session_idTS
     session_idCC = None #message.session_idCC
-    # if not IsSession(session_id):
+    # if not utility.IsSession(session_id):
     #     session_id = os.getenv("SESSION_ID")
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
     cookies = None
-    def get_session_id_Bard(sessionId: str = "SESSION_ID"):
-        """Get the session ID for Bard.
-
-        Args:
-            sessionId (str, optional): The session ID to get. Defaults to "SESSION_ID".
-
-        Returns:
-            str: The session ID.
-        """
-        try:
-            config = configparser.ConfigParser()
-            config.read(CONFIG_FILE_PATH)
-            sess_id = config.get("Germini", sessionId)
-
-        except Exception as e:
-            # print(e)
-            sess_id = None
-        
-        if not sess_id:
-            sessions = get_cookies(".google.com")
-            return sessions
-        else:
-            session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
-            sess_id = get_Cookie(session_name)
-              
-            if not IsSession(sess_id):
-              print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
-  
-            return sess_id
+    
 
     #if not session_id:
     #    session_id = get_session_id_Bard("SESSION_ID")
@@ -148,14 +121,14 @@ async def ask_gemini(request: Request, message: MessageBard):
     #   session_idCC = get_session_id_Bard("SESSION_IDCC")
     gemini = None
     if not (session_id or session_idTS or session_idCC):
-      cookies = get_session_id_Bard()
+      cookies = ChatbotGemini.get_session_id_Bard()
       if type(cookies) == dict:
-        gemini = ChatbotBard(cookies)
+        gemini = ChatbotGemini(cookies)
       else:
-        gemini = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
         
     else:
-      gemini = ChatbotBard(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+      gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
     
     if not message.message:
         message.message = "Hi, are you there?"
@@ -258,7 +231,7 @@ async def ask_claude(request: Request, message: Message):
         try:
             if ISCONFIGONLY:
                 raise Exception()
-            cookie = get_Cookie("Claude")
+            cookie = utility.get_Cookie("Claude")
             if not cookie:
                 raise Exception()
         except Exception as _:
@@ -321,6 +294,28 @@ async def ask_ai(request: Request, message: Message, model: str):
         str: JSON string of ChatGPT JSON response.
 
     """
+
+     # Execute code without authenticating the resource
+    session_id = None #message.session_id
+    session_idTS = None #message.session_idTS
+    session_idCC = None #message.session_idCC
+
+    gemini = None
+    if not (session_id or session_idTS or session_idCC):
+      cookies = Bard.get_session_id_Bard()
+      if type(cookies) == dict:
+        gemini = ChatbotGemini(cookies)
+      else:
+        gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        
+    else:
+      gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+    
+    if not message.message:
+        message.message = "Hi, are you there?"
+    
+    conversation_id = None
+
     if not message.message:
         message.message = "Hi, are you there?"
     
@@ -328,16 +323,16 @@ async def ask_ai(request: Request, message: Message, model: str):
         model = "gemini"
     
         if message.stream:
-            res = await ask_gemini(request=Request,message=message)
-            respon = ConvertToChatGPT(request=Request,message=res, model="gemini")
+            response = await ask_gemini(request=Request,message=message)
+            ResponseToOpenAI = ConvertToChatGPT(request=Request,message=response, model="gemini")
             return StreamingResponse(
-                respon,
+                ResponseToOpenAI,
                 media_type="text/event-stream",
             )
         else:
-            res = ask_gemini(request=Request,message=message)
-            respon = ConvertToChatGPT(request=Request,message=res, model="gemini")
-            return respon
+            response = gemini.ask_bard(message.message)
+            ResponseToOpenAI = ConvertToChatGPT(request=Request,message=response, model="gemini")
+            return ResponseToOpenAI
 
 async def ConvertToChatGPT(request: Request, message: str, model: str):
     """Convert response to ChatGPT JSON format.
@@ -386,132 +381,7 @@ async def ConvertToChatGPT(request: Request, message: str, model: str):
     jsonresp = json.dumps(OpenAIResp)
 
     yield f"{jsonresp}\n"
-    
-#############################################
-####                                     ####
-#####        Develope Functions         #####
-####                                     ####
 
-# print("".join(response))
-
-
-def fake_data_streamer_OLD():
-    for _ in range(10):
-        yield b"some fake data\n"
-        time.sleep(0.5)
-
-
-def fake_data_streamer():
-    openai_response = {
-        "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "gpt-3.5-turbo",
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 100,
-            "total_tokens": 100,
-        },
-        "choices": [
-            {
-                "delta": {
-                    "role": "assistant",
-                    "content": "Yes",
-                },
-                "index": 0,
-                "finish_reason": "[DONE]",
-            }
-        ],
-    }
-    for _ in range(10):
-        yield f"{openai_response}\n"
-        # yield b"some fake data\n"
-        time.sleep(0.5)
-
-
-#############################################
-####                                     ####
-#####          Other Functions          #####
-####                                     ####
-
-
-def IsSession(session_id: str) -> bool:
-    """Checks if a valid session ID is provided.
-
-    Args:
-        session_id (str): The session ID to check
-
-    Returns:
-        bool: True if session ID is valid, False otherwise
-    """
-
-    # if session_id is None or not session_id or session_id.lower() == "none":
-    if session_id is None:
-        return False
-    return False if not session_id else session_id.lower() != "none"
-
-
-_cookies = {}
-def get_cookies(cookie_domain: str) -> dict: 
-     if cookie_domain not in _cookies: 
-         _cookies[cookie_domain] = {} 
-         for cookie in browser_cookie3.load(cookie_domain): 
-             _cookies[cookie_domain][cookie.name] = cookie.value 
-     return _cookies[cookie_domain]
-
-def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
-    """
-    Retrieve and return the session cookie value for the specified service.
-
-    This function takes a service name as input, either 'Bard', 'BardTS', or 'Claude',
-    and retrieves the corresponding session cookie value from the browser's stored cookies.
-    The cookie value is then returned.
-
-    Note: This function requires the 'browser_cookie3' library to be installed.
-
-    Args:
-        service_name (Literal["Bard", "BardTS", "Claude"]): The name of the service
-            for which to retrieve the session cookie.
-
-    Returns:
-        str: The session cookie value for the specified service, or None if no matching
-            cookie is found.
-    """
-
-    domains = {
-        "Bard": "google",
-        "BardTS": "google",
-        "BardCC": "google",
-        "Claude": "claude",
-    }
-    domain = domains[service_Name]
-
-    if service_Name.lower() == "bardts":
-        bardSessionName = "__Secure-1PSIDTS"
-    elif service_Name.lower() == "bardcc":
-        bardSessionName = "__Secure-1PSIDCC"
-    else:
-        bardSessionName = "__Secure-1PSID"
-
-    sessName = {
-        "claude": "sessionKey",
-        "google": bardSessionName,
-    }
-    sessionName = sessName[domain]
-
-    cookies = browser_cookie3.load(domain_name=domain)
-
-    return (
-        filtered_cookies[-1].value
-        if (
-            filtered_cookies := [
-                cookie
-                for cookie in cookies
-                if sessionName == cookie.name
-            ]
-        )
-        else None
-    )
 
 
 #############################################

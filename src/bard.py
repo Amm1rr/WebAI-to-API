@@ -25,6 +25,9 @@ from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+import utility
+
+
 def load_proxies():
     proxy_enabled = os.getenv("PROXY_ENABLED", "False").lower() == "true"
     if proxy_enabled:
@@ -64,9 +67,9 @@ def __get_input(
     )
 
 
-class ChatbotBard:
+class ChatbotGemini:
     """
-    A class to interact with Google Bard.
+    A class to interact with Google Gemini.
     Parameters
         session_id: str
             The __Secure-1PSID cookie.
@@ -160,6 +163,36 @@ class ChatbotBard:
             # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
             print(f"Error: Session error:\n\n{e}")
             return None
+    
+    def get_session_id_Bard(sessionId: str = "SESSION_ID"):
+        """Get the session ID for Bard.
+
+        Args:
+            sessionId (str, optional): The session ID to get. Defaults to "SESSION_ID".
+
+        Returns:
+            str: The session ID.
+        """
+        try:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE_PATH)
+            sess_id = config.get("Germini", sessionId)
+
+        except Exception as e:
+            # print(e)
+            sess_id = None
+
+        if not sess_id:
+            sessions = utility.get_cookies(".google.com")
+            return sessions
+        else:
+            session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
+            sess_id =  utility.get_Cookie(session_name)
+                
+            if not IsSession(sess_id):
+                print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
+
+            return sess_id
 
     def ask_bard(self, message: str) -> dict:
         """
