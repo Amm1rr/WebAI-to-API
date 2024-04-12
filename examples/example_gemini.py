@@ -8,7 +8,7 @@ user_input = input("Enter your prompt: ")
 
 # Set the API endpoint
 #
-API_ENDPOINT = "http://127.0.0.1:8000/bard"
+API_ENDPOINT = "http://127.0.0.1:8000/gemini"
 
 stream = True
 
