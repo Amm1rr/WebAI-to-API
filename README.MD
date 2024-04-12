@@ -169,8 +169,12 @@ cd examples/
 python example_claude.py false
 python example_claude.py true
 
-python example_bard.py false
-python example_bard.py true
+python example_gemini.py false
+python example_gemini.py true
+
+OR
+
+python src/test.py
 
 ```
 
