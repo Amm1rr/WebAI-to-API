@@ -67,7 +67,7 @@ app.add_middleware(
 """Request message data model."""
 
 
-class Message(BaseModel):
+class MessageClaude(BaseModel):
     message: str
     stream: bool = True
 
@@ -136,7 +136,7 @@ async def ask_gemini(request: Request, message: MessageBard):
     conversation_id = None
 
     if message.stream:
-        # try:
+        try:
             # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
             # if not chatbot.SNlM0e:
             #     return {"Error": "Check the Bard session."}
@@ -154,54 +154,54 @@ async def ask_gemini(request: Request, message: MessageBard):
                 # print(res)
                 return res
         
-        # except requests.exceptions.ConnectionError:
-        #     # Handle the ConnectionError exception here
-        #     print(
-        #         "Connection error occurred. Please check your internet connection or the server's availability."
-        #     )
-        #     return "Connection error occurred. Please check your internet connection or the server's availability."
+        except requests.exceptions.ConnectionError:
+            # Handle the ConnectionError exception here
+            print(
+                "Connection error occurred. Please check your internet connection or the server's availability."
+            )
+            return "Connection error occurred. Please check your internet connection or the server's availability."
 
-        # except requests.exceptions.HTTPError as http_err:
-        #     # Handle HTTPError (e.g., 404, 500) if needed
-        #     print(f"HTTP error occurred: {http_err}")
-        #     return f"HTTP error occurred: {http_err}"
+        except requests.exceptions.HTTPError as http_err:
+            # Handle HTTPError (e.g., 404, 500) if needed
+            print(f"HTTP error occurred: {http_err}")
+            return f"HTTP error occurred: {http_err}"
 
-        # except requests.exceptions.RequestException as req_err:
-        #     # Handle other request exceptions if needed
-        #     print(f"Request error occurred: {req_err}")
-        #     return f"Request error occurred: {req_err}"
+        except requests.exceptions.RequestException as req_err:
+            # Handle other request exceptions if needed
+            print(f"Request error occurred: {req_err}")
+            return f"Request error occurred: {req_err}"
 
-        # except Exception as req_err:
-        #     print(f"Error Occurred: {req_err}")
-        #     return f"Error Occurred: {req_err}"
+        except Exception as req_err:
+            print(f"Error Occurred: {req_err}")
+            return f"Error Occurred: {req_err}"
 
     else:
-        # try:
+        try:
             response = gemini.ask_bard(message.message)
             # print (response)
             return (response)
             # print(response["choices"][0]["message"]["content"][0])
             # return response["choices"][0]["message"]["content"][0]
-        # except requests.exceptions.ConnectionError:
-        #     # Handle the ConnectionError exception here
-        #     print(
-        #         "Connection error occurred. Please check your internet connection or the server's availability."
-        #     )
-        #     return "Connection error occurred. Please check your internet connection or the server's availability."
+        except requests.exceptions.ConnectionError:
+            # Handle the ConnectionError exception here
+            print(
+                "Connection error occurred. Please check your internet connection or the server's availability."
+            )
+            return "Connection error occurred. Please check your internet connection or the server's availability."
 
-        # except requests.exceptions.HTTPError as http_err:
-        #     # Handle HTTPError (e.g., 404, 500) if needed
-        #     print(f"HTTP error occurred: {http_err}")
-        #     return f"HTTP error occurred: {http_err}"
+        except requests.exceptions.HTTPError as http_err:
+            # Handle HTTPError (e.g., 404, 500) if needed
+            print(f"HTTP error occurred: {http_err}")
+            return f"HTTP error occurred: {http_err}"
 
-        # except requests.exceptions.RequestException as req_err:
-        #     # Handle other request exceptions if needed
-        #     print(f"Request error occurred: {req_err}")
-        #     return f"Request error occurred: {req_err}"
+        except requests.exceptions.RequestException as req_err:
+            # Handle other request exceptions if needed
+            print(f"Request error occurred: {req_err}")
+            return f"Request error occurred: {req_err}"
 
-        # except Exception as req_err:
-        #     print(f"Error Occurred: {req_err}")
-        #     return f"Error Occurred: {req_err}"
+        except Exception as req_err:
+            print(f"Error Occurred: {req_err}")
+            return f"Error Occurred: {req_err}"
 
 
 #############################################
@@ -210,7 +210,7 @@ async def ask_gemini(request: Request, message: MessageBard):
 ####                                     ####
 
 @app.post("/claude")
-async def ask_claude(request: Request, message: Message):
+async def ask_claude(request: Request, message: MessageClaude):
     """API endpoint to get Claude response.
 
     Args:
@@ -282,7 +282,7 @@ async def ask_claude(request: Request, message: Message):
 ####        `/v1/chat/completions`       ####
 
 @app.post("/v1/chat/completions")
-async def ask_ai(request: Request, message: Message, model: str):
+async def ask_ai(request: Request, message: MessageClaude, model: str):
     """API endpoint to get ChatGPT JSON response.
 
     Args:
