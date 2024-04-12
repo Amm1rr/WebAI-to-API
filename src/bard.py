@@ -262,7 +262,7 @@ class ChatbotBard:
         # print(message)
 
         answer = ""
-        with httpx.stream("POST", url, params=params, data=data) as r:
+        with await httpx.stream("POST", url, params=params, data=data) as r:
             for text in r.iter_text():
                 response_parse_text = text
 

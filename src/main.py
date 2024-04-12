@@ -279,9 +279,13 @@ async def ask_claude(request: Request, message: Message):
     claude = Client(cookie)
     conversation_id = None
 
-    if not conversation_id:
-        conversation = claude.create_new_chat()
-        conversation_id = conversation["uuid"]
+    try:
+        if not conversation_id:
+            conversation = claude.create_new_chat()
+            conversation_id = conversation["uuid"]
+    except Exception as e:
+        print(conversation)
+        return ("ERROR: ", conversation)
 
     if not message.message:
         message.message = "Hi, are you there?"
