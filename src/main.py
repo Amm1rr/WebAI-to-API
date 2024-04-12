@@ -221,33 +221,10 @@ async def ask_claude(request: Request, message: MessageClaude):
         str: JSON string of Claude response.
 
     """
-    cookie = None #message.session_id
+    cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 
     # if not cookie:
     #     cookie = os.environ.get("CLAUDE_COOKIE")
-
-    if not cookie:
-        # if error by system(permission denided)
-        try:
-            if ISCONFIGONLY:
-                raise Exception()
-            cookie = utility.get_Cookie("Claude")
-            if not cookie:
-                raise Exception()
-        except Exception as _:
-            config = configparser.ConfigParser()
-            config.read(filenames=CONFIG_FILE_PATH)
-            cookie = config.get("Claude", "COOKIE", fallback=None)
-            if not cookie:
-                response_error = {
-                    "Error": f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                }
-
-                print(response_error)
-                return response_error
-                            # raise ValueError(
-                            #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
-                            # )
     
     claude = Client(cookie)
     conversation_id = None

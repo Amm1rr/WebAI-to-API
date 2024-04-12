@@ -1,5 +1,6 @@
 import browser_cookie3
 import time
+import configparser
 from typing import Literal
 
 _cookies = {}
@@ -64,6 +65,29 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> s
         else None
     )
 
+def Get_Cookie_Claude(configfilepath: str, configfilename: str):
+    # if error by system(permission denided)
+    try:
+        cookie = get_Cookie("Claude")
+        if not cookie:
+            raise Exception()
+        return cookie
+    except Exception as _:
+        config = configparser.ConfigParser()
+        config.read(filenames=configfilepath)
+        cookie = config.get("Claude", "COOKIE", fallback=None)
+        if not cookie:
+            response_error = {
+                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Bard or send it as an argument."
+            }
+
+            print(response_error)
+            return response_error
+                        # raise ValueError(
+                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                        # )
+        else:
+            return cookie
 
 def ConvertToChatGPT(message: str, model: str):
     """Convert response to ChatGPT JSON format.
