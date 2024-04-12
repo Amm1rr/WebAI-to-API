@@ -1,4 +1,5 @@
 import browser_cookie3
+import time
 from typing import Literal
 
 _cookies = {}
@@ -63,6 +64,106 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> s
         else None
     )
 
+
+def ConvertToChatGPT(message: str, model: str):
+    """Convert response to ChatGPT JSON format.
+
+    Args:
+        message (String): Response string.
+        model (String): Model name string.
+
+    Yields:
+        str: JSON response chunks.
+    """
+
+    OpenAIResp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "delta": {
+                    "role": "assistant",
+                    "content": message,
+                },
+                "index": 0,
+                "finish_reason": "Stop",
+            }
+        ],
+    }
+
+    # openairesp = {
+    # "id": f"chatcmpl-{str(time.time())}",
+    # "object": "chat.completion.chunk",
+    # "created": int(time.time()),
+    # "model": "gpt-3.5-turbo",
+    # "choices": [
+    #     {
+    #         "message": {
+    #             "role": "assistant",
+    #             "content": resp,
+    #         },
+    #         "index": 0,
+    #         "finish_reason": "stop",
+    #     }
+    # ],
+
+    # jsonresp = json.dumps(OpenAIResp)
+
+    yield f"{OpenAIResp}\n"
+    # yield jsonresp
+    # yield OpenAIResp
+
+async def ConvertToChatGPTStream(message: str, model: str):
+    """Convert response to ChatGPT JSON format.
+
+    Args:
+        message (String): Response string.
+        model (String): Model name string.
+
+    Yields:
+        str: JSON response chunks.
+    """
+
+    OpenAIResp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "delta": {
+                    "role": "assistant",
+                    "content": message,
+                },
+                "index": 0,
+                "finish_reason": "Stop",
+            }
+        ],
+    }
+
+    # openairesp = {
+    # "id": f"chatcmpl-{str(time.time())}",
+    # "object": "chat.completion.chunk",
+    # "created": int(time.time()),
+    # "model": "gpt-3.5-turbo",
+    # "choices": [
+    #     {
+    #         "message": {
+    #             "role": "assistant",
+    #             "content": resp,
+    #         },
+    #         "index": 0,
+    #         "finish_reason": "stop",
+    #     }
+    # ],
+
+    # jsonresp = json.dumps(OpenAIResp)
+
+    yield f"{OpenAIResp}\n"
+    # yield jsonresp
+    # yield OpenAIResp
 
 def IsSession(session_id: str) -> bool:
     """Checks if a valid session ID is provided.

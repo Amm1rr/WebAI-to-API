@@ -282,7 +282,7 @@ async def ask_claude(request: Request, message: MessageClaude):
 ####        `/v1/chat/completions`       ####
 
 @app.post("/v1/chat/completions")
-async def ask_ai(request: Request, message: MessageClaude, model: str):
+async def ask_ai(request: Request, message: MessageBard, model: str):
     """API endpoint to get ChatGPT JSON response.
 
     Args:
@@ -295,22 +295,6 @@ async def ask_ai(request: Request, message: MessageClaude, model: str):
 
     """
 
-     # Execute code without authenticating the resource
-    session_id = None #message.session_id
-    session_idTS = None #message.session_idTS
-    session_idCC = None #message.session_idCC
-
-    gemini = None
-    if not (session_id or session_idTS or session_idCC):
-      cookies = Bard.get_session_id_Bard()
-      if type(cookies) == dict:
-        gemini = ChatbotGemini(cookies)
-      else:
-        gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-        
-    else:
-      gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-    
     if not message.message:
         message.message = "Hi, are you there?"
     
@@ -321,67 +305,35 @@ async def ask_ai(request: Request, message: MessageClaude, model: str):
     
     if not model == "claude":
         model = "gemini"
+
+        # Execute code without authenticating the resource
+        session_id = None #message.session_id
+        session_idTS = None #message.session_idTS
+        session_idCC = None #message.session_idCC
+
+        gemini = None
+        if not (session_id or session_idTS or session_idCC):
+            cookies = ChatbotGemini.get_session_id_Bard()
+            if type(cookies) == dict:
+                gemini = ChatbotGemini(cookies)
+            else:
+                gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+            
+        else:
+            gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        
     
         if message.stream:
-            response = await ask_gemini(request=Request,message=message)
-            ResponseToOpenAI = ConvertToChatGPT(request=Request,message=response, model="gemini")
+            response = gemini.ask_bardStream(message=message)
+            ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model="gemini")
             return StreamingResponse(
                 ResponseToOpenAI,
                 media_type="text/event-stream",
             )
         else:
             response = gemini.ask_bard(message.message)
-            ResponseToOpenAI = ConvertToChatGPT(request=Request,message=response, model="gemini")
+            ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model="gemini")
             return ResponseToOpenAI
-
-async def ConvertToChatGPT(request: Request, message: str, model: str):
-    """Convert response to ChatGPT JSON format.
-
-    Args:
-        message (String): Response string.
-        model (String): Model name string.
-
-    Yields:
-        str: JSON response chunks.
-    """
-
-    OpenAIResp = {
-        "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "delta": {
-                    "role": "assistant",
-                    "content": message,
-                },
-                "index": 0,
-                "finish_reason": "Stop",
-            }
-        ],
-    }
-
-    # openairesp = {
-    # "id": f"chatcmpl-{str(time.time())}",
-    # "object": "chat.completion.chunk",
-    # "created": int(time.time()),
-    # "model": "gpt-3.5-turbo",
-    # "choices": [
-    #     {
-    #         "message": {
-    #             "role": "assistant",
-    #             "content": resp,
-    #         },
-    #         "index": 0,
-    #         "finish_reason": "stop",
-    #     }
-    # ],
-
-    jsonresp = json.dumps(OpenAIResp)
-
-    yield f"{jsonresp}\n"
-
 
 
 #############################################
