@@ -41,6 +41,7 @@ ISCONFIGONLY = False
 # CONFIG_FOLDER = Path(CONFIG_FOLDER) / "WebAI_to_API"
 
 
+
 FixConfigPath = lambda: (
     Path(CONFIG_FOLDER) / CONFIG_FILE_NAME
     if os.path.basename(CONFIG_FOLDER).lower() == "src"
@@ -50,6 +51,10 @@ FixConfigPath = lambda: (
 """Path to API configuration file."""
 CONFIG_FILE_PATH = FixConfigPath()
 
+
+CONFIG = configparser.ConfigParser()
+CONFIG.read(filenames=CONFIG_FILE_PATH)
+OpenAIResponseModel = CONFIG.get("Main", "Model", fallback="Claude")
 
 """FastAPI application instance."""
 
@@ -73,6 +78,10 @@ class MessageClaude(BaseModel):
 
 
 class MessageBard(BaseModel):
+    message: str
+    stream: bool = False
+
+class Message(BaseModel):
     message: str
     stream: bool = True
 
@@ -259,7 +268,7 @@ async def ask_claude(request: Request, message: MessageClaude):
 ####        `/v1/chat/completions`       ####
 
 @app.post("/v1/chat/completions")
-async def ask_ai(request: Request, message: MessageBard, model: str):
+async def ask_ai(request: Request, message: Message):
     """API endpoint to get ChatGPT JSON response.
 
     Args:
@@ -280,8 +289,7 @@ async def ask_ai(request: Request, message: MessageBard, model: str):
     if not message.message:
         message.message = "Hi, are you there?"
     
-    if not model == "claude":
-        model = "gemini"
+    if OpenAIResponseModel == "Gemini":
 
         # Execute code without authenticating the resource
         session_id = None #message.session_id
@@ -302,15 +310,49 @@ async def ask_ai(request: Request, message: MessageBard, model: str):
     
         if message.stream:
             response = gemini.ask_bardStream(message=message)
-            ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model="gemini")
+            ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
             return StreamingResponse(
                 ResponseToOpenAI,
                 media_type="text/event-stream",
             )
         else:
             response = gemini.ask_bard(message.message)
-            ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model="gemini")
+            ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
             return ResponseToOpenAI
+    
+    else:
+        cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
+
+        # if not cookie:
+        #     cookie = os.environ.get("CLAUDE_COOKIE")
+        
+        claude = Client(cookie)
+        conversation_id = None
+
+        try:
+            if not conversation_id:
+                conversation = claude.create_new_chat()
+                conversation_id = conversation["uuid"]
+        except Exception as e:
+            print(conversation)
+            return ("ERROR: ", conversation)
+
+        if not message.message:
+            message.message = "Hi, are you there?"
+
+        if message.stream:
+            res = claude.stream_message(message.message, conversation_id)
+            resjson = utility.ConvertToChatGPTStream(message=res, model="claude")
+            # print(res)
+            return StreamingResponse(
+                    resjson,
+                    media_type="text/event-stream",
+                )
+        else:
+            res = claude.send_message(message.message, conversation_id)
+            resjson = utility.ConvertToChatGPT(message=res, model="claude")
+            # print(resjson)
+            return resjson
 
 
 #############################################

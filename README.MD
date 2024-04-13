@@ -109,6 +109,11 @@ http://127.0.0.1:8000/gemini
 
 http://127.0.0.1:8000/claude
 
+
+#---------- Claude or Gemini
+
+http://127.0.0.1:8000/v1/chat/completions
+
 ```
 
 <br><br>
@@ -289,6 +294,19 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 - [Claude](#claude)
 
 **Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
+
+<br>
+
+### Configuring the Model Type for `/v1/chat/completions`
+
+You can specify the model type in the settings for the `/v1/chat/completions` endpoint. The available options are "Claude" and "Gemini". By default, the system uses the "Claude" model.
+```bash
+# Case-Sensative
+
+[Main]
+Model=Claude #or Gemini
+```
+
 <br>
 
 
