@@ -285,9 +285,6 @@ async def ask_ai(request: Request, message: Message):
         message.message = "Hi, are you there?"
     
     conversation_id = None
-
-    if not message.message:
-        message.message = "Hi, are you there?"
     
     if OpenAIResponseModel == "Gemini":
 
@@ -336,9 +333,6 @@ async def ask_ai(request: Request, message: Message):
         except Exception as e:
             print(conversation)
             return ("ERROR: ", conversation)
-
-        if not message.message:
-            message.message = "Hi, are you there?"
 
         if message.stream:
             res = claude.stream_message(message.message, conversation_id)
