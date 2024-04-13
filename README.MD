@@ -299,12 +299,14 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 
 ### Configuring the Model Type for `/v1/chat/completions`
 
-You can specify the model type in the settings for the `/v1/chat/completions` endpoint. The available options are "Claude" and "Gemini". By default, the system uses the "Claude" model.
+You can specify the model type in the settings for the `/v1/chat/completions` endpoint. The available options are "Claude" and "Gemini".
+By default, the system uses the "Claude" model.
 ```bash
 # Case-Sensative
 
 [Main]
-Model=Claude #or Gemini
+Model=Claude
+#Model=Gemini
 ```
 
 <br>
