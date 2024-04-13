@@ -1,5 +1,9 @@
 # Case-Sensative
 
+[Main]
+Model=Claude
+#Model=Gemini
+
 [Claude]
 COOKIE=
 
