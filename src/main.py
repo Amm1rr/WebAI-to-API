@@ -140,7 +140,7 @@ async def ask_gemini(request: Request, message: MessageBard):
       gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
     
     if not message.message:
-        message.message = "Hi, are you there?"
+        message.message = "Hi, Who are you?"
     
     conversation_id = None
 
@@ -247,7 +247,7 @@ async def ask_claude(request: Request, message: MessageClaude):
         return ("ERROR: ", conversation)
 
     if not message.message:
-        message.message = "Hi, are you there?"
+        message.message = "Hi, Who are you?"
 
     if message.stream:
         res = claude.stream_message(message.message, conversation_id)
@@ -263,7 +263,7 @@ async def ask_claude(request: Request, message: MessageClaude):
 
 
 #############################################
-####                                     ####
+####           Claude/Gemini to          ####
 ######      ChatGPT JSON Response      ######
 ####        `/v1/chat/completions`       ####
 
@@ -282,7 +282,7 @@ async def ask_ai(request: Request, message: Message):
     """
 
     if not message.message:
-        message.message = "Hi, are you there?"
+        message.message = "Hi, Who are you?"
     
     conversation_id = None
     
