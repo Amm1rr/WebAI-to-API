@@ -283,6 +283,9 @@ async def ask_ai(request: Request, message: Message):
 
     Returns:
         str: JSON string of ChatGPT JSON response.
+    
+    WebUI Configuration:
+        Open http://localhost:8000/Web-GUI/ to configuration
 
     """
 
@@ -359,24 +362,12 @@ async def ask_ai(request: Request, message: Message):
 #####           UI Middleware           #####
 ####                                     ####
 
-# from starlette.exceptions import HTTPException as StarletteHTTPException
-# class SPAStaticFiles(StaticFiles):
-#     async def get_response(self, path: str, scope):
-#         try:
-#             return await super().get_response(path, scope)
-#         except (HTTPException, StarletteHTTPException) as ex:
-#             if ex.status_code == 404:
-#                 return await super().get_response("index.html", scope)
-#             else:
-#                 raise ex
-# app.mount('/', SPAStaticFiles(directory='src/ui/public', html=True), name='whatever')
-
 index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
 app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
 
 @app.middleware("http")
 
-async def catch_all(request: Request, call_next):
+async def catch_all_endpoints(request: Request, call_next):
     response = await call_next(request)
     if response.status_code == 404 and request.url.path.lower() == "/web-gui":
         index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
