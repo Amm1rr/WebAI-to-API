@@ -94,8 +94,8 @@ python main.py
 
 Now the **API documentation** and **Setting Configuration** should be available at the following addresses:
 
-- API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- Setting Configuration: [http://127.0.0.1:8000/web-gui](http://127.0.0.1:8000/web-gui)
+- API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Setting Configuration: [http://localhost:8000/web-gui](http://localhost:8000/web-gui)
 
 <br>
 
@@ -104,17 +104,17 @@ Available **Endpoints:**
 ```bash
 #---------- Google Gemini
 
-http://127.0.0.1:8000/gemini
+http://localhost:8000/gemini
 
 
 #---------- Claude
 
-http://127.0.0.1:8000/claude
+http://localhost:8000/claude
 
 
 #---------- Claude or Gemini
 
-http://127.0.0.1:8000/v1/chat/completions
+http://localhost:8000/v1/chat/completions
 
 ```
 

@@ -11,9 +11,9 @@ import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# url = "http://127.0.0.1:8000/chatgpt"
+# url = "http://localhost:8000/chatgpt"
 # url = "http://localhost:8000/claude"
-# url = "http://localhost:8000/bard"
+# url = "http://localhost:8000/gemini"
 ai = "chatgpt"
 ai = "v1/chat/completions"
 url = f"http://localhost:8000/{ai}"
@@ -240,8 +240,8 @@ with requests.post(endpoint, headers={"Content-Type": "application/json", "Autho
 # # session_id = "your_session_id"
 # # message_text = "Hello, Claude!"
 
-# # # Assuming the API is running locally at http://127.0.0.1:8000
-# # base_url = "http://127.0.0.1:8000"
+# # # Assuming the API is running locally at http://localhost:8000
+# # base_url = "http://localhost:8000"
 # # endpoint = "/claude"
 
 # # url = f"{base_url}{endpoint}"
