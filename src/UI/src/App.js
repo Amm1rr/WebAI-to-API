@@ -124,22 +124,62 @@ function App() {
           </label>
           <div className="googleSessionsContainer">
             <div className="googleSession">
-              <p className="googleSession-label">Google Session ID :</p>
-              <p className="googleSession-value">{googleSessionKey}</p>
+              <label htmlFor=".googleSession" className="googleSession-label">
+                Google Session ID :
+              </label>
+              <input
+                type="text"
+                name="googleSession"
+                id="googleSession"
+                value={googleSessionKey}
+              ></input>
             </div>
             <div className="googleSession">
-              <p className="googleSession-label">Google Session IDTS :</p>
-              <p className="googleSession-value">{googleSessionKeyTS}</p>
+              <label
+                htmlFor=".googleSession-value"
+                className="googleSession-label"
+              >
+                Google Session IDTS :
+              </label>
+              <input
+                type="text"
+                name="googleSession-value"
+                id="googleSession-value"
+                className="googleSession-value"
+                value={googleSessionKeyTS}
+              ></input>
             </div>
             <div className="googleSession">
-              <p className="googleSession-label">Google Session ID CC :</p>
-              <p className="googleSession-value">{googleSessionKeyCC}</p>
+              <label
+                htmlFor=".googleSession-label"
+                className="googleSession-label"
+              >
+                Google Session ID CC :
+              </label>
+              <input
+                type="text"
+                name="googleSession-label"
+                id="googleSession-label"
+                className="googleSession-value"
+                value={googleSessionKeyCC}
+              ></input>
             </div>
           </div>
           <div className="claudeSessionsContainer">
             <div className="claudeSession">
-              <p className="claudeSession-label">Claude Session Key :</p>
-              <p className="claudeSession-value">{claudeSessionKey}</p>
+              <label
+                htmlFor="claudeSession-value"
+                className="claudeSession-label"
+              >
+                Claude Session Key :
+              </label>
+              <input
+                type="text"
+                name="claudeSession-value"
+                id="claudeSession-value"
+                className="claudeSession-value"
+                value={claudeSessionKey}
+              ></input>
             </div>
           </div>
         </div>

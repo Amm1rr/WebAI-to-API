@@ -114,3 +114,9 @@ strong {
   width: 600px;
   overflow: auto;
 }
+
+input[type="text"] {
+  text-align: center;
+  margin-left: 100px;
+  width: 200px;
+}
