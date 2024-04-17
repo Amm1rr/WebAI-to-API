@@ -1,0 +1,95 @@
+.App {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: #f5f5f5;
+  font-family: Arial, sans-serif;
+  position: relative;
+}
+
+.App-header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  margin-bottom: 2rem;
+  padding: 2rem;
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  min-width: 400px;
+}
+
+.Header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.App-title {
+  font-size: 1.6rem;
+  font-weight: bold;
+  color: #122a95;
+  margin-bottom: 1rem;
+  margin-right: 1rem;
+}
+
+.Select-container {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.Select-label {
+  font-size: 1rem;
+  margin-right: 0.5rem;
+  color: #555;
+}
+
+.Select-dropdown {
+  font-size: 1rem;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #ccc;
+  background-color: #fff;
+  color: #333;
+}
+
+.Endpoint-description {
+  font-size: 0.9rem;
+  color: #23611d;
+  text-align: left;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  /* border: 1px solid #ccc; */
+  border-radius: 0.25rem;
+}
+
+.Model-description {
+  font-size: 1rem;
+  color: #333;
+  text-align: left;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+}
+
+.App-footer {
+  margin-top: 2rem;
+}
+
+.Footer-link {
+  font-size: 0.9rem;
+  color: #555;
+  text-decoration: none;
+}
+
+.Footer-link:hover {
+  color: #333;
+}
+
+strong {
+  font-weight: bold;
+}
