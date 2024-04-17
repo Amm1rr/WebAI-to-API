@@ -8,4 +8,4 @@ Issues/
 /src/__pycache__
 .idea
 Changes.txt
-gui/
+UI/
