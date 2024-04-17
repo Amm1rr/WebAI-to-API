@@ -1,6 +1,6 @@
 {
-  "short_name": "WebAI to API",
-  "name": "WebAI to API UI Manager",
+  "short_name": "WebAPI",
+  "name": "WebAI to API",
   "icons": [
     {
       "src": "logo.png",

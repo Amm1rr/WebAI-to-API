@@ -403,7 +403,11 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
-
+    
+    print("")
+    print("* The http://127.0.0.1:8000/Web-GUI/ link is available for configuration.")
+    print("")
+    
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 
     ##### TO USE HTTPS

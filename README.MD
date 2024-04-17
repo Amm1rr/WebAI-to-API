@@ -1,4 +1,5 @@
 **NOTE:** This is a research project. Please do not use it commercially and use it responsibly.
+
 <hr>
 
 # WebAI to API
@@ -17,15 +18,15 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
-
 ### Status
 
-✅ ***Google Gemini*** Web to API integration available now.
+✅ **_Google Gemini_** Web to API integration available now.
 
-✅ ***Claude-3*** Web to API integration is also fully implemented and available.
+✅ **_Claude-3_** Web to API integration is also fully implemented and available.
 
-✅ ~***ChatGPT*** Web to API integration is fully complete and available now.~ (Discontinued)
+✅ ~**_ChatGPT_** Web to API integration is fully complete and available now.~ (Discontinued)
 
+✅ **_UI Configuration_**: Implement routing for [localhost:8000/web-gui](http://localhost:8000/web-gui) path (still in development)
 
 <br>
 
@@ -37,16 +38,16 @@ This repository is up-to-date.<br>
 Please don't forget to give a Star ⭐
 
 <br><br>
+
 <hr>
 
 ### Prerequisites
 
 Python version >= 3.10
+Accounts on the following (all offer free signups):
 
-Before using the APIs, sign up for free accounts to get access credentials if you don't already have them:
-
--   Google Gemini: https://gemini.google.com/
--   Claude: https://claude.ai/
+- Google Gemini: https://gemini.google.com/
+- Claude: https://claude.ai/
 
 Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
@@ -89,11 +90,10 @@ python main.py
 
 <br>
 
-Now the **API documentation** should be available at the following address:
+Now the **API documentation** and **Setting Configuration** should be available at the following addresses:
 
-```
-http://127.0.0.1:8000/docs
-```
+- API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Setting Configuration: [http://127.0.0.1:8000/web-gui](http://127.0.0.1:8000/web-gui)
 
 <br>
 
@@ -211,7 +211,6 @@ curl -X 'POST' \
 
 #### How to Find Your Tokens
 
-
 **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
 **Important**:
@@ -237,18 +236,14 @@ First you need to add your tokens to the [**`Config.conf`**](#configuration) fil
 For Gemini, all you need to do is [login](https://gemini.google.com/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
 
 **Method 2:** <br>
-_`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized session on gemini.google.com. The cookies can be used to send POST requests to the /gemini endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **__Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
+_`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized session on gemini.google.com. The cookies can be used to send POST requests to the /gemini endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **\_\_Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
 <br>
 
-| Name | Session Name |
-|-|-|  
-| `session_id` | `__Secure-1PSID` |
-| `session_idts` | `__Secure-1PSIDTS` |  
+| Name           | Session Name       |
+| -------------- | ------------------ |
+| `session_id`   | `__Secure-1PSID`   |
+| `session_idts` | `__Secure-1PSIDTS` |
 | `session_idcc` | `__Secure-1PSIDCC` |
-
-
-
-
 
 1. Login to [gemini.google.com](https://gemini.google.com)
 2. Open `Developer Tools` (Press **F12**)
@@ -256,8 +251,8 @@ _`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized s
 4. Go to `Cookies Tab`
 5. Copy the content of `__Secure-1PSID` and `__Secure-1PSIDTS` and `__Secure-1PSIDCC`. Copy the value of those cookie.
 6. Set in **[Config.conf](#configuration)** file.
- </details>
- <br><hr><br>
+</details>
+<br><hr><br>
 
 <details>
 
@@ -301,6 +296,7 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 
 You can specify the model type in the settings for the `/v1/chat/completions` endpoint. The available options are "Claude" and "Gemini".
 By default, the system uses the "Claude" model.
+
 ```bash
 # Case-Sensative
 
@@ -311,10 +307,9 @@ Model=Claude
 
 <br>
 
-
 #### Config File Path:
 
--   WebAI-to-API\src\Config.conf
+- WebAI-to-API\src\Config.conf
 
 ```bash
 # Case-Sensative
