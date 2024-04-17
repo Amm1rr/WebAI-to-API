@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Reverse engineering of Google Bard
+Reverse engineering of Google Gemini
 """
 import argparse
 import json
@@ -89,7 +89,7 @@ class ChatbotGemini:
 
     def __init__(self, cookies: dict = None, session_id:str = None, session_idTS:str = None, session_idCC:str = None):
         """
-        Initialize the ChatbotBard instance.
+        Initialize the ChatbotGemini instance.
         
         Note: you should set either the "cookies" parameter or the sessions.
         
@@ -102,7 +102,7 @@ class ChatbotGemini:
         Sets up retry with 5 total retries and exponential backoff.
         Generates a random request ID and initializes the conversation ID, 
         response ID, and choice ID to empty strings. Retrieves the SNlM0e
-        value from the Bard website.
+        value from the Gemini website.
         """
         max_retries = Retry(total=5, backoff_factor=1, status_forcelist=[502, 503, 504]) 
         adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=max_retries)
@@ -147,8 +147,8 @@ class ChatbotGemini:
 
         # Find "SNlM0e":"<ID>"
         if resp.status_code != 200:
-            print("Error: Failed to retrieve the Google Bard website.")
-            # raise Exception("Error: Failed to retrieve the Google Bard website.")
+            print("Error: Failed to retrieve the Google Gemini website.")
+            # raise Exception("Error: Failed to retrieve the Google Gemini website.")
         try:
             # SNlM0e = re.search(r"SNlM0e\":\"(.*?)\"", resp.text).group(1)
             # - OR
@@ -160,12 +160,12 @@ class ChatbotGemini:
             return None
 
         except Exception as e:
-            # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Bard] key in Config.conf file.")
+            # raise ValueError("Maybe it's because of 'SESSION_ID' environment variable for [Gemini] key in Config.conf file.")
             print(f"Error: Session error:\n\n{e}")
             return None
     
-    def get_session_id_Bard(sessionId: str = "SESSION_ID"):
-        """Get the session ID for Bard.
+    def get_session_id_Gemini(sessionId: str = "SESSION_ID"):
+        """Get the session ID for Gemini.
 
         Args:
             sessionId (str, optional): The session ID to get. Defaults to "SESSION_ID".
@@ -183,22 +183,22 @@ class ChatbotGemini:
             sess_id = None
 
         if not sess_id:
-            sessions = utility.get_cookies(".google.com")
+            sessions = utility.get_cookies("google.com")
             return sessions
         else:
             session_name = "Bard" if sessionId == "SESSION_ID" else ("BardTS" if sessionId == "SESSION_DTS" else "BardCC")
             sess_id =  utility.get_Cookie(session_name)
                 
             if not IsSession(sess_id):
-                print(f"You should set {sessionId} for Bard in {CONFIG_FILE_NAME}")
+                print(f"You should set {sessionId} for Gemini in {CONFIG_FILE_NAME}")
 
             return sess_id
 
-    def ask_bard(self, message: str) -> dict:
+    def ask_gemini(self, message: str) -> dict:
         """
-        Send a message to Google Bard and return the response. (FastAPI)
-        :param message: The message to send to Google Bard.
-        :return: A dict containing the response from Google Bard.
+        Send a message to Google Gemini and return the response. (FastAPI)
+        :param message: The message to send to Google Gemini.
+        :return: A dict containing the response from Google Gemini.
         """
         # url params
         params = {
@@ -235,7 +235,7 @@ class ChatbotGemini:
 
         chat_data = json.loads(resp.content.splitlines()[3])[0][2]
         if not chat_data:
-            return {"content": f"Google Bard encountered an error: {resp.content}."}
+            return {"content": f"Google Gemini encountered an error: {resp.content}."}
         json_chat_data = json.loads(chat_data)
 
         results = {
@@ -257,11 +257,11 @@ class ChatbotGemini:
         print(results["choices"][0]["content"][0])
         return results["choices"][0]["content"][0]
 
-    async def ask_bardStream(self, message: str) -> dict:
+    async def ask_geminiStream(self, message: str) -> dict:
         """
-        Send a message to Google Bard and return the response.
-        :param message: The message to send to Google Bard.
-        :return: A dict containing the response from Google Bard.
+        Send a message to Google Gemini and return the response.
+        :param message: The message to send to Google Gemini.
+        :return: A dict containing the response from Google Gemini.
         """
 
         # for i in range(10):
@@ -315,7 +315,7 @@ class ChatbotGemini:
         #     chat_data = json.loads(response.content.splitlines()[3])[0][2]
         #     if not chat_data:
         #         return {
-        #             "content": f"Google Bard encountered an error: {response.content}."
+        #             "content": f"Google Gemini encountered an error: {response.content}."
         #         }
         #     json_chat_data = json.loads(chat_data)
 
@@ -343,13 +343,6 @@ class ChatbotGemini:
 
 
 # if __name__ == "__main__":
-#     print(
-#         """
-#         Bard - A command-line interface to Google's Gemini (https://gemini.google.com/)
-#         Repo: github.com/acheong08/Bard
-#         Enter `alt+enter` or `esc+enter` to send a message.
-#         """,
-#     )
 #     parser = argparse.ArgumentParser()
 #     parser.add_argument(
 #         "--session",
@@ -359,7 +352,7 @@ class ChatbotGemini:
 #     )
 #     args = parser.parse_args()
 
-#     chatbot = ChatbotBard(args.session)
+#     chatbot = ChatbotGemini(args.session)
 #     prompt_session = __create_session()
 #     completions = __create_completer(["!exit", "!reset"])
 #     console = Console()
@@ -375,7 +368,7 @@ class ChatbotGemini:
 #                 chatbot.response_id = ""
 #                 chatbot.choice_id = ""
 #                 continue
-#             print("Google Bard:")
+#             print("Google Gemini:")
 #             response = chatbot.ask(user_prompt)
 #             console.print(Markdown(response["content"]))
 #             print()

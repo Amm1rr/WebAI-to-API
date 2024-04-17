@@ -20,7 +20,7 @@ from h11 import Response
 from pydantic import BaseModel
 
 # Local Imports
-from bard import ChatbotGemini
+from gemini import ChatbotGemini
 from claude import Client
 from anyio import Path
 
@@ -83,7 +83,7 @@ class MessageClaude(BaseModel):
     stream: bool = True
 
 
-class MessageBard(BaseModel):
+class MessageGemini(BaseModel):
     message: str
     stream: bool = False
 
@@ -98,15 +98,15 @@ class Message(BaseModel):
 ####                                     ####
 
 @app.post("/gemini")
-async def ask_gemini(request: Request, message: MessageBard):
-    """API endpoint to get response from Anthropic's Claude/Bard.
+async def ask_gemini(request: Request, message: MessageGemini):
+    """API endpoint to get response from Google Gemini.
 
     Args:
         request (Request): API request object
         message (Message): Message request object
 
     Returns:
-        str: Bard response
+        str: Gemini response
 
     Raises:
         ConnectionError: If internet connection or API server is unavailable
@@ -124,18 +124,9 @@ async def ask_gemini(request: Request, message: MessageBard):
     #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
     cookies = None
     
-
-    #if not session_id:
-    #    session_id = get_session_id_Bard("SESSION_ID")
-
-    #if not session_idTS:
-    #    session_idTS = get_session_id_Bard("SESSION_IDTS")
-    
-    #if not session_idCC:
-    #   session_idCC = get_session_id_Bard("SESSION_IDCC")
     gemini = None
     if not (session_id or session_idTS or session_idCC):
-      cookies = ChatbotGemini.get_session_id_Bard()
+      cookies = ChatbotGemini.get_session_id_Gemini()
       if type(cookies) == dict:
         gemini = ChatbotGemini(cookies)
       else:
@@ -153,18 +144,18 @@ async def ask_gemini(request: Request, message: MessageBard):
         try:
             # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
             # if not chatbot.SNlM0e:
-            #     return {"Error": "Check the Bard session."}
+            #     return {"Error": "Check the Gemini session."}
 
 
             if message.stream:
-                res = gemini.ask_bard(message=message.message)
+                res = gemini.ask_gemini(message=message.message)
                 # print(res)
                 return StreamingResponse(
                         res,
                         media_type="text/event-stream",
                     )
             else:
-                res = await gemini.ask_bardStream(message=message.message)
+                res = await gemini.ask_geminiStream(message=message.message)
                 # print(res)
                 return res
         
@@ -191,7 +182,7 @@ async def ask_gemini(request: Request, message: MessageBard):
 
     else:
         try:
-            response = gemini.ask_bard(message.message)
+            response = gemini.ask_gemini(message.message)
             # print (response)
             return (response)
             # print(response["choices"][0]["message"]["content"][0])
@@ -303,7 +294,7 @@ async def ask_ai(request: Request, message: Message):
 
         gemini = None
         if not (session_id or session_idTS or session_idCC):
-            cookies = ChatbotGemini.get_session_id_Bard()
+            cookies = ChatbotGemini.get_session_id_Gemini()
             if type(cookies) == dict:
                 gemini = ChatbotGemini(cookies)
             else:
@@ -314,14 +305,14 @@ async def ask_ai(request: Request, message: Message):
         
     
         if message.stream:
-            response = gemini.ask_bardStream(message=message)
+            response = gemini.ask_geminiStream(message=message)
             ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
             return StreamingResponse(
                 ResponseToOpenAI,
                 media_type="text/event-stream",
             )
         else:
-            response = gemini.ask_bard(message.message)
+            response = gemini.ask_gemini(message.message)
             ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
             return ResponseToOpenAI
     
@@ -395,9 +386,16 @@ if __name__ == "__main__":
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
     
-    print("")
-    print("* The http://127.0.0.1:8000/Web-GUI/ link is available for configuration.")
-    print("")
+    print(
+        """
+        * WebAI to API:
+            Configuration      : http://localhost:8000/Web-GUI/
+            Swagger UI (Docs)  : http://localhost:8000/docs
+            ----------------------------------------------------------------
+        * About:
+                https://github.com/amm1rr/WebAI-to-API/
+        """,
+    )
     
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 

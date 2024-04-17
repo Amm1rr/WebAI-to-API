@@ -5,11 +5,11 @@ from typing import Literal
 
 _cookies = {}
 def get_cookies(cookie_domain: str) -> dict: 
-     if cookie_domain not in _cookies: 
-         _cookies[cookie_domain] = {} 
-         for cookie in browser_cookie3.load(cookie_domain): 
-             _cookies[cookie_domain][cookie.name] = cookie.value 
-     return _cookies[cookie_domain]
+    if cookie_domain not in _cookies: 
+        _cookies[cookie_domain] = {} 
+        for cookie in browser_cookie3.load(cookie_domain): 
+            _cookies[cookie_domain][cookie.name] = cookie.value 
+    return _cookies[cookie_domain]
 
 def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
     """
@@ -39,15 +39,15 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> s
     domain = domains[service_Name]
 
     if service_Name.lower() == "bardts":
-        bardSessionName = "__Secure-1PSIDTS"
+        geminiSessionName = "__Secure-1PSIDTS"
     elif service_Name.lower() == "bardcc":
-        bardSessionName = "__Secure-1PSIDCC"
+        geminiSessionName = "__Secure-1PSIDCC"
     else:
-        bardSessionName = "__Secure-1PSID"
+        geminiSessionName = "__Secure-1PSID"
 
     sessName = {
         "claude": "sessionKey",
-        "google": bardSessionName,
+        "google": geminiSessionName,
     }
     sessionName = sessName[domain]
 
@@ -75,16 +75,16 @@ def Get_Cookie_Claude(configfilepath: str, configfilename: str):
     except Exception as _:
         config = configparser.ConfigParser()
         config.read(filenames=configfilepath)
-        cookie = config.get("Claude", "COOKIE", fallback=None)
+        cookie = config.get("Claude", "COOKIE")
         if not cookie:
             response_error = {
-                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Bard or send it as an argument."
+                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or send it as an argument."
             }
 
             print(response_error)
             return response_error
                         # raise ValueError(
-                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Bard or send it as an argument."
+                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Claude or send it as an argument."
                         # )
         else:
             return cookie
