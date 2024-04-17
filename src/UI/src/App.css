@@ -19,7 +19,7 @@
   border: 1px solid #ccc;
   border-radius: 0.5rem;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-  min-width: 400px;
+  min-width: 20%;
 }
 
 .Header-content {
@@ -74,6 +74,8 @@
   padding: 0.5rem;
   border: 1px solid #ccc;
   border-radius: 0.25rem;
+  width: 600px;
+  overflow: auto;
 }
 
 .App-footer {
@@ -92,4 +94,23 @@
 
 strong {
   font-weight: bold;
+}
+
+.googleSessionsContainer {
+  border: #ccc dotted 3px;
+  border-radius: 5%;
+  padding: 0.5rem;
+  margin-top: 1rem;
+  width: 600px;
+  overflow: auto;
+}
+
+.claudeSessionsContainer,
+.claudeSessions {
+  border: #ccc dotted 3px;
+  border-radius: 5%;
+  padding: 0.5rem;
+  margin-top: 1rem;
+  width: 600px;
+  overflow: auto;
 }

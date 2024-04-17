@@ -1,6 +1,7 @@
 import browser_cookie3
 import time
 import configparser
+import json
 from typing import Literal
 
 _cookies = {}
@@ -204,7 +205,18 @@ def IsSession(session_id: str) -> bool:
         return False
     return False if not session_id else session_id.lower() != "none"
 
+def ConfigINI_to_Dict(filepath:str):
+    config_object = configparser.ConfigParser()
+    file =open(filepath,"r")
+    config_object.read_file(file)
+    file.close()
+    output_dict=dict()
+    sections=config_object.sections()
+    for section in sections:
+        items=config_object.items(section)
+        output_dict[section]=dict(items)
 
+    return output_dict
 
 #############################################
 ####                                     ####

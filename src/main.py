@@ -335,6 +335,7 @@ async def ask_ai(request: Request, message: Message):
 
         if message.stream:
             res = claude.stream_message(message.message, conversation_id)
+
             resjson = utility.ConvertToChatGPTStream(message=res, model="claude")
             # print(res)
             return StreamingResponse(
@@ -360,9 +361,41 @@ app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
 
 async def catch_all_endpoints(request: Request, call_next):
     response = await call_next(request)
-    if response.status_code == 404 and request.url.path.lower() == "/web-gui":
+    url = request.url.path.lower()
+    if response.status_code == 404 and url == "/web-gui":
         index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
         return FileResponse(index_html_path)
+    elif url == "/api/config":
+        config_file_path = os.path.join(os.path.dirname(__file__), 'Config.conf')
+        
+        if os.path.exists(config_file_path):
+            # print(utility.ConfigINI_to_Dict(config_file_path))
+            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(config_file_path)))
+            # return FileResponse(config_file_path)
+        else:
+            return JSONResponse({"error": "Config file not found"})
+        # 
+    elif url == "/api/config/save":
+        try:
+            request_body = await request.json()
+            model_name = request_body.get('Model')
+
+            if not model_name:
+                return JSONResponse({"error": "Model name not provided in request body"}, status_code=400)
+
+            config_file_path = os.path.join(os.path.dirname(__file__), 'Config.conf')
+
+            config = configparser.ConfigParser()
+            config['Main'] = {}
+            config['Main']['model'] = model_name
+
+            with open(config_file_path, 'w') as configfile:
+                config.write(configfile)
+
+            return JSONResponse({"message": f"Model {model_name} saved successfully"})
+        except Exception as e:
+            return JSONResponse({"error": f"Failed to save model: {str(e)}"}, status_code=500)
+    
     return response
 
 #############################################
@@ -378,6 +411,8 @@ if __name__ == "__main__":
 
     Example:
         python main.py --host localhost --port 8000 --reload
+            OR
+        python main.py
 
     """
     parser = argparse.ArgumentParser(description="Run the UVicorn server.")
