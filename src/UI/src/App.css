@@ -3,7 +3,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  min-height: 100vh;
   background-color: #f5f5f5;
   font-family: Arial, sans-serif;
   position: relative;
@@ -11,8 +11,8 @@
 
 .App-header {
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   margin-bottom: 2rem;
   padding: 2rem;
@@ -20,12 +20,15 @@
   border-radius: 0.5rem;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
   min-width: 20%;
+  max-width: 800px;
+  width: 100%;
 }
 
 .Header-content {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  width: 100%;
 }
 
 .App-title {
@@ -33,13 +36,13 @@
   font-weight: bold;
   color: #122a95;
   margin-bottom: 1rem;
-  margin-right: 1rem;
+  text-align: center;
 }
 
 .Select-container {
   display: flex;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .Select-label {
@@ -60,21 +63,20 @@
 .Endpoint-description {
   font-size: 0.9rem;
   color: #23611d;
-  text-align: left;
+  text-align: center;
   margin-bottom: 1rem;
   padding: 0.5rem;
-  /* border: 1px solid #ccc; */
   border-radius: 0.25rem;
 }
 
 .Model-description {
   font-size: 1rem;
   color: #333;
-  text-align: left;
+  text-align: center;
   padding: 0.5rem;
   border: 1px solid #ccc;
   border-radius: 0.25rem;
-  width: 600px;
+  width: 100%;
   overflow: auto;
 }
 
@@ -96,27 +98,42 @@ strong {
   font-weight: bold;
 }
 
-.googleSessionsContainer {
+.googleSessionsContainer,
+.claudeSessionsContainer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   border: #ccc dotted 3px;
   border-radius: 5%;
   padding: 0.5rem;
   margin-top: 1rem;
-  width: 600px;
-  overflow: auto;
+  width: 100%;
+  max-width: 600px;
 }
 
-.claudeSessionsContainer,
-.claudeSessions {
-  border: #ccc dotted 3px;
-  border-radius: 5%;
-  padding: 0.5rem;
-  margin-top: 1rem;
-  width: 600px;
-  overflow: auto;
+.googleSession,
+.claudeSession {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.googleSession-label,
+.claudeSession-label {
+  margin-right: 0.5rem;
+  flex: 1;
+  text-align: right;
+  padding-right: 1rem;
 }
 
 input[type="text"] {
-  text-align: center;
-  margin-left: 100px;
-  width: 200px;
+  flex: 2;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+  font-size: 1rem;
+  width: 100%;
+  max-width: 300px;
+  background-color: #f5f5f5;
 }

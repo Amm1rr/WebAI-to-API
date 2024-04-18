@@ -26,7 +26,7 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 ✅ **_Claude-3_** Web to API integration is also fully implemented and available.
 
-✅ ~**_ChatGPT_** Web to API integration is fully complete and available now.~ (Discontinued)
+✅ ~**_ChatGPT_** Web to API integration is fully complete and available now.~ (Temporarily Suspended)
 
 ✅ **_UI Configuration_**: Implement routing for [localhost:8000/web-gui](http://localhost:8000/web-gui) path (still in development)
 

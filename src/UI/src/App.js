@@ -7,7 +7,7 @@ function App() {
   const [googleSessionKeyTS, setGoogleSessionKeyTS] = useState("");
   const [googleSessionKeyCC, setGoogleSessionKeyCC] = useState("");
   const [claudeSessionKey, setClaudeSessionKey] = useState("");
-  const [firstLoad, setFirstLoad] = useState(true); // State to track first load
+  const [firstLoad, setFirstLoad] = useState(true);
 
   const getModelDescription = () => {
     if (selectedOption === "Gemini") {
@@ -24,9 +24,8 @@ function App() {
 
   useEffect(() => {
     if (firstLoad) {
-      // Only fetch data on the first load
       fetchData();
-      setFirstLoad(false); // Set first load to false after fetching data
+      setFirstLoad(false);
     }
   }, [firstLoad]);
 
@@ -34,14 +33,10 @@ function App() {
     try {
       const response = await fetch("http://localhost:8000/api/config");
       const data = await response.text();
-      // console.log("Data: " + data);
-
       const responseText = data;
-      const cleanedText = responseText.replace(/^"|"$/g, "").trim(); // Remove surrounding quotes and trim whitespace
-      const unescapedText = cleanedText.replace(/\\"/g, '"').trim(); // Unescape double quotes
+      const cleanedText = responseText.replace(/^"|"$/g, "").trim();
+      const unescapedText = cleanedText.replace(/\\"/g, '"').trim();
       const jsonData = JSON.parse(unescapedText);
-
-      // console.log("JSON Data: " + unescapedText);
 
       const aimodel = jsonData.Main.model;
       if (aimodel) {
@@ -54,6 +49,7 @@ function App() {
         setGoogleSessionKeyTS(jsonData.Gemini.session_idts);
         setGoogleSessionKeyCC(jsonData.Gemini.session_idcc);
       }
+
       const claudeSessionKey = jsonData.Claude;
       if (claudeSessionKey) {
         setClaudeSessionKey(jsonData.Claude.cookie);
@@ -93,7 +89,7 @@ function App() {
           <hr />
           <div className="Select-container">
             <label htmlFor="option-select" className="Select-label">
-              Default AI:
+              Default Model :
             </label>
             <select
               id="option-select"
@@ -124,7 +120,7 @@ function App() {
           </label>
           <div className="googleSessionsContainer">
             <div className="googleSession">
-              <label htmlFor=".googleSession" className="googleSession-label">
+              <label htmlFor="googleSession" className="googleSession-label">
                 Google Session ID :
               </label>
               <input
@@ -132,11 +128,11 @@ function App() {
                 name="googleSession"
                 id="googleSession"
                 value={googleSessionKey}
-              ></input>
+              />
             </div>
             <div className="googleSession">
               <label
-                htmlFor=".googleSession-value"
+                htmlFor="googleSession-value"
                 className="googleSession-label"
               >
                 Google Session IDTS :
@@ -147,14 +143,14 @@ function App() {
                 id="googleSession-value"
                 className="googleSession-value"
                 value={googleSessionKeyTS}
-              ></input>
+              />
             </div>
             <div className="googleSession">
               <label
-                htmlFor=".googleSession-label"
+                htmlFor="googleSession-label"
                 className="googleSession-label"
               >
-                Google Session ID CC :
+                Google Session IDCC :
               </label>
               <input
                 type="text"
@@ -162,7 +158,7 @@ function App() {
                 id="googleSession-label"
                 className="googleSession-value"
                 value={googleSessionKeyCC}
-              ></input>
+              />
             </div>
           </div>
           <div className="claudeSessionsContainer">
@@ -179,7 +175,7 @@ function App() {
                 id="claudeSession-value"
                 className="claudeSession-value"
                 value={claudeSessionKey}
-              ></input>
+              />
             </div>
           </div>
         </div>
