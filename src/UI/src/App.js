@@ -43,19 +43,44 @@ function App() {
         setSelectedOption(aimodel);
       }
 
-      const geminiSession = jsonData.Gemini;
-      if (geminiSession) {
+      const geminiSessions = jsonData.Gemini;
+      if (geminiSessions) {
         setGoogleSessionKey(jsonData.Gemini.session_id);
         setGoogleSessionKeyTS(jsonData.Gemini.session_idts);
         setGoogleSessionKeyCC(jsonData.Gemini.session_idcc);
+      } else {
+        const respCookie = await fetch(
+          "http://localhost:8000/api/config/getgeminikey"
+        );
+        const respCookieText = await respCookie.json();
+
+        try {
+          const parsedData = JSON.parse(respCookieText);
+          const session_id = parsedData[0][1];
+          const session_idts = parsedData[1][1];
+          const session_idcc = parsedData[2][1];
+          setGoogleSessionKey(session_id);
+          setGoogleSessionKeyTS(session_idts);
+          setGoogleSessionKeyCC(session_idcc);
+          // claude = parsedData[3]["sessionKey"];
+        } catch (error) {
+          console.error("Error parsing JSON:", error);
+        }
       }
 
       const claudeSessionKey = jsonData.Claude;
       if (claudeSessionKey) {
         setClaudeSessionKey(jsonData.Claude.cookie);
+      } else {
+        const respCookie = await fetch(
+          "http://localhost:8000/api/config/getclaudekey"
+        );
+        const respCookieText = await respCookie.json();
+
+        setClaudeSessionKey(respCookieText["Claude"]);
       }
     } catch (error) {
-      console.error("Error fetching config file:", error);
+      console.error("Error fetching Claude cookie session:", error);
     }
   };
 
@@ -72,7 +97,7 @@ function App() {
       });
 
       if (response.ok) {
-        console.log("Config file saved successfully.");
+        console.log(modelname + " saved as the default model.");
       } else {
         console.error("Failed to save config file:", response.statusText);
       }

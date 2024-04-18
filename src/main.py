@@ -276,7 +276,7 @@ async def ask_ai(request: Request, message: Message):
         str: JSON string of ChatGPT JSON response.
     
     WebUI Configuration:
-        Open http://localhost:8000/Web-GUI to configuration
+        Open http://localhost:8000/WebAI to configuration
 
     """
 
@@ -362,19 +362,30 @@ app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
 async def catch_all_endpoints(request: Request, call_next):
     response = await call_next(request)
     url = request.url.path.lower()
-    if response.status_code == 404 and url == "/web-gui":
+    if response.status_code == 404 and url == "/webai":
         index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
         return FileResponse(index_html_path)
     elif url == "/api/config":
-        config_file_path = os.path.join(os.path.dirname(__file__), 'Config.conf')
-        
-        if os.path.exists(config_file_path):
-            # print(utility.ConfigINI_to_Dict(config_file_path))
-            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(config_file_path)))
-            # return FileResponse(config_file_path)
+        if os.path.exists(CONFIG_FILE_PATH):
+            # print(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH))
+            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH)), status_code=200)
+            # return FileResponse(CONFIG_FILE_PATH)
         else:
-            return JSONResponse({"error": "Config file not found"})
+            return JSONResponse({"error": CONFIG_FILE_PATH + " Config file not found"})
         # 
+    elif url == "/api/config/getclaudekey":
+        
+        cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
+        if (cookie):
+            return JSONResponse({"Claude": f"{cookie}"},  status_code=200)
+        return JSONResponse({"warning": "Failed to get claude key"})
+        
+    elif url == "/api/config/getgeminikey":
+        cookie = utility.Get_Cookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
+        if (cookie):
+            return JSONResponse(cookie, status_code=200)
+        return JSONResponse({"warning": "Failed to get gemini key"})
+    
     elif url == "/api/config/save":
         try:
             request_body = await request.json()
@@ -383,16 +394,14 @@ async def catch_all_endpoints(request: Request, call_next):
             if not model_name:
                 return JSONResponse({"error": "Model name not provided in request body"}, status_code=400)
 
-            config_file_path = os.path.join(os.path.dirname(__file__), 'Config.conf')
-
             config = configparser.ConfigParser()
             config['Main'] = {}
             config['Main']['model'] = model_name
 
-            with open(config_file_path, 'w') as configfile:
+            with open(CONFIG_FILE_PATH, 'w') as configfile:
                 config.write(configfile)
 
-            return JSONResponse({"message": f"Model {model_name} saved successfully"})
+            return JSONResponse({"message": f"{model_name} saved successfully"}, status_code=200)
         except Exception as e:
             return JSONResponse({"error": f"Failed to save model: {str(e)}"}, status_code=500)
     
@@ -424,7 +433,7 @@ if __name__ == "__main__":
     print(
         """
         * WebAI to API:
-            Configuration      : http://localhost:8000/Web-GUI
+            Configuration      : http://localhost:8000/WebAI
             Swagger UI (Docs)  : http://localhost:8000/docs
             ----------------------------------------------------------------
         * About:

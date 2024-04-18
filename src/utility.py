@@ -66,6 +66,51 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> s
         else None
     )
 
+
+def find_all_cookie_values_for_sessions():
+    domains = ["google", "claude"]
+    sessions = ["__Secure-1PSID", "__Secure-1PSIDTS", "__Secure-1PSIDCC", "sessionKey"]
+
+    found_items = []
+    for domainname in domains:
+        cookies = browser_cookie3.load(domain_name=domainname)
+
+        for cookie in cookies:
+            for session in sessions:
+                if cookie.name == session:
+                    found_items.append((cookie.name, cookie.value))
+
+    # print("Found Items: ", found_items)
+    json_found_items = json.dumps(found_items)
+    return json_found_items
+
+def Get_Cookie_Gemini(configfilepath: str, configfilename: str):
+    try:
+        cookie = get_Cookie("google")
+        if not cookie:
+            raise Exception()
+        return cookie
+    except Exception as _:
+        domain = ".google"
+        sessions = ["__Secure-1PSID", "__Secure-1PSIDTS", "__Secure-1PSIDCC"]
+
+        found_items = []
+        cookies = browser_cookie3.load(domain_name=domain)
+
+        if not cookies:
+            return  {
+                "Error": f"You should set 'COOKIES' in '{configfilename}' file for the Google Gemini or login with a browser to gemini.google.com account."
+            }
+        
+        for cookie in cookies:
+            for session in sessions:
+                if cookie.name == session:
+                    found_items.append((cookie.name, cookie.value))
+
+        # print("Found Items: ", found_items)
+        json_found_items = json.dumps(found_items)
+        return json_found_items
+
 def Get_Cookie_Claude(configfilepath: str, configfilename: str):
     # if error by system(permission denided)
     try:
@@ -79,13 +124,13 @@ def Get_Cookie_Claude(configfilepath: str, configfilename: str):
         cookie = config.get("Claude", "COOKIE")
         if not cookie:
             response_error = {
-                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or send it as an argument."
+                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or login with a browser to Claude.ai account."
             }
 
             print(response_error)
             return response_error
                         # raise ValueError(
-                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Claude or send it as an argument."
+                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Claude or login with a browser to Claude.ai account."
                         # )
         else:
             return cookie
