@@ -28,7 +28,7 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 ✅ ~**_ChatGPT_** Web to API integration is fully complete and available now.~ (Temporarily Suspended)
 
-✅ **_UI Configuration_**: Implement routing for [localhost:8000/web-gui](http://localhost:8000/web-gui) path (still in development)
+✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path (still in development)
 
 <br>
 
@@ -95,7 +95,7 @@ python main.py
 Now the **API documentation** and **Setting Configuration** should be available at the following addresses:
 
 - API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Setting Configuration: [http://localhost:8000/web-gui](http://localhost:8000/web-gui)
+- Setting Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
 
 <br>
 
