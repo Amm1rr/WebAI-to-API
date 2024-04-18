@@ -6,7 +6,7 @@
 
 This project implements a web API that offers a unified interface to Google Gemini, and Claude 3.
 
-[![Image](assets/WebAI-Configuration-Thumb.png)](assets/WebAI-Configuration.png)
+[![Image](assets/WebAI-Configuration-Thumb.jpg)](assets/WebAI-Configuration.jpg)
 
 ### Key Features
 
