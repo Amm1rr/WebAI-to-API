@@ -92,9 +92,9 @@ python main.py
 
 Now the **API documentation** and **Configuration Web UI** should be available at the following addresses:
 
-### Open Web Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
+#### Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
 
-### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+#### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 <br>
 
@@ -237,7 +237,7 @@ curl -X 'POST' \
 
 ## Usage
 
-#### How to Find Your Tokens
+#### How to find tokens
 
 **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
@@ -307,11 +307,15 @@ _`Claude:`_ You can get cookie from the browser's developer tools network tab ( 
 
 </details>
 
-<br><hr>
+<br>
 
 ## Configuration
 
-[How to Find Your Tokens](#usage)
+- Open Web UI Panel: **[http://localhost:8000/WebAI](http://localhost:8000/WebAI)**
+
+<br>
+
+How to [find tokens](#usage)
 
 - [Google Gemini](#gemini)
 - [Claude](#claude)
