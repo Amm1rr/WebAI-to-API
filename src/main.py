@@ -59,9 +59,9 @@ FixConfigPath = lambda: (
 CONFIG_FILE_PATH = FixConfigPath()
 
 def ResponseModel():
-    CONFIG = configparser.ConfigParser()
-    CONFIG.read(filenames=CONFIG_FILE_PATH)
-    return CONFIG.get("Main", "Model", fallback="Claude")
+    config = configparser.ConfigParser()
+    config.read(filenames=CONFIG_FILE_PATH)
+    return config.get("Main", "Model", fallback="Claude")
 
 OpenAIResponseModel = ResponseModel()
 
@@ -71,7 +71,6 @@ COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, config
 COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 GEMINI_CLIENT = gemini.GeminiInit()
 CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
-
 
 """FastAPI application instance."""
 
@@ -101,7 +100,7 @@ class MessageGemini(BaseModel):
 
 class Message(BaseModel):
     message: str
-    stream: bool = True
+    stream: bool = False
 
 
 #############################################
