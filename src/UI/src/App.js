@@ -31,7 +31,7 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/config");
+      const response = await fetch("/api/config");
       const data = await response.text();
       const responseText = data;
       const cleanedText = responseText.replace(/^"|"$/g, "").trim();
@@ -49,9 +49,7 @@ function App() {
         setGoogleSessionKeyTS(jsonData.Gemini.session_idts);
         setGoogleSessionKeyCC(jsonData.Gemini.session_idcc);
       } else {
-        const respCookie = await fetch(
-          "http://localhost:8000/api/config/getgeminikey"
-        );
+        const respCookie = await fetch("/api/config/getgeminikey");
         const respCookieText = await respCookie.json();
 
         try {
@@ -72,9 +70,7 @@ function App() {
       if (claudeSessionKey) {
         setClaudeSessionKey(jsonData.Claude.cookie);
       } else {
-        const respCookie = await fetch(
-          "http://localhost:8000/api/config/getclaudekey"
-        );
+        const respCookie = await fetch("/api/config/getclaudekey");
         const respCookieText = await respCookie.json();
 
         setClaudeSessionKey(respCookieText["Claude"]);
@@ -86,7 +82,7 @@ function App() {
 
   const saveConfig = async (modelname) => {
     try {
-      const response = await fetch("http://localhost:8000/api/config/save", {
+      const response = await fetch("/api/config/save", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -130,7 +126,7 @@ function App() {
             Default Response for{" "}
             <strong>
               <a
-                href="http://localhost:8000/docs"
+                href="/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="Footer-link"

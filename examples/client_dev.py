@@ -11,12 +11,12 @@ import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# url = "http://localhost:8000/chatgpt"
-# url = "http://localhost:8000/claude"
-# url = "http://localhost:8000/gemini"
+# url = "/chatgpt"
+# url = "/claude"
+# url = "/gemini"
 ai = "chatgpt"
 ai = "v1/chat/completions"
-url = f"http://localhost:8000/{ai}"
+url = f"/{ai}"
 
 
 ## Argument for stream if available

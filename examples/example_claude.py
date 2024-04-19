@@ -5,7 +5,7 @@ user_input = input("Enter your prompt: ")
 
 ## Set the API endpoint
 #
-API_ENDPOINT = "http://localhost:8000/claude"
+API_ENDPOINT = "/claude"
 
 stream = True
 
