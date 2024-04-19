@@ -226,10 +226,11 @@ async def ask_claude(request: Request, message: MessageClaude):
         str: JSON string of Claude response.
 
     """
-    cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
+    cookie = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 
-    # if not cookie:
-    #     cookie = os.environ.get("CLAUDE_COOKIE")
+    if not cookie:
+        # cookie = os.environ.get("CLAUDE_COOKIE")
+        return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
     
     claude = Client(cookie)
     conversation_id = None
@@ -317,7 +318,7 @@ async def ask_ai(request: Request, message: Message):
             return ResponseToOpenAI
     
     else:
-        cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
+        cookie = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 
         # if not cookie:
         #     cookie = os.environ.get("CLAUDE_COOKIE")
@@ -375,13 +376,13 @@ async def catch_all_endpoints(request: Request, call_next):
         # 
     elif url == "/api/config/getclaudekey":
         
-        cookie = utility.Get_Cookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
+        cookie = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
         if (cookie):
             return JSONResponse({"Claude": f"{cookie}"},  status_code=200)
         return JSONResponse({"warning": "Failed to get claude key"})
         
     elif url == "/api/config/getgeminikey":
-        cookie = utility.Get_Cookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
+        cookie = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
         if (cookie):
             return JSONResponse(cookie, status_code=200)
         return JSONResponse({"warning": "Failed to get gemini key"})

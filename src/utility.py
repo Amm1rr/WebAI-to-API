@@ -84,7 +84,7 @@ def find_all_cookie_values_for_sessions():
     json_found_items = json.dumps(found_items)
     return json_found_items
 
-def Get_Cookie_Gemini(configfilepath: str, configfilename: str):
+def getCookie_Gemini(configfilepath: str, configfilename: str):
     try:
         cookie = get_Cookie("google")
         if not cookie:
@@ -99,7 +99,7 @@ def Get_Cookie_Gemini(configfilepath: str, configfilename: str):
 
         if not cookies:
             return  {
-                "Error": f"You should set 'COOKIES' in '{configfilename}' file for the Google Gemini or login with a browser to gemini.google.com account."
+                "Error": f"Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually on '{configfilename}' or log in to your gemini.google.com account through your web browser."
             }
         
         for cookie in cookies:
@@ -111,7 +111,7 @@ def Get_Cookie_Gemini(configfilepath: str, configfilename: str):
         json_found_items = json.dumps(found_items)
         return json_found_items
 
-def Get_Cookie_Claude(configfilepath: str, configfilename: str):
+def getCookie_Claude(configfilepath: str, configfilename: str):
     # if error by system(permission denided)
     try:
         cookie = get_Cookie("Claude")
