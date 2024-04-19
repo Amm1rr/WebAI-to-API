@@ -27,6 +27,28 @@ from urllib3.util.retry import Retry
 
 import utility
 
+def GeminiInit():
+    # Execute code without authenticating the resource
+    session_id = None #message.session_id
+    session_idTS = None #message.session_idTS
+    session_idCC = None #message.session_idCC
+    # if not utility.IsSession(session_id):
+    #     session_id = os.getenv("SESSION_ID")
+    #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
+    COOKIE_GEMINI = None
+    
+    gemini = None
+    if not (session_id or session_idTS or session_idCC):
+        cookies = ChatbotGemini.get_session_id_Gemini()
+        if type(cookies) == dict:
+            gemini = ChatbotGemini(cookies)
+        else:
+            gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+        
+    else:
+        gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+    
+    return gemini
 
 def load_proxies():
     proxy_enabled = os.getenv("PROXY_ENABLED", "False").lower() == "true"

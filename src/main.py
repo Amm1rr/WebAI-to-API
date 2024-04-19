@@ -20,8 +20,10 @@ from h11 import Response
 from pydantic import BaseModel
 
 # Local Imports
-from gemini import ChatbotGemini
-from claude import Client
+import gemini
+import claude
+# from gemini import ChatbotGemini
+# from claude import Client
 from anyio import Path
 
 # UI
@@ -56,10 +58,20 @@ FixConfigPath = lambda: (
 """Path to API configuration file."""
 CONFIG_FILE_PATH = FixConfigPath()
 
+def ResponseModel():
+    CONFIG = configparser.ConfigParser()
+    CONFIG.read(filenames=CONFIG_FILE_PATH)
+    return CONFIG.get("Main", "Model", fallback="Claude")
 
-CONFIG = configparser.ConfigParser()
-CONFIG.read(filenames=CONFIG_FILE_PATH)
-OpenAIResponseModel = CONFIG.get("Main", "Model", fallback="Claude")
+OpenAIResponseModel = ResponseModel()
+
+
+""" Initialization AI Models and Cookies """
+COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
+COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
+GEMINI_CLIENT = gemini.GeminiInit()
+CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
+
 
 """FastAPI application instance."""
 
@@ -115,25 +127,9 @@ async def ask_gemini(request: Request, message: MessageGemini):
         Exception: For any other errors
 
     """
-    # Execute code without authenticating the resource
-    session_id = None #message.session_id
-    session_idTS = None #message.session_idTS
-    session_idCC = None #message.session_idCC
-    # if not utility.IsSession(session_id):
-    #     session_id = os.getenv("SESSION_ID")
-    #     # print("Session: " + str(session_id) if session_id is not None else "Session ID is not available.")
-    cookies = None
     
-    gemini = None
-    if not (session_id or session_idTS or session_idCC):
-      cookies = ChatbotGemini.get_session_id_Gemini()
-      if type(cookies) == dict:
-        gemini = ChatbotGemini(cookies)
-      else:
-        gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-        
-    else:
-      gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
+    if not GEMINI_CLIENT:
+        return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
     
     if not message.message:
         message.message = "Hi, Who are you?"
@@ -148,14 +144,14 @@ async def ask_gemini(request: Request, message: MessageGemini):
 
 
             if message.stream:
-                res = gemini.ask_gemini(message=message.message)
+                res = GEMINI_CLIENT.ask_gemini(message=message.message)
                 # print(res)
                 return StreamingResponse(
                         res,
                         media_type="text/event-stream",
                     )
             else:
-                res = await gemini.ask_geminiStream(message=message.message)
+                res = await GEMINI_CLIENT.ask_geminiStream(message=message.message)
                 # print(res)
                 return res
         
@@ -182,7 +178,7 @@ async def ask_gemini(request: Request, message: MessageGemini):
 
     else:
         try:
-            response = gemini.ask_gemini(message.message)
+            response = GEMINI_CLIENT.ask_gemini(message.message)
             # print (response)
             return (response)
             # print(response["choices"][0]["message"]["content"][0])
@@ -226,35 +222,33 @@ async def ask_claude(request: Request, message: MessageClaude):
         str: JSON string of Claude response.
 
     """
-    cookie = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 
-    if not cookie:
+    if not COOKIE_CLAUDE:
         # cookie = os.environ.get("CLAUDE_COOKIE")
         return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
     
-    claude = Client(cookie)
     conversation_id = None
 
     try:
         if not conversation_id:
-            conversation = claude.create_new_chat()
+            conversation = CLAUDE_CLIENT.create_new_chat()
             conversation_id = conversation["uuid"]
     except Exception as e:
         print(conversation)
-        return ("ERROR: ", conversation)
+        return ("error: ", conversation)
 
     if not message.message:
         message.message = "Hi, Who are you?"
 
     if message.stream:
-        res = claude.stream_message(message.message, conversation_id)
+        res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
         # print(res)
         return StreamingResponse(
                 res,
                 media_type="text/event-stream",
             )
     else:
-        res = claude.send_message(message.message, conversation_id)
+        res = CLAUDE_CLIENT.send_message(message.message, conversation_id)
         # print(res)
         return res
 
@@ -280,6 +274,8 @@ async def ask_ai(request: Request, message: Message):
         Open http://localhost:8000/WebAI to configuration
 
     """
+    
+    OpenAIResponseModel = ResponseModel()
 
     if not message.message:
         message.message = "Hi, Who are you?"
@@ -287,55 +283,40 @@ async def ask_ai(request: Request, message: Message):
     conversation_id = None
     
     if OpenAIResponseModel == "Gemini":
-
-        # Execute code without authenticating the resource
-        session_id = None #message.session_id
-        session_idTS = None #message.session_idTS
-        session_idCC = None #message.session_idCC
-
-        gemini = None
-        if not (session_id or session_idTS or session_idCC):
-            cookies = ChatbotGemini.get_session_id_Gemini()
-            if type(cookies) == dict:
-                gemini = ChatbotGemini(cookies)
-            else:
-                gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
-            
-        else:
-            gemini = ChatbotGemini(session_id=session_id, session_idTS=session_idTS, session_idCC=session_idCC)
         
-    
+        if not GEMINI_CLIENT:
+            return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
+        
         if message.stream:
-            response = gemini.ask_geminiStream(message=message)
+            response = GEMINI_CLIENT.ask_geminiStream(message=message)
             ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
             return StreamingResponse(
                 ResponseToOpenAI,
                 media_type="text/event-stream",
             )
         else:
-            response = gemini.ask_gemini(message.message)
+            response = GEMINI_CLIENT.ask_gemini(message.message)
             ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
             return ResponseToOpenAI
     
     else:
-        cookie = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
-
-        # if not cookie:
-        #     cookie = os.environ.get("CLAUDE_COOKIE")
         
-        claude = Client(cookie)
+        if not CLAUDE_CLIENT:
+            # cookie = os.environ.get("CLAUDE_COOKIE")
+            return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
+        
         conversation_id = None
 
         try:
             if not conversation_id:
-                conversation = claude.create_new_chat()
+                conversation = CLAUDE_CLIENT.create_new_chat()
                 conversation_id = conversation["uuid"]
         except Exception as e:
             print(conversation)
             return ("ERROR: ", conversation)
 
         if message.stream:
-            res = claude.stream_message(message.message, conversation_id)
+            res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
 
             resjson = utility.ConvertToChatGPTStream(message=res, model="claude")
             # print(res)
@@ -344,7 +325,7 @@ async def ask_ai(request: Request, message: Message):
                     media_type="text/event-stream",
                 )
         else:
-            res = claude.send_message(message.message, conversation_id)
+            res = CLAUDE_CLIENT.send_message(message.message, conversation_id)
             resjson = utility.ConvertToChatGPT(message=res, model="claude")
             # print(resjson)
             return resjson
@@ -391,9 +372,10 @@ async def catch_all_endpoints(request: Request, call_next):
         try:
             request_body = await request.json()
             model_name = request_body.get('Model')
+            OpenAIResponseModel = model_name
 
             if not model_name:
-                return JSONResponse({"error": "Model name not provided in request body"}, status_code=400)
+                return JSONResponse({"error": model_name + " model not provided in request body"}, status_code=400)
 
             config = configparser.ConfigParser()
             config['Main'] = {}
