@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import DOMPurify from "dompurify"; // Sanitize INPUT
 import "./App.css";
 
 function App() {
@@ -18,8 +19,9 @@ function App() {
   };
 
   const handleSelectChange = (event) => {
-    setSelectedOption(event.target.value);
-    saveConfig(event.target.value);
+    const sanitizedValue = DOMPurify.sanitize(event.target.value);
+    setSelectedOption(sanitizedValue);
+    saveConfig(sanitizedValue);
   };
 
   useEffect(() => {
@@ -95,10 +97,13 @@ function App() {
       if (response.ok) {
         console.log(modelname + " saved as the default model.");
       } else {
-        console.error("Failed to save config file:", response.statusText);
+        console.error(
+          "Error: failed to save config file:",
+          response.statusText
+        );
       }
     } catch (error) {
-      console.error("Error saving config file:", error);
+      console.error("Error: failed saving config file:", error);
     }
   };
 

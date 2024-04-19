@@ -10,23 +10,21 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 ### Key Features
 
-- **Unified API:** Single integration to query Gemini, and Claude. No juggling multiple APIs.
-
-- **Conversational interface:** Text completion, QA, discussions. Put advanced AI to work immediately.
-
 - **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
 
-- **Streaming support:** Real-time responses from Gemini and Claude streaming.
+- **Streaming support:** Real-time responses from Claude and Gemini streaming.
 
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
+- **API Key:** No API Key required.
+
 ### Status
 
-✅ **_Google Gemini_** Web to API integration available now.
+✅ **_Claude-3_** API integration is also fully implemented and available
 
-✅ **_Claude-3_** Web to API integration is also fully implemented and available.
+✅ **_Google Gemini_** API integration available now
 
-✅ ~**_ChatGPT_** Web to API integration is fully complete and available now.~ (Temporarily Suspended)
+✅ ~**_ChatGPT_** API integration is fully complete and available now.~ (Temporarily Suspended)
 
 ✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path (still in development)
 

@@ -5,10 +5,8 @@ import json
 import os
 import sys
 import time
-
-import urllib.parse
-
 import utility
+import urllib.parse
 
 # Third-Party Imports
 import uvicorn
@@ -18,19 +16,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from h11 import Response
 from pydantic import BaseModel
+from anyio import Path
 
 # Local Imports
 import gemini
 import claude
-# from gemini import ChatbotGemini
-# from claude import Client
-from anyio import Path
 
 # UI
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-
 
 #############################################
 ####                                     ####
@@ -332,7 +327,7 @@ async def ask_ai(request: Request, message: Message):
 
 #############################################
 ####                                     ####
-#####           UI Middleware           #####
+#####          Web UI Middleware        #####
 ####                                     ####
 
 index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
