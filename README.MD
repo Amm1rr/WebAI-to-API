@@ -94,8 +94,9 @@ python main.py
 
 Now the **API documentation** and **Setting Configuration** should be available at the following addresses:
 
-- API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Setting Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
+### Open Web Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
+
+### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 <br>
 
