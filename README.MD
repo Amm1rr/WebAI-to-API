@@ -190,7 +190,7 @@ _____
 
 ## Example
 
-Once you have launched the web server using [`src\python main.py`](#step-2-start-web-server):
+Once you have launched the web server using [`python src\main.py`](#step-2-start-web-server):
 
 Note: The first argument to run the example determines whether to return streaming or not.
 
