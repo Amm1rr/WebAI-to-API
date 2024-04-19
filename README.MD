@@ -92,7 +92,7 @@ python main.py
 
 <br>
 
-Now the **API documentation** and **Setting Configuration** should be available at the following addresses:
+Now the **API documentation** and **Configuration Web UI** should be available at the following addresses:
 
 ### Open Web Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
 
@@ -174,15 +174,16 @@ Note: The first argument to run the example determines whether to return streami
 cd examples/
 
 
+python src/test.py
+
+OR
+
 python example_claude.py false
 python example_claude.py true
 
 python example_gemini.py false
 python example_gemini.py true
 
-OR
-
-python src/test.py
 
 ```
 
