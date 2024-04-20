@@ -64,7 +64,7 @@ else:
 print("\n------------------------------")  # Add a newline for better readability
 
 # Test Gemini (non-streaming)
-print("Testing Gemini (non-streaming):")
+print("Testing Gemini:")
 response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_non_streaming)
 
 if response.status_code == 200:
@@ -80,14 +80,14 @@ else:
 
 print("\n------------------------------")  # Add a newline for better readability
 
-# Test Gemini (streaming)
-print("Testing Gemini (streaming):")
-response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_streaming, stream=True)
+# # Test Gemini (streaming)
+# print("Testing Gemini (streaming):")
+# response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_streaming, stream=True)
 
-if response.status_code == 200:
-    for chunk in response.iter_content(chunk_size=None):
-        if chunk:
-            print(chunk.decode(), end="")
-else:
-    print(f"Request failed with status code: {response.status_code}")
-    print(f"Response text: {response.text}")
+# if response.status_code == 200:
+#     for chunk in response.iter_content(chunk_size=None):
+#         if chunk:
+#             print(chunk.decode(), end="")
+# else:
+#     print(f"Request failed with status code: {response.status_code}")
+#     print(f"Response text: {response.text}")

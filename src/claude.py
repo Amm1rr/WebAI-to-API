@@ -246,11 +246,10 @@ class Client:
             for text in response_parse_text:
                 text_res += text
 
-        answer = ''.join(text_res)
+        answer = answer.join(text_res)
         print(answer)
     
         yield answer
-
 
   # Deletes the conversation
   def delete_conversation(self, conversation_id):

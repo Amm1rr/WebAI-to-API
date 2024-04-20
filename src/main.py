@@ -17,10 +17,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from h11 import Response
 from pydantic import BaseModel
 from anyio import Path
+import asyncio
 
 # Local Imports
-import gemini
 import claude
+from gemini_webapi import GeminiClient
 
 # UI
 from fastapi.responses import HTMLResponse, FileResponse
@@ -62,14 +63,31 @@ OpenAIResponseModel = ResponseModel()
 
 
 """ Initialization AI Models and Cookies """
+async def InitAI():
+    gem = await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
+
 COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
-GEMINI_CLIENT = gemini.GeminiInit()
+GEMINI_CLIENT = GeminiClient()
 CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
+
+
 
 """FastAPI application instance."""
 
 app = FastAPI()
+
+async def startup():
+    await InitAI()
+
+app.add_event_handler("startup", startup)  # Register startup handler
+
+# async def shutdown():
+#     # Add any necessary shutdown logic for AI here (if needed)
+#     pass 
+
+# app.add_event_handler("shutdown", shutdown)  # Register shutdown handler
+
 
 # Add CORS middleware to allow all origins, credentials, methods, and headers.
 app.add_middleware(
@@ -91,7 +109,6 @@ class MessageClaude(BaseModel):
 
 class MessageGemini(BaseModel):
     message: str
-    stream: bool = False
 
 class Message(BaseModel):
     message: str
@@ -126,77 +143,33 @@ async def ask_gemini(request: Request, message: MessageGemini):
         return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
     
     if not message.message:
-        message.message = "Hi, Who are you?"
+        message.message = "Who are you?"
     
     conversation_id = None
 
-    if message.stream:
-        try:
-            # این شرط رو برای حالت غیر Stream نزاشتم چون در اون حالت خطای بهتری رو نشون میده اگر که اینترنت مشکل داشته باشه.
-            # if not chatbot.SNlM0e:
-            #     return {"Error": "Check the Gemini session."}
-
-
-            if message.stream:
-                res = GEMINI_CLIENT.ask_gemini(message=message.message)
-                # print(res)
-                return StreamingResponse(
-                        res,
-                        media_type="text/event-stream",
-                    )
-            else:
-                res = await GEMINI_CLIENT.ask_geminiStream(message=message.message)
-                # print(res)
-                return res
+    try:
+        response = await GEMINI_CLIENT.generate_content(prompt=message.message)
         
-        except requests.exceptions.ConnectionError:
-            # Handle the ConnectionError exception here
-            print(
-                "Connection error occurred. Please check your internet connection or the server's availability."
-            )
-            return "Connection error occurred. Please check your internet connection or the server's availability."
+        json_data = response.json()
 
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTPError (e.g., 404, 500) if needed
-            print(f"HTTP error occurred: {http_err}")
-            return f"HTTP error occurred: {http_err}"
+        # Load the JSON data
+        data = json.loads(json_data)
 
-        except requests.exceptions.RequestException as req_err:
-            # Handle other request exceptions if needed
-            print(f"Request error occurred: {req_err}")
-            return f"Request error occurred: {req_err}"
+        ## Accessing elements:
+        # metadata = data["metadata"] 
+        candidates = data["candidates"]
+        # chosen_index = data["chosen"]
 
-        except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
-            return f"Error Occurred: {req_err}"
-
-    else:
-        try:
-            response = GEMINI_CLIENT.ask_gemini(message.message)
-            # print (response)
-            return (response)
-            # print(response["choices"][0]["message"]["content"][0])
-            # return response["choices"][0]["message"]["content"][0]
-        except requests.exceptions.ConnectionError:
-            # Handle the ConnectionError exception here
-            print(
-                "Connection error occurred. Please check your internet connection or the server's availability."
-            )
-            return "Connection error occurred. Please check your internet connection or the server's availability."
-
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTPError (e.g., 404, 500) if needed
-            print(f"HTTP error occurred: {http_err}")
-            return f"HTTP error occurred: {http_err}"
-
-        except requests.exceptions.RequestException as req_err:
-            # Handle other request exceptions if needed
-            print(f"Request error occurred: {req_err}")
-            return f"Request error occurred: {req_err}"
-
-        except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
-            return f"Error Occurred: {req_err}"
+        # Extract specific information from the first candidate
+        # first_candidate_rcid = candidates[0]["rcid"]
+        first_candidate_text = candidates[0]["text"]
+        
+        # print(first_candidate_text)
+        return first_candidate_text
+    
+    except Exception as req_err:
+        print(f"Error Occurred: {req_err}")
+        return f"Error Occurred: {req_err}"
 
 
 #############################################
@@ -232,7 +205,7 @@ async def ask_claude(request: Request, message: MessageClaude):
         return ("error: ", conversation)
 
     if not message.message:
-        message.message = "Hi, Who are you?"
+        message.message = "Who are you?"
 
     if message.stream:
         res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
@@ -272,7 +245,7 @@ async def ask_ai(request: Request, message: Message):
     OpenAIResponseModel = ResponseModel()
 
     if not message.message:
-        message.message = "Hi, Who are you?"
+        message.message = "Who are you?"
     
     conversation_id = None
     
@@ -281,17 +254,26 @@ async def ask_ai(request: Request, message: Message):
         if not GEMINI_CLIENT:
             return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
         
-        if message.stream:
-            response = GEMINI_CLIENT.ask_geminiStream(message=message)
-            ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
-            return StreamingResponse(
-                ResponseToOpenAI,
-                media_type="text/event-stream",
-            )
-        else:
-            response = GEMINI_CLIENT.ask_gemini(message.message)
-            ResponseToOpenAI = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
-            return ResponseToOpenAI
+        try:
+            response = await GEMINI_CLIENT.generate_content(prompt=message.message)
+            
+            # ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
+            # return StreamingResponse(
+            #     ResponseToOpenAI,
+            #     media_type="text/event-stream",
+            # )
+            
+            
+            complate_chunk = ""
+            async for chunk in utility.geminiToChatGPTStream(message=response, model=OpenAIResponseModel):
+                # print(chunk)
+                complate_chunk = ''.join(chunk)
+            
+            return json.dumps(complate_chunk)
+        
+        except Exception as req_err:
+            print(f"Error Occurred: {req_err}")
+            return f"Error Occurred: {req_err}"
     
     else:
         
@@ -306,23 +288,39 @@ async def ask_ai(request: Request, message: Message):
                 conversation = CLAUDE_CLIENT.create_new_chat()
                 conversation_id = conversation["uuid"]
         except Exception as e:
-            print(conversation)
+            print("ERROR: ", conversation)
             return ("ERROR: ", conversation)
 
         if message.stream:
-            res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
+            
+            # complate_chunk = ""
+            # async for chunk in CLAUDE_CLIENT.stream_message(message.message, conversation_id):
+            #     response_json = utility.ConvertToChatGPTStream(chunk, model="claude")  # Pass the generator
 
-            resjson = utility.ConvertToChatGPTStream(message=res, model="claude")
-            # print(res)
-            return StreamingResponse(
-                    resjson,
-                    media_type="text/event-stream",
-                )
+            #     # Using Streaming Response to handle the data stream
+            #     complate_chunk = ''.join(chunk)
+            #     print(complate_chunk)
+            
+            # yield response_json
+
+            response = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
+            if type(response) != "string":
+                return StreamingResponse(
+                            'Error: Hourly limit may have been reached: ' + str(response),
+                            media_type="text/event-stream",
+                        )
+            else:
+                # print(response)
+                response_json = utility.claudeToChatGPTStream(message=response, model="claude")
+                return StreamingResponse(
+                        response_json,
+                        media_type="text/event-stream",
+                    )
         else:
-            res = CLAUDE_CLIENT.send_message(message.message, conversation_id)
-            resjson = utility.ConvertToChatGPT(message=res, model="claude")
-            # print(resjson)
-            return resjson
+            response = CLAUDE_CLIENT.send_message(message.message, conversation_id)
+            response_json = utility.ConvertToChatGPT(message=response, model="claude")
+            # print(response_json)
+            return response_json
 
 
 #############################################

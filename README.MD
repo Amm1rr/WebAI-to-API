@@ -52,8 +52,9 @@ Accounts on the following (all offer free signups):
 Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
 <br>
-
-**Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
+> [!NOTE]
+> 
+> **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
 
 <br>
 
@@ -92,9 +93,11 @@ python main.py
 
 Now the **API documentation** and **Configuration Web UI** should be available at the following addresses:
 
-#### Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
-
-#### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+> [!TIP]
+>
+> #### Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
+>
+> #### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 <br>
 
@@ -192,7 +195,9 @@ _____
 
 Once you have launched the web server using [`python src\main.py`](#step-2-start-web-server):
 
-Note: The first argument to run the example determines whether to return streaming or not.
+> [!NOTE]
+>
+> Note: The first argument to run the example determines whether to return streaming or not.
 
 ```bash
 cd examples/
@@ -229,7 +234,9 @@ curl -X 'POST' \
 
 <br>
 
-**Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
+> [!NOTE]
+>
+> **Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
 
 <br>
 
@@ -239,10 +246,13 @@ curl -X 'POST' \
 
 #### How to find tokens
 
-**Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+> [!NOTE]
+>
+> **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
 
-**Important**:
-"The auto login by browser issue is caused by using multiple accounts or browser profiles. It will take some time to fully resolve. A future update will address it. For now, if you have problems logging in with your browsers, try logging in with just one browser or manually copy sessions and cookies as a workaround, as described in the instructions below."
+> [!IMPORTANT]
+>
+> "The auto login by browser issue is caused by using multiple accounts or browser profiles. It will take some time to fully resolve. A future update will address it. For now, if you have problems logging in with your browsers, try logging in with just one browser or manually copy sessions and cookies as a workaround, as described in the instructions below."
 
 <br>
 
@@ -320,7 +330,9 @@ How to [find tokens](#usage)
 - [Google Gemini](#gemini)
 - [Claude](#claude)
 
-**Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
+> [!NOTE]
+>
+> **Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
 
 <br>
 
