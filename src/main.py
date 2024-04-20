@@ -165,7 +165,11 @@ async def ask_gemini(request: Request, message: MessageGemini):
         first_candidate_text = candidates[0]["text"]
         
         # print(first_candidate_text)
-        return first_candidate_text
+        # return first_candidate_text
+        return StreamingResponse(
+                    first_candidate_text,
+                    media_type="text/event-stream",
+                )
     
     except Exception as req_err:
         print(f"Error Occurred: {req_err}")
@@ -214,6 +218,7 @@ async def ask_claude(request: Request, message: MessageClaude):
                 res,
                 media_type="text/event-stream",
             )
+        await asyncio.sleep(0)
     else:
         res = CLAUDE_CLIENT.send_message(message.message, conversation_id)
         # print(res)

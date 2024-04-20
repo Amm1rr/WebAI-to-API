@@ -6,6 +6,7 @@ from curl_cffi import requests
 import re
 from datetime import datetime
 import httpx
+import asyncio
 
 class Client:
 
@@ -165,7 +166,7 @@ class Client:
         text_res += text
     
     answer = ''.join(text_res).strip()
-    print(answer)
+    # print(answer)
     return answer
 
   # Send and Response Stream Message to Claude
@@ -191,7 +192,8 @@ class Client:
                             event_data = json.loads(data)
                             events.append(event_data['completion'])
                           except json.JSONDecodeError:
-                            print("CLAUDE STREAM ERROR: ", data)
+                            # print("CLAUDE STREAM EXCEPT: ", data)
+                            pass
                           
             # print(events)
             return events
@@ -246,10 +248,11 @@ class Client:
             for text in response_parse_text:
                 text_res += text
 
-        answer = answer.join(text_res)
-        print(answer)
+        answer = ''.join(text_res)
+        # print(answer)
     
         yield answer
+        await asyncio.sleep(0)
 
   # Deletes the conversation
   def delete_conversation(self, conversation_id):

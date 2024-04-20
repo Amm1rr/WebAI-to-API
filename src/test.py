@@ -69,8 +69,7 @@ response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_pay
 
 if response.status_code == 200:
     try:
-        response_data = response.json()
-        print(response_data)
+        print(response.text)
     except requests.exceptions.JSONDecodeError as e:
         print(f"Error: {e}")
         print(f"Response text: {response.text}")
