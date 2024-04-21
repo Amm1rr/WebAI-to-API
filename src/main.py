@@ -7,7 +7,6 @@ import sys
 import time
 import utility
 import urllib.parse
-import asyncio
 from typing import Union
 import copy
 # Third-Party Imports
