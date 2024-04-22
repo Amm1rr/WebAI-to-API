@@ -7,7 +7,8 @@ import sys
 import time
 import utility
 import urllib.parse
-
+from typing import Union
+import copy
 # Third-Party Imports
 import uvicorn
 
@@ -105,6 +106,7 @@ app.add_middleware(
 class MessageClaude(BaseModel):
     message: str
     stream: bool = True
+    conversation_id: Union[str, None] = None
 
 
 class MessageGemini(BaseModel):
@@ -113,6 +115,7 @@ class MessageGemini(BaseModel):
 class Message(BaseModel):
     message: str
     stream: bool = False
+
 
 
 #############################################
@@ -198,18 +201,36 @@ async def ask_claude(request: Request, message: MessageClaude):
         # cookie = os.environ.get("CLAUDE_COOKIE")
         return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
     
-    conversation_id = None
+    conversation_id = message.conversation_id
+    original_conversation_id = copy.deepcopy(conversation_id)
 
-    try:
-        if not conversation_id:
-            conversation = CLAUDE_CLIENT.create_new_chat()
-            conversation_id = conversation["uuid"]
-    except Exception as e:
-        print(conversation)
-        return ("error: ", conversation)
+    max_retry = 3
+    current_retry = 0
+    while current_retry < max_retry:
+        try:
+            if not conversation_id:
+                try:
+                    conversation = CLAUDE_CLIENT.create_new_chat()
+                    conversation_id = conversation["uuid"]
+                    break  
+                except Exception as e:
+                    current_retry += 1
+                    if current_retry == max_retry:
+                        return ("error: ", e)
+                    else:
+                        print("Retrying in 1 second...")
+                        await asyncio.sleep(1)
+            else:
+                break
+        except Exception as e:
+            return ("error: ", e)
 
     if not message.message:
         message.message = "Who are you?"
+
+    if not original_conversation_id:
+        # after the creation, you need to wait some time before to send
+        await asyncio.sleep(2)
 
     if message.stream:
         res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
