@@ -52,8 +52,9 @@ Accounts on the following (all offer free signups):
 Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
 
 <br>
+
 > [!NOTE]
-> 
+>
 > **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
 
 <br>
