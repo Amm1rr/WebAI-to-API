@@ -65,7 +65,7 @@ OpenAIResponseModel = ResponseModel()
 
 """ Initialization AI Models and Cookies """
 async def InitAI():
-    gem = await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True)
+    gem = await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
 
 COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
 COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
@@ -199,9 +199,10 @@ async def ask_claude(request: Request, message: MessageClaude):
         # cookie = os.environ.get("CLAUDE_COOKIE")
         return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
     
-    # It's not a necessary IF statement.
-        # If someone sends default parameters via localhost:8000/docs,
-        # the conversation_id will be "string".
+    # This IF statement may not be necessary.
+    # It checks if the conversation_id is set to "string"
+    # when default parameters are sent via Swagger UI (localhost:8000/docs).
+    # If so, it sets the conversation_id to None.
     if message.conversation_id == "string":
         message.conversation_id = None
     
@@ -431,16 +432,22 @@ if __name__ == "__main__":
     
     print(
         """
-        * WebAI to API:
-            Configuration      : http://localhost:8000/WebAI
-            Swagger UI (Docs)  : http://localhost:8000/docs
-            ----------------------------------------------------------------
-        * About:
-                https://github.com/amm1rr/WebAI-to-API/
-        """,
+        
+        Welcome to WebAI to API:
+
+        Configuration      : http://localhost:8000/WebAI
+        Swagger UI (Docs)  : http://localhost:8000/docs
+        
+        ----------------------------------------------------------------
+        
+        About:
+            Learn more about the project: https://github.com/amm1rr/WebAI-to-API/
+        
+        """
     )
     
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
+    # uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload, log_level="critical")
 
     ##### TO USE HTTPS
     ###
