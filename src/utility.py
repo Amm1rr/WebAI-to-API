@@ -12,7 +12,7 @@ def get_cookies(cookie_domain: str) -> dict:
             _cookies[cookie_domain][cookie.name] = cookie.value 
     return _cookies[cookie_domain]
 
-def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude", "Perplexity"]) -> str:
+def get_CookieString(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
 
@@ -36,7 +36,6 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude", "Perp
         "BardTS": "google",
         "BardCC": "google",
         "Claude": "claude",
-        "Perplexity": "perplexity",
     }
     domain = domains[service_Name]
 
@@ -44,15 +43,12 @@ def get_Cookie(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude", "Perp
         geminiSessionName = "__Secure-1PSIDTS"
     elif service_Name.lower() == "bardcc":
         geminiSessionName = "__Secure-1PSIDCC"
-    elif service_Name.lower() == "bard":
+    else:
         geminiSessionName = "__Secure-1PSID"
-    elif service_Name.lower() == "perplexity":
-        geminiSessionName = "value"
 
     sessName = {
         "claude": "sessionKey",
         "google": geminiSessionName,
-        "perplexity": geminiSessionName,
     }
     sessionName = sessName[domain]
 
@@ -90,7 +86,7 @@ def find_all_cookie_values_for_sessions():
 
 def getCookie_Gemini(configfilepath: str, configfilename: str):
     try:
-        cookie = get_Cookie("google")
+        cookie = get_CookieString("google")
         if not cookie:
             raise Exception()
         return cookie
@@ -118,14 +114,26 @@ def getCookie_Gemini(configfilepath: str, configfilename: str):
 def getCookie_Claude(configfilepath: str, configfilename: str):
     # if error by system(permission denided)
     try:
-        cookie = get_Cookie("Claude")
+        cookie = get_CookieString("Claude")
         if not cookie:
             raise Exception()
         return cookie
     except Exception as _:
         config = configparser.ConfigParser()
         config.read(filenames=configfilepath)
-        cookie = config.get("Claude", "COOKIE")
+        cookie = None
+        try:
+            cookie = config.get("Claude", "COOKIE")
+        except configparser.NoSectionError:
+            # Handle the case when the section is missing
+            response_error = {
+                "Error": f"Section 'Claude' not found in '{configfilename}' file."
+            }
+        except configparser.Error as e:
+            # Handle other configparser errors
+            response_error = {
+                "Error": f"Error occurred while reading configuration: {e}"
+            }
         if not cookie:
             response_error = {
                 "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or login with a browser to Claude.ai account."
