@@ -12,6 +12,10 @@ def get_cookies(cookie_domain: str) -> dict:
             _cookies[cookie_domain][cookie.name] = cookie.value 
     return _cookies[cookie_domain]
 
+# Define a function to convert the dictionary to a semicolon-separated string
+def generate_cookie_string(cookie_dict):
+    return "; ".join([f"{key}={value}" for key, value in cookie_dict.items()])
+
 def get_CookieString(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
