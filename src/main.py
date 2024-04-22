@@ -103,17 +103,20 @@ app.add_middleware(
 """Request message data model."""
 
 
+# Claude
 class MessageClaude(BaseModel):
-    message: str
+    message: str = "What is your name?"
     stream: bool = True
     conversation_id: Union[str, None] = None
 
 
+# Gemini
 class MessageGemini(BaseModel):
-    message: str
+    message: str = "What is your name?"
 
+# v1/chat/complete
 class Message(BaseModel):
-    message: str
+    message: str = "What is your name?"
     stream: bool = False
 
 
@@ -144,11 +147,6 @@ async def ask_gemini(request: Request, message: MessageGemini):
     
     if not GEMINI_CLIENT:
         return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
-    
-    if not message.message:
-        message.message = "Who are you?"
-    
-    conversation_id = None
 
     try:
         response = await GEMINI_CLIENT.generate_content(prompt=message.message)
@@ -201,6 +199,12 @@ async def ask_claude(request: Request, message: MessageClaude):
         # cookie = os.environ.get("CLAUDE_COOKIE")
         return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
     
+    # It's not a necessary IF statement.
+        # If someone sends default parameters via localhost:8000/docs,
+        # the conversation_id will be "string".
+    if message.conversation_id == "string":
+        message.conversation_id = None
+    
     conversation_id = message.conversation_id
     original_conversation_id = copy.deepcopy(conversation_id)
 
@@ -224,9 +228,6 @@ async def ask_claude(request: Request, message: MessageClaude):
                 break
         except Exception as e:
             return ("error: ", e)
-
-    if not message.message:
-        message.message = "Who are you?"
 
     if not original_conversation_id:
         # after the creation, you need to wait some time before to send
@@ -269,9 +270,6 @@ async def ask_ai(request: Request, message: Message):
     """
     
     OpenAIResponseModel = ResponseModel()
-
-    if not message.message:
-        message.message = "Who are you?"
     
     conversation_id = None
     
