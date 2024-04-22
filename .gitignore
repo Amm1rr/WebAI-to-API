@@ -5,6 +5,7 @@
 demploys/
 Issues/
 /src/Config.conf
-/src/__pycache__
+__pycache__
 .idea
 Changes.txt
+examples/UPDATE-NEEDS-to-WORK
