@@ -92,13 +92,13 @@ python main.py
 
 <br>
 
-Now the **API documentation** and **Configuration Web UI** should be available at the following addresses:
+Now the _API documentation_ and _Configuration Web UI_ should be available at the following addresses:
 
 > [!TIP]
 >
-> #### Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)
+> **Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)**
 >
-> #### Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+> **Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)**
 
 <br>
 
@@ -107,12 +107,19 @@ Now the **API documentation** and **Configuration Web UI** should be available a
 > [!NOTE]
 >
 > **Gemini**
+>
 > http://localhost:8000/gemini
 >
+> ---
+>
 > **Claude**
+>
 > http://localhost:8000/claude
 >
+> ---
+>
 > **Claude/Gemini**
+>
 > http://localhost:8000/v1/chat/completions
 
 <br><br>
