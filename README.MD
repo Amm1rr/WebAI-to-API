@@ -84,7 +84,7 @@ pip install -r requirements.txt
 Navigate into the **`src`** directory, and run the web server:
 
 ```bash
-cd src/
+cd WebAI-to-API/src/
 
 python main.py
 
@@ -102,24 +102,18 @@ Now the **API documentation** and **Configuration Web UI** should be available a
 
 <br>
 
-## Available **Endpoints:**
+### Available **Endpoints:**
 
-```bash
-#---------- Google Gemini
-
-http://localhost:8000/gemini
-
-
-#---------- Claude
-
-http://localhost:8000/claude
-
-
-#---------- Claude or Gemini
-
-http://localhost:8000/v1/chat/completions
-
-```
+> [!NOTE]
+>
+> **Gemini**
+> http://localhost:8000/gemini
+>
+> **Claude**
+> http://localhost:8000/claude
+>
+> **Claude/Gemini**
+> http://localhost:8000/v1/chat/completions
 
 <br><br>
 
@@ -166,7 +160,7 @@ _____
 <br>
 <hr>
 
-## Web UI Development Environment Setup
+## Web UI Development Environment Setup (Optional)
 
 #### Prerequisites:
 
@@ -204,7 +198,7 @@ Once you have launched the web server using [`python src\main.py`](#step-2-start
 cd examples/
 
 
-python src/test.py
+python WebAPI-to-API/src/test.py
 
 OR
 
