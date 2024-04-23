@@ -102,33 +102,7 @@ Now the **API documentation** and **Configuration Web UI** should be available a
 
 <br>
 
-## Web UI Development Environment Setup
-
-#### Prerequisites:
-
-- [Node.js](http://nodejs.org): Download and install from the official website (https://nodejs.org)
-
-First , **Navigate to the UI directory:**
-
-```bash
-cd WebAI-to-API/src/UI
-```
-
-2. **Install dependencies:**
-
-```bash
-npm install
-```
-
-3. **Build the project:**
-
-```bash
-npm run build
-```
-
-<br>
-
-Available **Endpoints:**
+## Available **Endpoints:**
 
 ```bash
 #---------- Google Gemini
@@ -192,6 +166,32 @@ _____
 <br>
 <hr>
 
+## Web UI Development Environment Setup
+
+#### Prerequisites:
+
+- [Node.js](http://nodejs.org): Download and install from the official website (https://nodejs.org)
+
+First , **Navigate to the UI directory:**
+
+```bash
+cd WebAI-to-API/src/UI
+```
+
+2. **Install dependencies:**
+
+```bash
+npm install
+```
+
+3. **Build the project:**
+
+```bash
+npm run build
+```
+
+<br>
+
 ## Example
 
 Once you have launched the web server using [`python src\main.py`](#step-2-start-web-server):
@@ -237,11 +237,9 @@ curl -X 'POST' \
 
 > [!NOTE]
 >
-> **Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [Config.conf](#configuration)
+> **Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [**Config.conf**](#configuration)
 
 <br>
-
-<hr>
 
 ## Usage
 
