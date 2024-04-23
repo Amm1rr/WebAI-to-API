@@ -108,19 +108,19 @@ Now the _API documentation_ and _Configuration Web UI_ should be available at th
 >
 > **Gemini**
 >
-> http://localhost:8000/gemini
+> **http://localhost:8000/gemini**
 >
 > ---
 >
 > **Claude**
 >
-> http://localhost:8000/claude
+> **http://localhost:8000/claude**
 >
 > ---
 >
 > **Claude/Gemini**
 >
-> http://localhost:8000/v1/chat/completions
+> **http://localhost:8000/v1/chat/completions**
 
 <br><br>
 
