@@ -4,6 +4,7 @@ import configparser
 import json
 import os
 import uvicorn
+import copy
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,9 +38,12 @@ async def initialize_ai_models(config_file_path: str):
     global COOKIE_CLAUDE, COOKIE_GEMINI, GEMINI_CLIENT, CLAUDE_CLIENT
     COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
     COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
-    GEMINI_CLIENT = GeminiClient()
     CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
-    await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
+    GEMINI_CLIENT = GeminiClient()
+    try:
+        await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
+    except Exception as e:
+        print(e)
 
 # Startup event handler
 async def startup():
@@ -114,11 +118,22 @@ async def ask_gemini(request: Request, message: dict):
 
     """
     
+    conversation_id = message.get('conversation_id')
+    if conversation_id == "string":
+        message['conversation_id'] = None
+        conversation_id = None
+    
+    original_conversation_id = copy.deepcopy(conversation_id)
+    
+    stream = message.get('stream', False)
+
+    prompt = message.get('message', "What is your name?")
+    
     if not GEMINI_CLIENT:
         return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
 
     try:
-        response = await GEMINI_CLIENT.generate_content(prompt=message.message)
+        response = await GEMINI_CLIENT.generate_content(prompt=prompt)
         
         json_data = response.json()
 
@@ -166,11 +181,18 @@ async def ask_claude(request: Request, message: dict):
     # It checks if the conversation_id is set to "string"
     # when default parameters are sent via Swagger UI (localhost:8000/docs).
     # If so, it sets the conversation_id to None.
-    if message.conversation_id == "string":
-        message.conversation_id = None
+    conversation_id = message.get('conversation_id')
+    if conversation_id == "string":
+        message['conversation_id'] = None
+        conversation_id = None
     
-    conversation_id = message.conversation_id
+    # conversation_id = message.conversation_id
     original_conversation_id = copy.deepcopy(conversation_id)
+    
+    stream = message.get('stream', False)
+
+    prompt = message.get('message', "What is your name?")
+
 
     max_retry = 3
     current_retry = 0
@@ -197,8 +219,8 @@ async def ask_claude(request: Request, message: dict):
         # after the creation, you need to wait some time before to send
         await asyncio.sleep(2)
 
-    if message.stream:
-        res = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
+    if stream:
+        res = CLAUDE_CLIENT.stream_message(prompt, conversation_id)
         # print(res)
         return StreamingResponse(
                 res,
@@ -206,7 +228,7 @@ async def ask_claude(request: Request, message: dict):
             )
         await asyncio.sleep(0)
     else:
-        res = CLAUDE_CLIENT.send_message(message.message, conversation_id)
+        res = CLAUDE_CLIENT.send_message(prompt, conversation_id)
         # print(res)
         return res
 
@@ -227,9 +249,22 @@ async def ask_ai(request: Request, message: dict):
 
     """
     
-    OpenAIResponseModel = ResponseModel()
+    conversation_id = message.get('conversation_id')
+    if conversation_id == "string":
+        message['conversation_id'] = None
+        conversation_id = None
     
-    conversation_id = None
+    original_conversation_id = copy.deepcopy(conversation_id)
+    
+    stream = message.get('stream', False)
+
+    prompt = message.get('message', "What is your name?")
+    
+    def ResponseModel():
+        config = configparser.ConfigParser()
+        config.read(filenames=CONFIG_FILE_PATH)
+        return config.get("Main", "Model", fallback="Claude")
+    OpenAIResponseModel = ResponseModel()
     
     if OpenAIResponseModel == "Gemini":
         
@@ -237,7 +272,7 @@ async def ask_ai(request: Request, message: dict):
             return {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
         
         try:
-            response = await GEMINI_CLIENT.generate_content(prompt=message.message)
+            response = await GEMINI_CLIENT.generate_content(prompt=prompt)
             return utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
         
         except Exception as req_err:
@@ -250,8 +285,6 @@ async def ask_ai(request: Request, message: dict):
             # cookie = os.environ.get("CLAUDE_COOKIE")
             return {"warning": "Looks like you're not logged in to Claude. Please either set the Claude cookie manually or log in to your Claude.ai account through your web browser."}
         
-        conversation_id = None
-
         try:
             if not conversation_id:
                 conversation = CLAUDE_CLIENT.create_new_chat()
@@ -260,10 +293,10 @@ async def ask_ai(request: Request, message: dict):
             print("ERROR: ", conversation)
             return ("ERROR: ", conversation)
 
-        if message.stream:
+        if stream:
             
             async def combined_data_stream():
-                async for item in CLAUDE_CLIENT.stream_message(message.message, conversation_id):
+                async for item in CLAUDE_CLIENT.stream_message(prompt, conversation_id):
                     yield item
 
             async def combined_stream_with_json_format():
@@ -274,7 +307,7 @@ async def ask_ai(request: Request, message: dict):
             
             return StreamingResponse(content=combined_stream_with_json_format(), media_type="text/plain")
             
-            # response = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
+            # response = CLAUDE_CLIENT.stream_message(prompt, conversation_id)
             # if type(response) != "string":
             #     return StreamingResponse(
             #                 'Error: Hourly limit may have been reached: ' + str(response),
@@ -282,7 +315,7 @@ async def ask_ai(request: Request, message: dict):
             #             )
         else:
             # If streaming is not requested, return data as a normal response
-            data = CLAUDE_CLIENT.send_message(message.message, conversation_id)
+            data = CLAUDE_CLIENT.send_message(prompt, conversation_id)
             # Convert the data to ChatGPT JSON format
             chatgpt_data = []
             async for chunk in utility.claudeToChatGPTStream(data, OpenAIResponseModel):
@@ -294,12 +327,27 @@ app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
 
 # Run UVicorn server
 def run_server(args):
-    print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  : http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n    Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
+    print(
+        """
+        
+        Welcome to WebAI to API:
+
+        Configuration      : http://localhost:8000/WebAI
+        Swagger UI (Docs)  : http://localhost:8000/docs
+        
+        ----------------------------------------------------------------
+        
+        About:
+            Learn more about the project: https://github.com/amm1rr/WebAI-to-API/
+        
+        """
+    )
+    # print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  : http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n    Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 
 # Main function
 def main():
-    parser = argparse.ArgumentParser(description="Run the UVicorn server.")
+    parser = argparse.ArgumentParser(description="Run the server.")
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=8000, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
