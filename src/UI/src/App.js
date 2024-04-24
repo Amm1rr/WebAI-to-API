@@ -45,38 +45,10 @@ function App() {
         setSelectedOption(aimodel);
       }
 
-      const geminiSessions = jsonData.Gemini;
-      if (geminiSessions) {
-        setGoogleSessionKey(jsonData.Gemini.session_id);
-        setGoogleSessionKeyTS(jsonData.Gemini.session_idts);
-        setGoogleSessionKeyCC(jsonData.Gemini.session_idcc);
-      } else {
-        const respCookie = await fetch("/api/config/getgeminikey");
-        const respCookieText = await respCookie.json();
-
-        try {
-          const parsedData = JSON.parse(respCookieText);
-          const session_id = parsedData[0][1];
-          const session_idts = parsedData[1][1];
-          const session_idcc = parsedData[2][1];
-          setGoogleSessionKey(session_id);
-          setGoogleSessionKeyTS(session_idts);
-          setGoogleSessionKeyCC(session_idcc);
-          // claude = parsedData[3]["sessionKey"];
-        } catch (error) {
-          console.error("Error parsing JSON:", error);
-        }
-      }
-
-      const claudeSessionKey = jsonData.Claude;
-      if (claudeSessionKey) {
-        setClaudeSessionKey(jsonData.Claude.cookie);
-      } else {
-        const respCookie = await fetch("/api/config/getclaudekey");
-        const respCookieText = await respCookie.json();
-
-        setClaudeSessionKey(respCookieText["Claude"]);
-      }
+      setGoogleSessionKey(jsonData.Gemini.SESSION_ID);
+      setGoogleSessionKeyTS(jsonData.Gemini.SESSION_IDTS);
+      setGoogleSessionKeyCC(jsonData.Gemini.SESSION_IDCC);
+      setClaudeSessionKey(jsonData.Claude.Cookie);
     } catch (error) {
       console.error("Error fetching Claude cookie session:", error);
     }
@@ -145,6 +117,18 @@ function App() {
             <strong>Selected Model:</strong> {getModelDescription()}
           </label>
           <div className="googleSessionsContainer">
+            {(!googleSessionKey ||
+              !googleSessionKeyTS ||
+              !googleSessionKeyCC) && (
+              <a
+                id="account_gemini"
+                href="https://gemini.google.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Please ensure you are logged in to your Google Gemini account.
+              </a>
+            )}
             <div className="googleSession">
               <label htmlFor="googleSession" className="googleSession-label">
                 Google Session ID :
@@ -188,6 +172,17 @@ function App() {
             </div>
           </div>
           <div className="claudeSessionsContainer">
+            {!claudeSessionKey && (
+              <a
+                id="account_claude"
+                href="https://claude.ai/chats/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Please ensure you are logged in to your Anthropic Cloude
+                account.
+              </a>
+            )}
             <div className="claudeSession">
               <label
                 htmlFor="claudeSession-value"
@@ -210,7 +205,7 @@ function App() {
         <a
           href="https://github.com/amm1rr/WebAI-to-API"
           target="_blank"
-          rel="noopener noreferrer"
+          rel="noreferrer"
           className="Footer-link"
         >
           Made with ❤️
