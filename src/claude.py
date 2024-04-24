@@ -93,6 +93,8 @@ class Client:
             error_message = parsed_response['error']['message']
             print("Error Message:", error_message)
             
+            return json.dumps(error_message)
+            
 
       except json.JSONDecodeError:
           # print("Invalid JSON format:", response)
@@ -247,11 +249,12 @@ class Client:
         if response_parse_text:
             for text in response_parse_text:
                 text_res += text
+                yield text
 
-        answer = ''.join(text_res)
+        # answer = ''.join(text_res)
         # print(answer)
     
-        yield answer
+        # yield answer
         await asyncio.sleep(0)
 
   # Deletes the conversation

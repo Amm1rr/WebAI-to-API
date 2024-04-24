@@ -219,7 +219,7 @@ def ConvertToChatGPT(message: str, model: str):
             {
                 "delta": {
                     "role": "assistant",
-                    "content": message,
+                    "content": str(message),
                 },
                 "index": 0,
                 "finish_reason": "Stop",
@@ -357,7 +357,6 @@ async def geminiToChatGPTStream(message: str, model: str):
     Yields:
         str: JSON response chunks.
     """
-
     OpenAIResp = {
         "id": f"chatcmpl-{str(time.time())}",
         "object": "chat.completion.chunk",
@@ -374,6 +373,8 @@ async def geminiToChatGPTStream(message: str, model: str):
             }
         ],
     }
+    
+    print(message)
 
     # openairesp = {
     # "id": f"chatcmpl-{str(time.time())}",

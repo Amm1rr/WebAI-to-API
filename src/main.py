@@ -281,20 +281,7 @@ async def ask_ai(request: Request, message: Message):
         
         try:
             response = await GEMINI_CLIENT.generate_content(prompt=message.message)
-            
-            # ResponseToOpenAI = utility.ConvertToChatGPTStream(message=response, model=OpenAIResponseModel)
-            # return StreamingResponse(
-            #     ResponseToOpenAI,
-            #     media_type="text/event-stream",
-            # )
-            
-            
-            complate_chunk = ""
-            async for chunk in utility.geminiToChatGPTStream(message=response, model=OpenAIResponseModel):
-                # print(chunk)
-                complate_chunk = ''.join(chunk)
-            
-            return json.dumps(complate_chunk)
+            return utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
         
         except Exception as req_err:
             print(f"Error Occurred: {req_err}")
@@ -318,34 +305,32 @@ async def ask_ai(request: Request, message: Message):
 
         if message.stream:
             
-            # complate_chunk = ""
-            # async for chunk in CLAUDE_CLIENT.stream_message(message.message, conversation_id):
-            #     response_json = utility.ConvertToChatGPTStream(chunk, model="claude")  # Pass the generator
+            async def combined_data_stream():
+                async for item in CLAUDE_CLIENT.stream_message(message.message, conversation_id):
+                    yield item
 
-            #     # Using Streaming Response to handle the data stream
-            #     complate_chunk = ''.join(chunk)
-            #     print(complate_chunk)
+            async def combined_stream_with_json_format():
+                async for item in combined_data_stream():
+                    # Convert the data to ChatGPT JSON format
+                    async for chunk in utility.claudeToChatGPTStream(item, OpenAIResponseModel):
+                        yield chunk + "\n"
             
-            # yield response_json
-
-            response = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
-            if type(response) != "string":
-                return StreamingResponse(
-                            'Error: Hourly limit may have been reached: ' + str(response),
-                            media_type="text/event-stream",
-                        )
-            else:
-                # print(response)
-                response_json = utility.claudeToChatGPTStream(message=response, model="claude")
-                return StreamingResponse(
-                        response_json,
-                        media_type="text/event-stream",
-                    )
+            return StreamingResponse(content=combined_stream_with_json_format(), media_type="text/plain")
+            
+            # response = CLAUDE_CLIENT.stream_message(message.message, conversation_id)
+            # if type(response) != "string":
+            #     return StreamingResponse(
+            #                 'Error: Hourly limit may have been reached: ' + str(response),
+            #                 media_type="text/event-stream",
+            #             )
         else:
-            response = CLAUDE_CLIENT.send_message(message.message, conversation_id)
-            response_json = utility.ConvertToChatGPT(message=response, model="claude")
-            # print(response_json)
-            return response_json
+            # If streaming is not requested, return data as a normal response
+            data = CLAUDE_CLIENT.send_message(message.message, conversation_id)
+            # Convert the data to ChatGPT JSON format
+            chatgpt_data = []
+            async for chunk in utility.claudeToChatGPTStream(data, OpenAIResponseModel):
+                chatgpt_data.append(chunk)
+            return chatgpt_data[0]
 
 
 #############################################
