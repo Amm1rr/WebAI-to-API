@@ -22,7 +22,19 @@ import utility
 # Constants
 CONFIG_FILE_NAME = "Config.conf"
 CONFIG_FOLDER = os.getcwd()
+if "/src" not in CONFIG_FOLDER:
+    CONFIG_FOLDER += "/src"
 CONFIG_FILE_PATH = os.path.join(CONFIG_FOLDER, CONFIG_FILE_NAME)
+
+
+def Config_UI_Path():
+    config_ui_path = None
+    if "/src" in os.getcwd():
+        config_ui_path = "UI/build"
+    else:
+        config_ui_path = "src/UI/build"
+    
+    return config_ui_path
 
 # FastAPI application instance
 app = FastAPI()
@@ -69,8 +81,50 @@ async def web_ui_middleware(request: Request, call_next):
         index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
         return FileResponse(index_html_path)
     elif url == "/api/config":
+        response_format = None
+        config_parse = utility.ConfigINI_to_Dict(CONFIG_FILE_PATH)
         if os.path.exists(CONFIG_FILE_PATH):
-            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH)), status_code=200)
+            
+            if '[Main]' not in config_parse:
+                config_parse['Main'] = {}
+                
+            if 'model' not in config_parse['Main']:
+                config_parse['Main']['model'] = utility.ResponseModel(CONFIG_FILE_PATH)
+            
+            if '[Gemini]' not in config_parse:
+                if COOKIE_GEMINI:
+                    COOKIE_GEMINI_json = json.loads(COOKIE_GEMINI)
+                    
+                    if 'Gemini' not in config_parse:
+                        config_parse['Gemini'] = {}
+
+                    # Check and assign values
+                    if 'SESSION_ID' not in config_parse['Gemini']:
+                        config_parse['Gemini']['SESSION_ID'] = COOKIE_GEMINI_json[0][1]
+
+                    if 'SESSION_IDTS' not in config_parse['Gemini']:
+                        config_parse['Gemini']['SESSION_IDTS'] = COOKIE_GEMINI_json[1][1]
+
+                    if 'SESSION_IDCC' not in config_parse['Gemini']:
+                        config_parse['Gemini']['SESSION_IDCC'] = COOKIE_GEMINI_json[2][1]
+                    
+                    # return JSONResponse(config_parse, status_code=200)
+                
+                # return JSONResponse({"warning": "Failed to get Gemini key"})
+            
+            if '[Claude]' not in config_parse:
+                if COOKIE_CLAUDE:
+                    
+                    if 'Claude' not in config_parse:
+                        config_parse['Claude'] = {}
+
+                    # Check and assign values
+                    if 'Cookie' not in config_parse['Claude']:
+                        config_parse['Claude']['Cookie'] = COOKIE_CLAUDE
+                    
+                    # return JSONResponse(config_parse, status_code=200)
+            
+            return JSONResponse(json.dumps(config_parse), status_code=200)
         else:
             return JSONResponse({"error": f"{CONFIG_FILE_PATH} Config file not found"})
     elif url == "/api/config/getclaudekey":
@@ -90,6 +144,7 @@ async def web_ui_middleware(request: Request, call_next):
             config = configparser.ConfigParser()
             config['Main'] = {}
             config['Main']['model'] = model_name
+            print(CONFIG_FILE_PATH)
             with open(CONFIG_FILE_PATH, 'w') as configfile:
                 config.write(configfile)
             return JSONResponse({"message": f"{model_name} saved successfully"}, status_code=200)
@@ -216,7 +271,7 @@ async def ask_claude(request: Request, message: dict):
             return ("error: ", e)
 
     if not original_conversation_id:
-        # after the creation, you need to wait some time before to send
+        # after the creation, you need to wait some time before to sendGemini
         await asyncio.sleep(2)
 
     if stream:
@@ -260,11 +315,7 @@ async def ask_ai(request: Request, message: dict):
 
     prompt = message.get('message', "What is your name?")
     
-    def ResponseModel():
-        config = configparser.ConfigParser()
-        config.read(filenames=CONFIG_FILE_PATH)
-        return config.get("Main", "Model", fallback="Claude")
-    OpenAIResponseModel = ResponseModel()
+    OpenAIResponseModel = utility.ResponseModel(CONFIG_FILE_PATH)
     
     if OpenAIResponseModel == "Gemini":
         
@@ -273,11 +324,14 @@ async def ask_ai(request: Request, message: dict):
         
         try:
             response = await GEMINI_CLIENT.generate_content(prompt=prompt)
-            return utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
+            ret = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
+            # print(ret)
+            return ret
         
         except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
-            return f"Error Occurred: {req_err}"
+            # print(f"Error Occurred: {req_err}")
+            raise
+            # return f"Error Occurred: {req_err}"
     
     else:
         
@@ -303,7 +357,7 @@ async def ask_ai(request: Request, message: dict):
                 async for item in combined_data_stream():
                     # Convert the data to ChatGPT JSON format
                     async for chunk in utility.claudeToChatGPTStream(item, OpenAIResponseModel):
-                        yield chunk + "\n"
+                        yield chunk
             
             return StreamingResponse(content=combined_stream_with_json_format(), media_type="text/plain")
             
@@ -323,7 +377,7 @@ async def ask_ai(request: Request, message: dict):
             return chatgpt_data[0]
 
 # Serve UI files
-app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
+app.mount('/', StaticFiles(directory=Config_UI_Path()), 'static')
 
 # Run UVicorn server
 def run_server(args):
