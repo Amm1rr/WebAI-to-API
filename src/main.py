@@ -3,94 +3,51 @@ import argparse
 import configparser
 import json
 import os
-import sys
-import time
-import utility
-import urllib.parse
-from typing import Union
-import copy
-# Third-Party Imports
 import uvicorn
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from h11 import Response
-from pydantic import BaseModel
-from anyio import Path
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+# Third-Party Imports
 import asyncio
 
 # Local Imports
 import claude
 from gemini_webapi import GeminiClient
+import utility
 
-# UI
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
-
-#############################################
-####                                     ####
-#####          Global Initilize         #####
-####                                     ####
-
-"""Config file name and paths for chatbot API configuration."""
+# Constants
 CONFIG_FILE_NAME = "Config.conf"
 CONFIG_FOLDER = os.getcwd()
+CONFIG_FILE_PATH = os.path.join(CONFIG_FOLDER, CONFIG_FILE_NAME)
 
-"""Disable search on files cookie(fix 'PermissionError: [Errno 1] Operation not permitted') now used only for Claude"""
-ISCONFIGONLY = False
-
-# CONFIG_FOLDER = os.path.expanduser("~/.config")
-# CONFIG_FOLDER = Path(CONFIG_FOLDER) / "WebAI_to_API"
-
-
-
-FixConfigPath = lambda: (
-    Path(CONFIG_FOLDER) / CONFIG_FILE_NAME
-    if os.path.basename(CONFIG_FOLDER).lower() == "src"
-    else Path(CONFIG_FOLDER) / "src" / CONFIG_FILE_NAME
-)
-
-"""Path to API configuration file."""
-CONFIG_FILE_PATH = FixConfigPath()
-
-def ResponseModel():
-    config = configparser.ConfigParser()
-    config.read(filenames=CONFIG_FILE_PATH)
-    return config.get("Main", "Model", fallback="Claude")
-
-OpenAIResponseModel = ResponseModel()
-
-
-""" Initialization AI Models and Cookies """
-async def InitAI():
-    gem = await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
-
-COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
-COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME) #message.session_id
-GEMINI_CLIENT = GeminiClient()
-CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
-
-
-
-"""FastAPI application instance."""
-
+# FastAPI application instance
 app = FastAPI()
 
+# Global variables
+COOKIE_CLAUDE = None
+COOKIE_GEMINI = None
+GEMINI_CLIENT = None
+CLAUDE_CLIENT = None
+
+# Initialize AI models and cookies
+async def initialize_ai_models(config_file_path: str):
+    global COOKIE_CLAUDE, COOKIE_GEMINI, GEMINI_CLIENT, CLAUDE_CLIENT
+    COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
+    COOKIE_GEMINI = utility.getCookie_Gemini(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
+    GEMINI_CLIENT = GeminiClient()
+    CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
+    await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
+
+# Startup event handler
 async def startup():
-    await InitAI()
+    await initialize_ai_models(CONFIG_FILE_PATH)
 
-app.add_event_handler("startup", startup)  # Register startup handler
+app.add_event_handler("startup", startup)
 
-# async def shutdown():
-#     # Add any necessary shutdown logic for AI here (if needed)
-#     pass 
-
-# app.add_event_handler("shutdown", shutdown)  # Register shutdown handler
-
-
-# Add CORS middleware to allow all origins, credentials, methods, and headers.
+# Middleware for CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -99,35 +56,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware for Web UI
+@app.middleware("http")
+async def web_ui_middleware(request: Request, call_next):
+    response = await call_next(request)
+    url = request.url.path.lower()
+    if response.status_code == 404 and url == "/webai":
+        index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
+        return FileResponse(index_html_path)
+    elif url == "/api/config":
+        if os.path.exists(CONFIG_FILE_PATH):
+            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH)), status_code=200)
+        else:
+            return JSONResponse({"error": f"{CONFIG_FILE_PATH} Config file not found"})
+    elif url == "/api/config/getclaudekey":
+        if COOKIE_CLAUDE:
+            return JSONResponse({"Claude": f"{COOKIE_CLAUDE}"}, status_code=200)
+        return JSONResponse({"warning": "Failed to get Claude key"})
+    elif url == "/api/config/getgeminikey":
+        if COOKIE_GEMINI:
+            return JSONResponse({"Gemini": f"{COOKIE_GEMINI}"}, status_code=200)
+        return JSONResponse({"warning": "Failed to get Gemini key"})
+    elif url == "/api/config/save":
+        try:
+            request_body = await request.json()
+            model_name = request_body.get('Model')
+            if not model_name:
+                return JSONResponse({"error": "Model name not provided in request body"}, status_code=400)
+            config = configparser.ConfigParser()
+            config['Main'] = {}
+            config['Main']['model'] = model_name
+            with open(CONFIG_FILE_PATH, 'w') as configfile:
+                config.write(configfile)
+            return JSONResponse({"message": f"{model_name} saved successfully"}, status_code=200)
+        except Exception as e:
+            return JSONResponse({"error": f"Failed to save model: {str(e)}"}, status_code=500)
+    return response
 
-"""Request message data model."""
-
-
-# Claude
-class MessageClaude(BaseModel):
-    message: str = "What is your name?"
-    stream: bool = True
-    conversation_id: Union[str, None] = None
-
-
-# Gemini
-class MessageGemini(BaseModel):
-    message: str = "What is your name?"
-
-# v1/chat/complete
-class Message(BaseModel):
-    message: str = "What is your name?"
-    stream: bool = False
-
-
-
-#############################################
-####                                     ####
-#####             The Gemini            #####
-####                                     ####
+# API endpoints
 
 @app.post("/gemini")
-async def ask_gemini(request: Request, message: MessageGemini):
+async def ask_gemini(request: Request, message: dict):
     """API endpoint to get response from Google Gemini.
 
     Args:
@@ -176,14 +145,8 @@ async def ask_gemini(request: Request, message: MessageGemini):
         print(f"Error Occurred: {req_err}")
         return f"Error Occurred: {req_err}"
 
-
-#############################################
-####                                     ####
-#####              Claude 3             #####
-####                                     ####
-
 @app.post("/claude")
-async def ask_claude(request: Request, message: MessageClaude):
+async def ask_claude(request: Request, message: dict):
     """API endpoint to get Claude response.
 
     Args:
@@ -247,14 +210,8 @@ async def ask_claude(request: Request, message: MessageClaude):
         # print(res)
         return res
 
-
-#############################################
-####           Claude/Gemini to          ####
-#####       ChatGPT JSON Response       #####
-####        `/v1/chat/completions`       ####
-
 @app.post("/v1/chat/completions")
-async def ask_ai(request: Request, message: Message):
+async def ask_ai(request: Request, message: dict):
     """API endpoint to get ChatGPT JSON response.
 
     Args:
@@ -332,118 +289,22 @@ async def ask_ai(request: Request, message: Message):
                 chatgpt_data.append(chunk)
             return chatgpt_data[0]
 
-
-#############################################
-####                                     ####
-#####          Web UI Middleware        #####
-####                                     ####
-
-index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
+# Serve UI files
 app.mount('/', StaticFiles(directory="src/UI/build"), 'static')
 
-@app.middleware("http")
+# Run UVicorn server
+def run_server(args):
+    print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  : http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n    Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
+    uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 
-async def catch_all_endpoints(request: Request, call_next):
-    response = await call_next(request)
-    url = request.url.path.lower()
-    if response.status_code == 404 and url == "/webai":
-        index_html_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
-        return FileResponse(index_html_path)
-    elif url == "/api/config":
-        if os.path.exists(CONFIG_FILE_PATH):
-            # print(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH))
-            return JSONResponse(json.dumps(utility.ConfigINI_to_Dict(CONFIG_FILE_PATH)), status_code=200)
-            # return FileResponse(CONFIG_FILE_PATH)
-        else:
-            return JSONResponse({"error": CONFIG_FILE_PATH + " Config file not found"})
-        # 
-    elif url == "/api/config/getclaudekey":
-        
-        cookie = utility.getCookie_Claude(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
-        if (cookie):
-            return JSONResponse({"Claude": f"{cookie}"},  status_code=200)
-        return JSONResponse({"warning": "Failed to get claude key"})
-        
-    elif url == "/api/config/getgeminikey":
-        cookie = utility.getCookie_Gemini(configfilepath=CONFIG_FILE_PATH, configfilename=CONFIG_FILE_NAME)
-        if (cookie):
-            return JSONResponse(cookie, status_code=200)
-        return JSONResponse({"warning": "Failed to get gemini key"})
-    
-    elif url == "/api/config/save":
-        try:
-            request_body = await request.json()
-            model_name = request_body.get('Model')
-            OpenAIResponseModel = model_name
-
-            if not model_name:
-                return JSONResponse({"error": model_name + " model not provided in request body"}, status_code=400)
-
-            config = configparser.ConfigParser()
-            config['Main'] = {}
-            config['Main']['model'] = model_name
-
-            with open(CONFIG_FILE_PATH, 'w') as configfile:
-                config.write(configfile)
-
-            return JSONResponse({"message": f"{model_name} saved successfully"}, status_code=200)
-        except Exception as e:
-            return JSONResponse({"error": f"Failed to save model: {str(e)}"}, status_code=500)
-    
-    return response
-
-#############################################
-####                                     ####
-#####               Main                #####
-####                                     ####
-
-if __name__ == "__main__":
-    """Parse arguments and run the UVicorn server.
-
-    This allows running the FastAPI server from the command line
-    by specifying the host, port, and whether to enable auto-reloading.
-
-    Example:
-        python main.py --host localhost --port 8000 --reload
-            OR
-        python main.py
-
-    """
+# Main function
+def main():
     parser = argparse.ArgumentParser(description="Run the UVicorn server.")
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=8000, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
-    
-    print(
-        """
-        
-        Welcome to WebAI to API:
+    run_server(args)
 
-        Configuration      : http://localhost:8000/WebAI
-        Swagger UI (Docs)  : http://localhost:8000/docs
-        
-        ----------------------------------------------------------------
-        
-        About:
-            Learn more about the project: https://github.com/amm1rr/WebAI-to-API/
-        
-        """
-    )
-    
-    uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
-    # uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload, log_level="critical")
-
-    ##### TO USE HTTPS
-    ###
-    # from subprocess import Popen
-    # Popen(["python", "-m", "https_redirect"])  # Add this
-    # uvicorn.run(
-    #     "main:app",
-    #     host=args.host,
-    #     port=args.port,
-    #     reload=args.reload,
-    #     reload_dirs=["html_files"],
-    #     ssl_keyfile="/etc/letsencrypt/live/my_domain/privkey.pem",
-    #     ssl_certfile="/etc/letsencrypt/live/my_domain/fullchain.pem",
-    # )
+if __name__ == "__main__":
+    main()
