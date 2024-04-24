@@ -2,6 +2,8 @@ import requests
 import argparse
 import configparser
 import sys
+import os
+import utility
 
 
 # Define the base URL of your API
@@ -11,6 +13,12 @@ base_url = "http://localhost:8000"
 claude_endpoint = "/claude"
 gemini_endpoint = "/gemini"
 tochatgpt_endpoint = "/v1/chat/completions"
+
+CONFIG_FILE_NAME = "Config.conf"
+CONFIG_FOLDER = os.getcwd()
+if "/src" not in CONFIG_FOLDER:
+    CONFIG_FOLDER += "/src"
+CONFIG_FILE_PATH = os.path.join(CONFIG_FOLDER, CONFIG_FILE_NAME)
 
 # Create a sample message payload for Claude (non-streaming)
 claude_message_payload_non_streaming = {
@@ -64,7 +72,7 @@ if (model == "claude" or model == "*"):
     if response.status_code == 200:
         for chunk in response.iter_content(chunk_size=None):
             if chunk:
-                print(chunk.decode(), end="", flush="True")
+                print(chunk.decode(), end="", flush=True)
     else:
         print(f"Request failed with status code: {response.status_code}")
         print(f"Response text: {response.text}")
@@ -106,10 +114,19 @@ if (model == "gemini" or model == "*"):
 
     print(SEPRATOR)
 
-if (model == "tochatgpt" or "*"):
+if (model == "tochatgpt" or model == "*"):
+    
+    original_model_response = utility.ResponseModel(CONFIG_FILE_PATH)
+    
+    config = configparser.ConfigParser()
+    config['Main'] = {}
+    if "Claude" not in original_model_response:
+        config['Main']['model'] = "Claude"
+        with open(CONFIG_FILE_PATH, 'w') as configfile:
+            config.write(configfile)
     
     # Test CloudeToChatGPT (non-streaming)
-    print("Testing Cloud to ChatGPT :")
+    print("Testing Cloude to ChatGPT :")
     print(SEPRATOR)
     response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
 
@@ -124,7 +141,33 @@ if (model == "tochatgpt" or "*"):
         print(f"Response text: {response.text}")
 
     print(SEPRATOR)
+    
+    config['Main']['model'] = "Gemini"
+    with open(CONFIG_FILE_PATH, 'w') as configfile:
+        config.write(configfile)
+    
+    # Test GeminiToChatGPT (non-streaming)
+    print("Testing Gemini to ChatGPT :")
+    print(SEPRATOR)
+    response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
 
+    if response.status_code == 200:
+        try:
+            print(response.text)
+        except requests.exceptions.JSONDecodeError as e:
+            print(f"Error: {e}")
+            print(f"Response text: {response.text}")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
+        print(f"Response text: {response.text}")
+    
+    
+    print(SEPRATOR)
+
+    if original_model_response != "Gemini":
+        config['Main']['model'] = "Gemini"
+        with open(CONFIG_FILE_PATH, 'w') as configfile:
+            config.write(configfile)
 
 # # Test Gemini (streaming)
 # print("Testing Gemini (streaming):")
