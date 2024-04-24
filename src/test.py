@@ -1,4 +1,8 @@
 import requests
+import argparse
+import configparser
+import sys
+
 
 # Define the base URL of your API
 base_url = "http://localhost:8000"
@@ -6,17 +10,20 @@ base_url = "http://localhost:8000"
 # Define the endpoint URLs
 claude_endpoint = "/claude"
 gemini_endpoint = "/gemini"
+tochatgpt_endpoint = "/v1/chat/completions"
 
 # Create a sample message payload for Claude (non-streaming)
 claude_message_payload_non_streaming = {
     "message": "Who are you?",
-    "stream": False
+    "stream": False,
+    "conversation_id": None
 }
 
 # Create a sample message payload for Claude (streaming)
 claude_message_payload_streaming = {
     "message": "Who are you? Can you explain the concept of machine learning?",
-    "stream": True
+    "stream": True,
+    "conversation_id": None
 }
 
 # Create a sample message payload for Gemini (non-streaming)
@@ -31,53 +38,93 @@ gemini_message_payload_streaming = {
     "stream": True
 }
 
-# Test Claude (non-streaming)
-print("\n------------------------------")
-print("Testing Claude (non-streaming):")
-response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_non_streaming)
+# Create a sample message payload for Gemini (streaming)
+tochatgpt_message_payload = {
+    "message": "Who are you? Can you tell me about the history of AI?",
+    "stream": False
+}
 
-if response.status_code == 200:
-    try:
-        response_data = response.json()
-        print(response_data)
-    except requests.exceptions.JSONDecodeError as e:
-        print(f"Error: {e}")
+parser = argparse.ArgumentParser(description="Test WEBAI Server")
+parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
+parser.add_argument("--port", type=int, default=8000, help="Port number")
+parser.add_argument("--model", type=str, default="*", help="Model to test")
+args = parser.parse_args()
+model = args.model.lower()
+
+SEPRATOR = f"------------------------------"
+print(SEPRATOR)
+
+if (model == "claude" or model == "*"):
+    # Test Claude (streaming)
+    print("Testing Claude (streaming):")
+    print(SEPRATOR)
+    
+    response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_streaming, stream=True)
+
+    if response.status_code == 200:
+        for chunk in response.iter_content(chunk_size=None):
+            if chunk:
+                print(chunk.decode(), end="", flush="True")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
         print(f"Response text: {response.text}")
-else:
-    print(f"Request failed with status code: {response.status_code}")
-    print(f"Response text: {response.text}")
 
-print("\n------------------------------")  # Add a newline for better readability
+    print("\n", SEPRATOR)
+    print("Testing Claude (non-streaming):")
+    print(SEPRATOR)
+    response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_non_streaming)
 
-# Test Claude (streaming)
-print("Testing Claude (streaming):")
-response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_streaming, stream=True)
-
-if response.status_code == 200:
-    for chunk in response.iter_content(chunk_size=None):
-        if chunk:
-            print(chunk.decode(), end="")
-else:
-    print(f"Request failed with status code: {response.status_code}")
-    print(f"Response text: {response.text}")
-
-print("\n------------------------------")  # Add a newline for better readability
-
-# Test Gemini (non-streaming)
-print("Testing Gemini:")
-response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_non_streaming)
-
-if response.status_code == 200:
-    try:
-        print(response.text)
-    except requests.exceptions.JSONDecodeError as e:
-        print(f"Error: {e}")
+    if response.status_code == 200:
+        try:
+            response_data = response.json()
+            print(response_data)
+        except requests.exceptions.JSONDecodeError as e:
+            print(f"Error: {e}")
+            print(f"Response text: {response.text}")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
         print(f"Response text: {response.text}")
-else:
-    print(f"Request failed with status code: {response.status_code}")
-    print(f"Response text: {response.text}")
 
-print("\n------------------------------")  # Add a newline for better readability
+    print(SEPRATOR)
+
+if (model == "gemini" or model == "*"):
+    # Test Gemini (non-streaming)
+    print("Testing Gemini:")
+    print(SEPRATOR)
+    
+    response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_non_streaming)
+
+    if response.status_code == 200:
+        try:
+            print(response.text)
+        except requests.exceptions.JSONDecodeError as e:
+            print(f"Error: {e}")
+            print(f"Response text: {response.text}")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
+        print(f"Response text: {response.text}")
+
+    print(SEPRATOR)
+
+if (model == "tochatgpt" or "*"):
+    
+    # Test CloudeToChatGPT (non-streaming)
+    print("Testing Cloud to ChatGPT :")
+    print(SEPRATOR)
+    response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
+
+    if response.status_code == 200:
+        try:
+            print(response.text)
+        except requests.exceptions.JSONDecodeError as e:
+            print(f"Error: {e}")
+            print(f"Response text: {response.text}")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
+        print(f"Response text: {response.text}")
+
+    print(SEPRATOR)
+
 
 # # Test Gemini (streaming)
 # print("Testing Gemini (streaming):")
