@@ -161,7 +161,7 @@ class Client:
     response = httpx.post( url, headers=headers, data=payload, timeout=120)
 
     response_parse_text = parse_text(response.content.decode('utf-8'))
-
+    
     text_res = ""
     if response_parse_text:
       for text in response_parse_text:
@@ -180,6 +180,7 @@ class Client:
             if 'error' in parsed_response:
                 error_message = parsed_response['error']['message']
                 print("Error Message:", error_message)
+                return error_message
         except json.JSONDecodeError:
             events = []
             lines = text.split('\n')
