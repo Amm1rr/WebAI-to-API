@@ -199,7 +199,45 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
 
     return cookies
 
-def ConvertToChatGPT(message: str, model: str):
+
+def ConvertToChatGPT(message, model: str):
+    """
+    Convert the Gemini or Claude message to ChatGPT JSON format.
+    """
+    try:
+        chatgpt_response = {
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": str(message)
+                        },
+                        "logprobs": 0,
+                        "finish_reason": "stop"
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                },
+                "system_fingerprint": 0
+            }
+        
+        # Serialize the response to JSON
+        chatgpt_json = json.dumps(chatgpt_response)
+        return chatgpt_json
+    
+    except:
+        raise
+
+
+def ConvertToChatGPT_OLD(message: str, model: str):
     """Convert response to ChatGPT JSON format.
 
     Args:
@@ -209,23 +247,76 @@ def ConvertToChatGPT(message: str, model: str):
     Yields:
         str: JSON response chunks.
     """
-
-    OpenAIResp = {
+    
+    # Construct the ChatGPT JSON response
+    chatgpt_response = {
         "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion.chunk",
+        "object": "chat.completion",
         "created": int(time.time()),
         "model": model,
         "choices": [
             {
-                "delta": {
-                    "role": "assistant",
-                    "content": str(message),
-                },
                 "index": 0,
-                "finish_reason": "Stop",
+                "message": {
+                    "role": "assistant",
+                    "content": str(message)
+                },
+                "logprobs": 0,
+                "finish_reason": "stop"
             }
         ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        },
+        "system_fingerprint": 0
     }
+
+    # Convert the dictionary to a JSON string
+    return json.dumps(chatgpt_response)
+    
+    OpenAIResp = {
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": "gpt-3.5-turbo-0125",
+        "choices": [
+            {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": str(message)
+            },
+            "logprobs": 0,
+            "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        },
+        "system_fingerprint": 0
+        }
+
+
+    # OpenAIResp = {
+    #     "id": f"chatcmpl-{str(time.time())}",
+    #     "object": "chat.completion.chunk",
+    #     "created": int(time.time()),
+    #     "model": model,
+    #     "choices": [
+    #         {
+    #             "delta": {
+    #                 "role": "assistant",
+    #                 "content": str(message),
+    #             },
+    #             "index": 0,
+    #             "finish_reason": "Stop",
+    #         }
+    #     ],
+    # }
 
     # openairesp = {
     # "id": f"chatcmpl-{str(time.time())}",
@@ -309,22 +400,46 @@ async def claudeToChatGPTStream(message: str, model: str):
         str: JSON response chunks.
     """
 
+    # OpenAIResp = {
+    #     "id": f"chatcmpl-{str(time.time())}",
+    #     "object": "chat.completion.chunk",
+    #     "created": int(time.time()),
+    #     "model": model,
+    #     "choices": [
+    #         {
+    #             "delta": {
+    #                 "role": "assistant",
+    #                 "content": message,
+    #             },
+    #             "index": 0,
+    #             "finish_reason": "Stop",
+    #         }
+    #     ],
+    # }
+    
     OpenAIResp = {
-        "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "delta": {
-                    "role": "assistant",
-                    "content": message,
+                "id": f"chatcmpl-{str(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": str(message)
+                        },
+                        "logprobs": 0,
+                        "finish_reason": "stop"
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
                 },
-                "index": 0,
-                "finish_reason": "Stop",
+                "system_fingerprint": 0
             }
-        ],
-    }
 
     # openairesp = {
     # "id": f"chatcmpl-{str(time.time())}",
@@ -397,6 +512,11 @@ async def geminiToChatGPTStream(message: str, model: str):
     yield f"{OpenAIResp}"
     # yield json.dumps(OpenAIResp)
 
+def ResponseModel(config_file_path: str):
+    config = configparser.ConfigParser()
+    config.read(filenames=config_file_path)
+    return config.get("Main", "Model", fallback="Claude")
+
 
 def IsSession(session_id: str) -> bool:
     """Checks if a valid session ID is provided.
@@ -413,7 +533,7 @@ def IsSession(session_id: str) -> bool:
         return False
     return False if not session_id else session_id.lower() != "none"
 
-def ConfigINI_to_Dict(filepath:str):
+def ConfigINI_to_Dict(filepath:str) -> dict:
     config_object = configparser.ConfigParser()
     file =open(filepath,"r")
     config_object.read_file(file)
