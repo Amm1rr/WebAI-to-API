@@ -302,17 +302,33 @@ async def ask_ai(request: Request, message: dict):
         Open http://localhost:8000/WebAI to configuration
 
     """
-    
+    messages = message.get('messages', [])
+    user_message_content = None
+    conversation_id = None
+    stream = False
+
+    for msg in messages:
+        if msg['role'] == "user":
+            user_message_content = msg['content']
+            break
+
+    if user_message_content is None:
+        user_message_content = message.get('message')
+
     conversation_id = message.get('conversation_id')
     if conversation_id == "string":
         message['conversation_id'] = None
         conversation_id = None
-    
-    original_conversation_id = copy.deepcopy(conversation_id)
-    
+
     stream = message.get('stream', False)
 
-    prompt = message.get('message', "What is your name?")
+    original_conversation_id = copy.deepcopy(conversation_id)
+    
+    if not (user_message_content):
+        print("Warning : Prompt is empty")
+        return {"Warning": "Prompt is empty"}
+        
+    prompt = user_message_content
     
     OpenAIResponseModel = utility.ResponseModel(CONFIG_FILE_PATH)
     
@@ -325,7 +341,7 @@ async def ask_ai(request: Request, message: dict):
             response = await GEMINI_CLIENT.generate_content(prompt=prompt)
             ret = utility.ConvertToChatGPT(message=response, model=OpenAIResponseModel)
             # print(ret)
-            return ret
+            return json.dumps(ret)
         
         except Exception as req_err:
             # print(f"Error Occurred: {req_err}")
