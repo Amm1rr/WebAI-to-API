@@ -144,7 +144,6 @@ async def web_ui_middleware(request: Request, call_next):
             config = configparser.ConfigParser()
             config['Main'] = {}
             config['Main']['model'] = model_name
-            print(CONFIG_FILE_PATH)
             with open(CONFIG_FILE_PATH, 'w') as configfile:
                 config.write(configfile)
             return JSONResponse({"message": f"{model_name} saved successfully"}, status_code=200)
