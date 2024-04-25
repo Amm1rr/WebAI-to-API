@@ -346,7 +346,8 @@ By default, the system uses the "Claude" model.
 
 [Main]
 Model=Claude
-#Model=Gemini
+# or
+Model=Gemini
 ```
 
 <br>
@@ -357,6 +358,9 @@ Model=Claude
 
 ```bash
 # Case-Sensative
+
+[Main]
+Model = [Claude] or [Gemini]
 
 [Claude]
 COOKIE=[YOURS]
