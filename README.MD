@@ -12,7 +12,7 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 - **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
 
-- **Streaming support:** Real-time responses from Claude and Gemini streaming.
+- **Streaming support:** Real-time responses from Claude streaming.
 
 - **Lightweight and scalable:** Built with FastAPI for high performance.
 
