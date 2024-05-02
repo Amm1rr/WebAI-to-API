@@ -1,0 +1,16 @@
+# Case-Sensative
+
+[Main]
+Model=Claude
+#Model=Gemini
+
+[Claude]
+COOKIE=
+
+[Gemini]
+SESSION_ID=
+SESSION_IDTS=
+SESSION_IDCC=
+
+[ChatGPT]
+ACCESS_TOKEN=
