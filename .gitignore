@@ -14,3 +14,4 @@ src/services.py
 src/mainV1.py
 src/config.py
 Config.conf
+src/Config.conf
