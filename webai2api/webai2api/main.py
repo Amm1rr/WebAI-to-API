@@ -33,6 +33,8 @@ def Config_UI_Path():
         # config_ui_path = "webai2api/webai2api/UI/build"
         config_ui_path =  "webai2api/UI/build"
     
+    config_ui_path =  os.path.join(os.path.dirname(__file__), "UI/build/index.html")
+    
     print("HERE: ", config_ui_path)
     return config_ui_path
 
@@ -403,7 +405,7 @@ async def ask_ai(request: Request, message: dict):
             return chatgpt_data[0]
 
 # Serve UI files
-app.mount('/', StaticFiles(directory=Config_UI_Path()), 'static')
+app.mount('/', StaticFiles(directory="webai2api/UI/build"), 'static')
 
 # Run UVicorn server
 def run_server(args):

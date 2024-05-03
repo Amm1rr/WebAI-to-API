@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from ..models.claude import Client
-from ..utils.utility import getCookie_Claude, claudeToChatGPTStream
+from ..utils.utility import getCookie_Claude, claudeToChatGPTStream, CONFIG_FILE_NAME
 import logging
 import copy
 import asyncio
+import os
 
 logging.basicConfig(level=logging.INFO)
+logging.info("claude_routes.py")
 
 router = APIRouter()
 
@@ -14,10 +16,8 @@ COOKIE_CLAUDE = None
 CLAUDE_CLIENT = None
 
 async def initialize_claude():
-    import os
-    print(os.getcwd() + "/webai2api/utils")
     global COOKIE_CLAUDE, CLAUDE_CLIENT
-    COOKIE_CLAUDE = getCookie_Claude(configfilepath=os.getcwd(), configfilename="Config.conf")
+    COOKIE_CLAUDE = getCookie_Claude(configfilepath=os.getcwd(), configfilename=CONFIG_FILE_NAME)
     CLAUDE_CLIENT = Client(COOKIE_CLAUDE)
 
 @router.on_event("startup")
