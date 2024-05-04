@@ -7,6 +7,7 @@ import logging
 import copy
 import asyncio
 import os
+import json
 
 
 logging.basicConfig(level=logging.INFO)
@@ -29,28 +30,27 @@ CONFIG_FILE_PATH = os.path.join(CONFIG_FOLDER, CONFIG_FILE_NAME)
 
 # Initialize AI models and cookies
 async def initialize_ai_models(config_file_path: str):
-    global COOKIE_CLAUDE, COOKIE_GEMINI, GEMINI_CLIENT, CLAUDE_CLIENT
-    COOKIE_CLAUDE = getCookie_Claude(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
-    COOKIE_GEMINI = getCookie_Gemini(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
-    CLAUDE_CLIENT = Client(COOKIE_CLAUDE)
+    
+    global COOKIE_GEMINI, GEMINI_CLIENT, COOKIE_CLAUDE, CLAUDE_CLIENT
+    
+    COOKIE_GEMINI = getCookie_Gemini(configfilepath=os.getcwd(), configfilename=config_file_path)
     GEMINI_CLIENT = GeminiClient()
+    
+    COOKIE_CLAUDE = getCookie_Claude(configfilepath=os.getcwd(), configfilename=config_file_path)
+    CLAUDE_CLIENT = Client(COOKIE_CLAUDE)
+    
     try:
         await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
     except Exception as e:
-        print(e)
+        print("initialize_ai_models Error: ", e)
 
 # Startup event handler
 async def startup():
-    await initialize_ai_models(CONFIG_FILE_PATH)
+    global CONFIG_FOLDER
+    await initialize_ai_models(CONFIG_FOLDER)
 
 router.add_event_handler("startup", startup)
 
-
-
-@router.post("/chat")
-async def ask_test(request: Request):
-    logging.info("v1_routes.py.ask_test()")
-    return {"Yes"}
 
 @router.post("/v1/chat/completions")
 async def ask_ai(request: Request, message: dict):
@@ -95,24 +95,32 @@ async def ask_ai(request: Request, message: dict):
     model = None
     
 
-    for msg in messages:
-        if msg['role'] == "user":
-            user_message_content = msg['content']
-
-        # conversation_id = message.get('conversation_id')
-        elif message['conversation_id']:
-            message['conversation_id'] = None
-            conversation_id = None
+    if type(messages) is str:
+        print("messages: ", messages)
+        return("Error in argumants.")
+    else:
+        for msg in messages:
+            # logging.info("messages: ", messages)
+            # logging.info("msg: ", msg)
+            if msg['role'] == "user":
+                user_message_content = msg['content']
             
-        elif conversation_id == "string":
-            message['conversation_id'] = None
-            conversation_id = None
-            
-        elif msg['stream']:
-            stream = message.get('stream', False)
+            elif 'conversation_id' in msg:
 
-        elif msg['model']:
-            model = message.get('model', "gpt-3.5-turbo")
+                # conversation_id = message.get('conversation_id')
+                if message['conversation_id']:
+                    message['conversation_id'] = None
+                    conversation_id = None
+                    
+                elif conversation_id == "string":
+                    message['conversation_id'] = None
+                    conversation_id = None
+            
+            elif 'stream' in msg and msg['stream']:
+                    stream = message.get('stream', False)
+
+            elif 'stream' in msg and msg['model']:
+                    model = message.get('model', "gpt-3.5-turbo")
         
 
     if user_message_content is None:
@@ -130,18 +138,18 @@ async def ask_ai(request: Request, message: dict):
     
     OpenAIResponseModel = ResponseModel(CONFIG_FILE_PATH)
     
-    print("Model:", model)
-    print("Prompt:", user_message_content)
-    print("Stream:", stream)
-    print("Conversation ID:", conversation_id)
-    print("OpenAIResponseModel: ", OpenAIResponseModel)
+    # logging.info("Model:", model)
+    # logging.info("Prompt:", user_message_content)
+    # logging.info("Stream:", stream)
+    # logging.info("Conversation ID:", conversation_id)
+    # logging.info("OpenAIResponseModel: ", OpenAIResponseModel)
     
     prompt = user_message_content
     
     
     if OpenAIResponseModel == "Gemini":
         
-        print("GEMINI")
+        logging.info("GEMINI")
         
         if not GEMINI_CLIENT:
             print("warning: Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser.")
@@ -150,17 +158,18 @@ async def ask_ai(request: Request, message: dict):
         try:
             response = await GEMINI_CLIENT.generate_content(prompt=prompt)
             response_return = ConvertToChatGPT(message=response, model=OpenAIResponseModel)
-            # print(response_return)
+            # logging.info("Converted to Gemini to ChatGPT: ",response_return)
+            print("Converted to Gemini to ChatGPT: ",response_return)
             # yield json.dumps(response_return)
-            return response_return
+            return json.dumps(response_return)
         
         except Exception as req_err:
-            print(f"Error Occurred: {req_err}")
+            print(f"Gemini Error Occurred: {req_err}")
             # raise
             return
     
     else:
-        print("CLAUDE")
+        logging.info("CLAUDE")
         
         max_retry = 3
         current_retry = 0
@@ -174,13 +183,15 @@ async def ask_ai(request: Request, message: dict):
                     except Exception as e:
                         current_retry += 1
                         if current_retry == max_retry:
+                            print("Warning Claude: Failed to create new chat.")
                             return ("error: ", e)
                         else:
-                            print("Retrying in 1 second...")
+                            print("Claude: Retrying in 1 second to create new chat...")
                             await asyncio.sleep(1)
                 else:
                     break
             except Exception as e:
+                print("Warning Claude: Failed to create new chat.")
                 return ("error: ", e)
 
         if not original_conversation_id:
@@ -198,4 +209,6 @@ async def ask_ai(request: Request, message: dict):
         else:
             response = CLAUDE_CLIENT.send_message(prompt, conversation_id)
             # print(response)
-            return response
+            # return json.dumps(response)
+            response_return = ConvertToChatGPT(message=response, model=OpenAIResponseModel)
+            return json.dumps(response_return)
