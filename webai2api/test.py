@@ -3,6 +3,7 @@ import argparse
 import configparser
 import sys
 import os
+import json
 import webai2api.utils.utility
 
 
@@ -46,26 +47,29 @@ gemini_message_payload_streaming = {
     "stream": True
 }
 
-# Create a sample message payload for Gemini (streaming)
+# Create a sample message payload for Chat Complation response
 tochatgpt_message_payload = {
-    "message": "Who are you? Can you tell me about the history of AI?",
+    "messages": [{ "role": "user", "content": "What is your name?" }],
     "stream": False
 }
 
 parser = argparse.ArgumentParser(description="Test WEBAI Server")
 parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
 parser.add_argument("--port", type=int, default=8000, help="Port number")
-parser.add_argument("--model", type=str, default="*", help="Model to test")
+parser.add_argument("--model", type=str, default="*", help="AI Model to test (Claude/Gemini/*)")
+parser.add_argument("--v1", type=str, default="*", help="AI Model to test at v1/chat/completions endpoint (Claude/Gemini/*)")
 args = parser.parse_args()
 model = args.model.lower()
+model_v1 = args.v1.lower()
 
-SEPRATOR = f"------------------------------"
+SEPRATOR = f"--------------------------------------------------"
+SEPRATOR2 = f"----------------------------"
 print(SEPRATOR)
 
 if (model == "claude" or model == "*"):
     # Test Claude (streaming)
     print("Testing Claude (streaming):")
-    print(SEPRATOR)
+    print(SEPRATOR2)
     
     response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_streaming, stream=True)
 
@@ -77,9 +81,11 @@ if (model == "claude" or model == "*"):
         print(f"Request failed with status code: {response.status_code}")
         print(f"Response text: {response.text}")
 
+
+    # Test Claude (non-streaming)
     print("\n", SEPRATOR)
     print("Testing Claude (non-streaming):")
-    print(SEPRATOR)
+    print(SEPRATOR2)
     response = requests.post(f"{base_url}{claude_endpoint}", json=claude_message_payload_non_streaming)
 
     if response.status_code == 200:
@@ -98,7 +104,7 @@ if (model == "claude" or model == "*"):
 if (model == "gemini" or model == "*"):
     # Test Gemini (non-streaming)
     print("Testing Gemini:")
-    print(SEPRATOR)
+    print(SEPRATOR2)
     
     response = requests.post(f"{base_url}{gemini_endpoint}", json=gemini_message_payload_non_streaming)
 
@@ -118,56 +124,55 @@ if (model == "tochatgpt" or model == "*"):
     
     original_model_response = webai2api.utils.utility.ResponseModel(CONFIG_FILE_PATH)
     
-    config = configparser.ConfigParser()
-    config['Main'] = {}
-    if "Claude" not in original_model_response:
-        config['Main']['model'] = "Claude"
-        with open(CONFIG_FILE_PATH, 'w') as configfile:
-            config.write(configfile)
     
-    # Test CloudeToChatGPT (non-streaming)
-    print("Testing Cloude to ChatGPT :")
-    print(SEPRATOR)
-    response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
+    if (model_v1 == "claude" or model_v1 == "*"):
+        
+        #### Save Claude
+        requests.post(f"{base_url}/api/config/save", headers={"Content-Type": "application/json"}, data=json.dumps({"Model": "Claude"}))    
+        
+        # Test ClaudeToChatGPT (non-streaming)
+        print("Testing Claude to ChatGPT :")
+        print(SEPRATOR2)
+        response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
 
-    if response.status_code == 200:
-        try:
-            print(response.text)
-        except requests.exceptions.JSONDecodeError as e:
-            print(f"Error: {e}")
+        if response.status_code == 200:
+            try:
+                print(response.text)
+            except requests.exceptions.JSONDecodeError as e:
+                print(f"Error: {e}")
+                print(f"Response text: {response.text}")
+        else:
+            print(f"Request failed with status code: {response.status_code}")
             print(f"Response text: {response.text}")
-    else:
-        print(f"Request failed with status code: {response.status_code}")
-        print(f"Response text: {response.text}")
 
-    print(SEPRATOR)
+        print(SEPRATOR)
     
-    config['Main']['model'] = "Gemini"
-    with open(CONFIG_FILE_PATH, 'w') as configfile:
-        config.write(configfile)
-    
-    # Test GeminiToChatGPT (non-streaming)
-    print("Testing Gemini to ChatGPT :")
-    print(SEPRATOR)
-    response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
+    if (model_v1 == "gemini" or model_v1 == "*"):
+        
+        #### Save Gemini 
+        requests.post(f"{base_url}/api/config/save", headers={"Content-Type": "application/json"}, data=json.dumps({"Model": "Gemini"}))
+        
+        # Test GeminiToChatGPT (non-streaming)
+        print("Testing Gemini to ChatGPT :")
+        print(SEPRATOR2)
+        response = requests.post(f"{base_url}{tochatgpt_endpoint}", json=tochatgpt_message_payload)
 
-    if response.status_code == 200:
-        try:
-            print(response.text)
-        except requests.exceptions.JSONDecodeError as e:
-            print(f"Error: {e}")
+        if response.status_code == 200:
+            try:
+                print(response.text)
+            except requests.exceptions.JSONDecodeError as e:
+                print(f"Error: {e}")
+                print(f"Response text: {response.text}")
+        else:
+            print(f"Request failed with status code: {response.status_code}")
             print(f"Response text: {response.text}")
-    else:
-        print(f"Request failed with status code: {response.status_code}")
-        print(f"Response text: {response.text}")
+        
+        
+        print(SEPRATOR)
     
-    
-    print(SEPRATOR)
-
+    #### Save Default AI (Claude or Gemini)
     if original_model_response != "Gemini":
-        config['Main']['model'] = "Gemini"
-        with open(CONFIG_FILE_PATH, 'w') as configfile:
-            config.write(configfile)
+        requests.post(f"{base_url}/api/config/save", headers={"Content-Type": "application/json"}, data=json.dumps({"Model": "Gemini"}))
 
 # # Test Gemini (streaming)
 # print("Testing Gemini (streaming):")
