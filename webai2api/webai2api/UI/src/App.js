@@ -179,7 +179,7 @@ function App() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Please ensure you are logged in to your Anthropic Cloude
+                Please ensure you are logged in to your Anthropic Claude
                 account.
               </a>
             )}
