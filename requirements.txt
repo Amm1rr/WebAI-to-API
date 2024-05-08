@@ -7,3 +7,4 @@ rich
 browser_cookie3
 curl_cffi
 httpx
+gemini_webapi
