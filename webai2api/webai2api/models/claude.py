@@ -36,11 +36,15 @@ class Client:
     }
 
     response = requests.get(url, headers=headers,impersonate="chrome110")
-    res = json.loads(response.text)
-    uuid = res[0]['uuid']
+    response_json  = json.loads(response.text)
+
+    if 'type' in response_json and response_json['type'] == 'error':
+        print("Claude: Error -", response_json['error']['message'])
+        uuid = None
+    else:
+        uuid = response_json[0]['uuid']
 
     return uuid
-
 
   def get_content_type(self, file_path):
     # Function to determine content type based on file extension
