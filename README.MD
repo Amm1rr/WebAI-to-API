@@ -86,7 +86,7 @@ Navigate into the **`src`** directory, and run the web server:
 ```bash
 cd WebAI-to-API/src/
 
-python main.py
+python run.py
 
 ```
 
@@ -179,13 +179,13 @@ First , **Navigate to the UI directory:**
 cd WebAI-to-API/src/UI
 ```
 
-2. **Install dependencies:**
+1. **Install dependencies:**
 
 ```bash
 npm install
 ```
 
-3. **Build the project:**
+2. **Build the project:**
 
 ```bash
 npm run build
@@ -278,7 +278,7 @@ _`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized s
 <br>
 
 | Name           | Session Name       |
-| -------------- | ------------------ |
+|----------------|--------------------|
 | `session_id`   | `__Secure-1PSID`   |
 | `session_idts` | `__Secure-1PSIDTS` |
 | `session_idcc` | `__Secure-1PSIDCC` |
@@ -342,7 +342,7 @@ You can specify the model type in the settings for the `/v1/chat/completions` en
 By default, the system uses the "Claude" model.
 
 ```bash
-# Case-Sensative
+# Case-Sensitive
 
 [Main]
 Model=Claude
@@ -357,7 +357,7 @@ Model=Gemini
 - WebAI-to-API\src\Config.conf
 
 ```bash
-# Case-Sensative
+# Case-Sensitive
 
 [Main]
 Model = [Claude] or [Gemini]
