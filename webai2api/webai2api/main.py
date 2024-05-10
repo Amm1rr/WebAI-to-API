@@ -1,30 +1,31 @@
 # Standard Library Imports
 import argparse
-import os
-import uvicorn
 import logging
+import os
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from gemini_webapi import GeminiClient
 
 # Local Imports
 from .models import claude
-from gemini_webapi import GeminiClient
 from .utils import utility
 
 utility.configure_logging()
 logging.debug("main.py")
 
-def Config_UI_Path():
-    config_ui_path = None
+
+def config_ui_path():
     root_path = os.getcwd()
     if "webai2api/webai2api" in root_path:
-        config_ui_path = os.path.join(os.path.dirname(__file__), "webai2api/UI/build/index.html")
+        ui_path = os.path.join(os.path.dirname(__file__), "webai2api/UI/build/index.html")
     else:
-        config_ui_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
+        ui_path = os.path.join(os.path.dirname(__file__), "UI/build/index.html")
 
-    logging.debug("main.py:Config_UI_Path(): ", config_ui_path)
-    return config_ui_path
+    logging.debug("main.py:config_ui_path(): ", ui_path)
+    return ui_path
+
 
 # Constants
 CONFIG_FILE_NAME = "Config.conf"
@@ -42,11 +43,12 @@ COOKIE_GEMINI = None
 GEMINI_CLIENT = None
 CLAUDE_CLIENT = None
 
+
 # Initialize AI models and cookies
 async def initialize_ai_models(config_file_path: str):
     global COOKIE_CLAUDE, COOKIE_GEMINI, GEMINI_CLIENT, CLAUDE_CLIENT
     COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=config_file_path, configfilename=CONFIG_FILE_NAME)
-    COOKIE_GEMINI = utility.getCookie_Gemini(configfilename=CONFIG_FILE_NAME)
+    COOKIE_GEMINI = utility.getCookie_Gemini()
     CLAUDE_CLIENT = claude.Client(COOKIE_CLAUDE)
     GEMINI_CLIENT = GeminiClient()
     try:
@@ -54,9 +56,11 @@ async def initialize_ai_models(config_file_path: str):
     except Exception as e:
         print(e)
 
+
 # Startup event handler
 async def startup():
     await initialize_ai_models(CONFIG_FILE_PATH)
+
 
 app.add_event_handler("startup", startup)
 
@@ -69,7 +73,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Run UVicorn server
+
+# Run uvicorn server
 def run_server(args):
     logging.debug("main.py./run_server()")
     print(
@@ -87,8 +92,11 @@ def run_server(args):
         
         """
     )
-    # print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  : http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n    Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
+    # print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  :
+    # http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n
+    # Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
+
 
 # Main function
 def main():
@@ -99,6 +107,7 @@ def main():
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
     run_server(args)
+
 
 if __name__ == "__main__":
     main()

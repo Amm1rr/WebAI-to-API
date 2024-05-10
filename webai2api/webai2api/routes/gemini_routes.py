@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Request
 from gemini_webapi import GeminiClient
-from ..utils.utility import getCookie_Gemini, geminiToChatGPTStream
+from ..utils import utility
 import logging
 import copy
-import asyncio
 import json
 from fastapi.responses import StreamingResponse
 
-logging.basicConfig(level=logging.INFO)
+utility.configure_logging()
+logging.info("gemini_routes.py")
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ async def initialize_gemini():
     logging.info("gemini_routes.py./startup_event")
     import os
     global COOKIE_GEMINI, GEMINI_CLIENT
-    COOKIE_GEMINI = getCookie_Gemini(configfilepath=os.getcwd(), configfilename="Config.conf")
+    COOKIE_GEMINI = utility.getCookie_Gemini()
     GEMINI_CLIENT = GeminiClient()
     try:
         await GEMINI_CLIENT.init(timeout=30, auto_close=False, close_delay=300, auto_refresh=True, verbose=False)
@@ -93,7 +93,7 @@ async def ask_gemini(request: Request, message: dict):
 
 # @router.post("/gemini")
 # async def ask_gemini(request: Request, message: dict):
-#     logging.info("gemini_routes.py./gemini")    
+#     logging.info("gemini_routes.py./gemini")
 #     if not GEMINI_CLIENT:
 #         yield {"warning": "Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually or log in to your gemini.google.com account through your web browser."}
 

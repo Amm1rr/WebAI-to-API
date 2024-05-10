@@ -6,7 +6,14 @@ import json
 import logging
 from typing import Literal
 
-logging.basicConfig(level=logging.INFO)
+
+def configure_logging():
+    logging.basicConfig(level=logging.WARNING)
+    # Optionally, format
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+configure_logging()
 
 # Constants
 CONFIG_FILE_NAME = "Config.conf"
@@ -16,18 +23,22 @@ if "/webai2api" not in CONFIG_FOLDER:
 CONFIG_FILE_PATH = os.path.join(CONFIG_FOLDER, CONFIG_FILE_NAME)
 
 _cookies = {}
-def get_cookies(cookie_domain: str) -> dict: 
-    if cookie_domain not in _cookies: 
-        _cookies[cookie_domain] = {} 
-        for cookie in browser_cookie3.load(cookie_domain): 
-            _cookies[cookie_domain][cookie.name] = cookie.value 
+
+
+def get_cookies(cookie_domain: str) -> dict:
+    if cookie_domain not in _cookies:
+        _cookies[cookie_domain] = {}
+        for cookie in browser_cookie3.load(cookie_domain):
+            _cookies[cookie_domain][cookie.name] = cookie.value
     return _cookies[cookie_domain]
+
 
 # Define a function to convert the dictionary to a semicolon-separated string
 def generate_cookie_string(cookie_dict):
     return "; ".join([f"{key}={value}" for key, value in cookie_dict.items()])
 
-def get_CookieString(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]) -> str:
+
+def get_cookiestring(service_name: Literal["Bard", "BardTS", "BardCC", "Google", "Claude"]) -> str:
     """
     Retrieve and return the session cookie value for the specified service.
 
@@ -52,20 +63,21 @@ def get_CookieString(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]
         "BardCC": "google",
         "Claude": "claude",
     }
-    domain = domains[service_Name]
+    domain = domains[service_name]
 
-    if service_Name.lower() == "bardts":
-        geminiSessionName = "__Secure-1PSIDTS"
-    elif service_Name.lower() == "bardcc":
-        geminiSessionName = "__Secure-1PSIDCC"
-    else:
-        geminiSessionName = "__Secure-1PSID"
-
-    sessName = {
-        "claude": "sessionKey",
-        "google": geminiSessionName,
+    gemini_session_names = {
+        "bardts": "__Secure-1PSIDTS",
+        "bardcc": "__Secure-1PSIDCC"
     }
-    sessionName = sessName[domain]
+    default_gemini_session_name = "__Secure-1PSID"
+
+    gemini_session_name = gemini_session_names.get(service_name.lower(), default_gemini_session_name)
+
+    sess_name = {
+        "claude": "sessionKey",
+        "google": gemini_session_name,
+    }
+    session_name = sess_name[domain]
 
     cookies = browser_cookie3.load(domain_name=domain)
 
@@ -75,7 +87,7 @@ def get_CookieString(service_Name: Literal["Bard", "BardTS", "BardCC", "Claude"]
             filtered_cookies := [
                 cookie
                 for cookie in cookies
-                if sessionName == cookie.name
+                if session_name == cookie.name
             ]
         )
         else None
@@ -99,10 +111,11 @@ def find_all_cookie_values_for_sessions():
     json_found_items = json.dumps(found_items)
     return json_found_items
 
-def getCookie_Gemini(configfilepath: str, configfilename: str):
+
+def getCookie_Gemini():
     logging.info("utility.py./getCookie_Gemini")
     try:
-        cookie = get_CookieString("google")
+        cookie = get_cookiestring("Google")
         if not cookie:
             raise Exception()
         return cookie
@@ -114,10 +127,11 @@ def getCookie_Gemini(configfilepath: str, configfilename: str):
         cookies = browser_cookie3.load(domain_name=domain)
 
         if not cookies:
-            return  {
-                "Error": f"Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually on '{configfilename}' or log in to your gemini.google.com account through your web browser."
+            return {
+                "Error": f"Looks like you're not logged in to Gemini. Please either set the Gemini cookie manually on "
+                         "f'{configfilename}' or log in to your gemini.google.com account through your web browser."
             }
-        
+
         for cookie in cookies:
             for session in sessions:
                 if cookie.name == session:
@@ -127,11 +141,12 @@ def getCookie_Gemini(configfilepath: str, configfilename: str):
         json_found_items = json.dumps(found_items)
         return json_found_items
 
+
 def getCookie_Claude(configfilepath: str, configfilename: str):
     logging.info("utility.py./getCookie_Claude")
-    # if error by system(permission denided)
+    # if error by system(permission denied)
     try:
-        cookie = get_CookieString("Claude")
+        cookie = get_cookiestring("Claude")
         if not cookie:
             raise Exception()
         return cookie
@@ -153,16 +168,17 @@ def getCookie_Claude(configfilepath: str, configfilename: str):
             }
         if not cookie:
             response_error = {
-                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or login with a browser to Claude.ai account."
+                "Error": f"You should set 'COOKIE' in '{configfilename}' file for the Claude or login with a browser "
+                         f"to Claude.ai account."
             }
 
             print(response_error)
             return response_error
-                        # raise ValueError(
-                        #     f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Claude or login with a browser to Claude.ai account."
-                        # )
+            # raise ValueError( f"You should set 'COOKIE' in '{CONFIG_FILE_NAME}' file for the Claude or login with a
+            # browser to Claude.ai account." )
         else:
             return cookie
+
 
 def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
     """
@@ -174,39 +190,40 @@ def load_browser_cookies(domain_name: str = "", verbose=True) -> dict:
     domain_name : str, optional
         Domain name to filter cookies by, by default will load all cookies without filtering.
     verbose : bool, optional
-        If `True`, will print more infomation in logs.
+        If `True`, will print more information in logs.
 
     Returns
     -------
     `dict`
         Dictionary with cookie name as key and cookie value as value.
     """
+    global cookie_fn
     cookies = {}
     for cookie_fn in [
-        bc3.firefox,
-        bc3.chrome,
-        bc3.chromium,
-        bc3.opera,
-        bc3.opera_gx,
-        bc3.brave,
-        bc3.edge,
-        bc3.vivaldi,
-        bc3.librewolf,
-        bc3.safari,
+        browser_cookie3.firefox(),
+        browser_cookie3.chrome(),
+        browser_cookie3.chromium(),
+        browser_cookie3.opera(),
+        browser_cookie3.opera_gx(),
+        browser_cookie3.brave(),
+        browser_cookie3.edge(),
+        browser_cookie3.vivaldi(),
+        browser_cookie3.librewolf(),
+        browser_cookie3.safari(),
     ]:
         try:
             for cookie in cookie_fn(domain_name=domain_name):
                 cookies[cookie.name] = cookie.value
-        except bc3.BrowserCookieError:
+        except browser_cookie3.BrowserCookieError:
             pass
         except PermissionError as e:
             if verbose:
-                logger.warning(
+                logging.warning(
                     f"Permission denied while trying to load cookies from {cookie_fn.__name__}. {e}"
                 )
         except Exception as e:
             if verbose:
-                logger.error(
+                logging.error(
                     f"Error happened while trying to load cookies from {cookie_fn.__name__}. {e}"
                 )
 
@@ -219,33 +236,33 @@ def ConvertToChatGPT(message, model: str):
     """
     try:
         chatgpt_response = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": str(message)
-                        },
-                        "logprobs": 0,
-                        "finish_reason": "stop"
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0
-                },
-                "system_fingerprint": 0
-            }
-        
+            "id": f"chatcmpl-{str(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": str(message)
+                    },
+                    "logprobs": 0,
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            },
+            "system_fingerprint": 0
+        }
+
         # Serialize the response to JSON
         chatgpt_json = json.dumps(chatgpt_response)
         return chatgpt_json
-    
+
     except:
         raise
 
@@ -260,7 +277,7 @@ def ConvertToChatGPT_OLD(message: str, model: str):
     Yields:
         str: JSON response chunks.
     """
-    
+
     # Construct the ChatGPT JSON response
     chatgpt_response = {
         "id": f"chatcmpl-{str(time.time())}",
@@ -288,31 +305,30 @@ def ConvertToChatGPT_OLD(message: str, model: str):
 
     # Convert the dictionary to a JSON string
     return json.dumps(chatgpt_response)
-    
-    OpenAIResp = {
-        "id": f"chatcmpl-{str(time.time())}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": "gpt-3.5-turbo-0125",
-        "choices": [
-            {
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": str(message)
-            },
-            "logprobs": 0,
-            "finish_reason": "stop"
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
-        },
-        "system_fingerprint": 0
-        }
 
+    # OpenAIResp = {
+    #     "id": f"chatcmpl-{str(time.time())}",
+    #     "object": "chat.completion",
+    #     "created": int(time.time()),
+    #     "model": "gpt-3.5-turbo-0125",
+    #     "choices": [
+    #         {
+    #             "index": 0,
+    #             "message": {
+    #                 "role": "assistant",
+    #                 "content": str(message)
+    #             },
+    #             "logprobs": 0,
+    #             "finish_reason": "stop"
+    #         }
+    #     ],
+    #     "usage": {
+    #         "prompt_tokens": 0,
+    #         "completion_tokens": 0,
+    #         "total_tokens": 0
+    #     },
+    #     "system_fingerprint": 0
+    # }
 
     # OpenAIResp = {
     #     "id": f"chatcmpl-{str(time.time())}",
@@ -349,8 +365,9 @@ def ConvertToChatGPT_OLD(message: str, model: str):
 
     # jsonresp = json.dumps(OpenAIResp)
 
-    return f"{OpenAIResp}"
+    # return f"{OpenAIResp}"
     # return json.dumps(OpenAIResp)
+
 
 async def ConvertToChatGPTStream(message: str, model: str):
     """Convert response to ChatGPT JSON format.
@@ -400,7 +417,7 @@ async def ConvertToChatGPTStream(message: str, model: str):
 
     yield f"{OpenAIResp}"
     # yield json.dumps(OpenAIResp)
-    
+
 
 async def claudeToChatGPTStream(message: str, model: str):
     """Convert response to ChatGPT JSON format.
@@ -429,30 +446,30 @@ async def claudeToChatGPTStream(message: str, model: str):
     #         }
     #     ],
     # }
-    
+
     OpenAIResp = {
-                "id": f"chatcmpl-{str(time.time())}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": str(message)
-                        },
-                        "logprobs": 0,
-                        "finish_reason": "stop"
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0
+        "id": f"chatcmpl-{str(time.time())}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": str(message)
                 },
-                "system_fingerprint": 0
+                "logprobs": 0,
+                "finish_reason": "stop"
             }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        },
+        "system_fingerprint": 0
+    }
 
     # openairesp = {
     # "id": f"chatcmpl-{str(time.time())}",
@@ -474,6 +491,7 @@ async def claudeToChatGPTStream(message: str, model: str):
 
     yield f"{OpenAIResp}"
     # yield json.dumps(OpenAIResp)
+
 
 async def geminiToChatGPTStream(message: str, model: str):
     """Convert response to ChatGPT JSON format.
@@ -501,7 +519,7 @@ async def geminiToChatGPTStream(message: str, model: str):
             }
         ],
     }
-    
+
     print(message)
 
     # openairesp = {
@@ -525,6 +543,7 @@ async def geminiToChatGPTStream(message: str, model: str):
     yield f"{OpenAIResp}"
     # yield json.dumps(OpenAIResp)
 
+
 def ResponseModel(config_file_path: str):
     config = configparser.ConfigParser()
     config.read(filenames=config_file_path)
@@ -546,18 +565,20 @@ def IsSession(session_id: str) -> bool:
         return False
     return False if not session_id else session_id.lower() != "none"
 
-def ConfigINI_to_Dict(filepath:str) -> dict:
+
+def ConfigINI_to_Dict(filepath: str) -> dict:
     config_object = configparser.ConfigParser()
-    file =open(filepath,"r")
+    file = open(filepath, "r")
     config_object.read_file(file)
     file.close()
-    output_dict=dict()
-    sections=config_object.sections()
+    output_dict = dict()
+    sections = config_object.sections()
     for section in sections:
-        items=config_object.items(section)
-        output_dict[section]=dict(items)
+        items = config_object.items(section)
+        output_dict[section] = dict(items)
 
     return output_dict
+
 
 #############################################
 ####                                     ####
@@ -599,4 +620,3 @@ def fake_data_streamer():
         yield f"{openai_response}\n"
         # yield b"some fake data\n"
         time.sleep(0.5)
-

@@ -1,4 +1,4 @@
-from .main import app, Config_UI_Path
+from .main import app, config_ui_path
 from .routes.claude_routes import router as claude_router
 from .routes.gemini_routes import router as gemini_router
 from .routes.v1_routes import router as v1_router
@@ -17,7 +17,7 @@ logging.info("main.py")
 
 app = FastAPI()
 
-COOKIE_GEMINI = utility.getCookie_Gemini(configfilename="Config.conf")
+COOKIE_GEMINI = utility.getCookie_Gemini()
 COOKIE_CLAUDE = utility.getCookie_Claude(configfilepath=os.getcwd(), configfilename="Config.conf")
 
 # Middleware for CORS
