@@ -152,7 +152,6 @@ async def ask_ai(message: dict):
             response = await GEMINI_CLIENT.generate_content(prompt=prompt)
             response_return = utility.ConvertToChatGPT(message=response, model=open_ai_response_model)
             # logging.info("Converted to Gemini to ChatGPT: ",response_return)
-            print("Converted to Gemini to ChatGPT: ", response_return)
             # yield json.dumps(response_return)
             return json.dumps(response_return)
 
