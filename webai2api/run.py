@@ -1,17 +1,20 @@
+import uvicorn
 from webai2api.__main__ import app
 from webai2api.utils import utility
 import logging
 
 utility.configure_logging()
-logging.info("run.py")
+logging.info(__name__)
 
 
 def run():
-    import uvicorn
-    logging.info("run.py.run()")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logging.info(__name__ + ".run()")
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
 
 
 if __name__ == "__main__":
-    logging.info("run.py.name()")
+    logging.info(__name__ + ".name()")
     run()
