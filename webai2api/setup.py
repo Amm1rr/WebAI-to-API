@@ -1,6 +1,7 @@
 from setuptools import setup, find_packages
+import os
 
-with open('README.md', 'r') as f:
+with open(os.path.join(os.path.dirname(__file__), '../README.md'), 'r') as f:
     long_description = f.read()
 
 setup(
@@ -17,7 +18,8 @@ setup(
         'browser_cookie3==0.19.1',
         'httpx==0.27.0',
         'gemini-webapi==1.2.0',
-        'curl_cffi==0.6.3'
+        'curl_cffi==0.6.3',
+        'httptools>=0.5.0'
     ],
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -33,6 +35,7 @@ setup(
         'Natural Language :: English'
     ],
     python_requires='>=3.10',
+    license='MIT',
     long_description=long_description,
     long_description_content_type='text/markdown',
     keywords=['web', 'API', 'AI', 'models']
