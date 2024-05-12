@@ -4,7 +4,6 @@
 .vscode
 demploys/
 Issues/
-/src/Config.conf
 __pycache__
 .idea
 Changes.txt
@@ -15,3 +14,8 @@ src/mainV1.py
 src/config.py
 Config.conf
 src/Config.conf
+**/.run
+**/webai2api/build/
+**/webai2api/dist/
+**/webai2api/webai2api/
+**/webai2api/webai2api.egg-info/
