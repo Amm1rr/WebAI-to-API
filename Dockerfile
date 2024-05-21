@@ -6,4 +6,4 @@ ADD requirements.txt /app/
 ADD . /app/
 RUN pip install -r requirements.txt
 EXPOSE 5000
-CMD ["python", "src/main.py"]
+CMD ["python", "webai2api/run.py"]
