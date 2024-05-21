@@ -24,9 +24,9 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 ✅ **_Google Gemini_** API integration available now
 
-✅ ~**_ChatGPT_** API integration is fully complete and available now.~ (Temporarily Suspended)
+✅ ~**_ChatGPT_** API integration is fully complete and available now.~ (Suspended)
 
-✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path (still in development)
+✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path
 
 <br>
 
@@ -256,6 +256,10 @@ curl -X 'POST' \
 
 <br>
 
+The easiest way is to just log in to the chatbot websites. ([Claude](https://claude.ai/) | [Gemini](https://gemini.google.com/))
+<br>
+    OR
+<br>
 First you need to add your tokens to the [**`Config.conf`**](#configuration) file (see [**Configuration**](#configuration) section).
 
 <br>
