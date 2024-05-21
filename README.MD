@@ -195,7 +195,7 @@ npm run build
 
 ## Example
 
-Once you have launched the web server using [`python src\main.py`](#step-2-start-web-server):
+Once you have launched the web server using [`python webai2api\run.py`](#step-2-start-web-server):
 
 > [!NOTE]
 >
