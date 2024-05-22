@@ -4,8 +4,6 @@ import configparser
 import sys
 import os
 import json
-import webai2api.utils.utility
-
 
 # Define the base URL of your API
 base_url = "http://localhost:8000"
@@ -15,7 +13,7 @@ claude_endpoint = "/claude"
 gemini_endpoint = "/gemini"
 tochatgpt_endpoint = "/v1/chat/completions"
 
-CONFIG_FILE_NAME = "Config.conf"
+CONFIG_FILE_NAME = "../webai2api/Config.conf"
 CONFIG_FOLDER = os.getcwd()
 if "/src" not in CONFIG_FOLDER:
     CONFIG_FOLDER += "/webai2api"
@@ -121,9 +119,11 @@ if (model == "gemini" or model == "*"):
     print(SEPRATOR)
 
 if (model == "tochatgpt" or model == "*"):
-    
-    original_model_response = webai2api.utils.utility.ResponseModel(CONFIG_FILE_PATH)
-    
+
+    config = configparser.ConfigParser()
+    config.read(filenames=CONFIG_FILE_PATH)
+    original_model_response = config.get("Main", "Model", fallback="Claude")
+
     
     if (model_v1 == "claude" or model_v1 == "*"):
         
