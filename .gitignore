@@ -8,10 +8,6 @@ __pycache__
 .idea
 Changes.txt
 examples/UPDATE-NEEDS-to-WORK
-src/models.py
-src/services.py
-src/mainV1.py
-src/config.py
 Config.conf
 src/Config.conf
 **/.run
@@ -19,3 +15,7 @@ src/Config.conf
 **/webai2api/dist/
 **/webai2api/webai2api/
 **/webai2api/webai2api.egg-info/
+webai2api/
+webai2api.egg-info/
+build/
+dist/

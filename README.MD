@@ -81,10 +81,10 @@ pip install -r requirements.txt
 
 ### Step 2. Start Web Server
 
-Navigate into the **`src`** directory, and run the web server:
+Navigate into the **`webai2api`** directory, and run the web server:
 
 ```bash
-cd WebAI-to-API/src/
+cd WebAI-to-API/webai2api/
 
 python run.py
 
@@ -176,7 +176,7 @@ _____
 First , **Navigate to the UI directory:**
 
 ```bash
-cd WebAI-to-API/src/UI
+cd WebAI-to-API/webai2api/UI
 ```
 
 1. **Install dependencies:**
@@ -205,15 +205,14 @@ Once you have launched the web server using [`python webai2api\run.py`](#step-2-
 cd examples/
 
 
-python WebAPI-to-API/src/test.py
+python WebAPI-to-API/webai2api/test.py
 
 OR
 
 python example_claude.py false
 python example_claude.py true
 
-python example_gemini.py false
-python example_gemini.py true
+python example_gemini.py
 
 
 ```
@@ -358,7 +357,7 @@ Model=Gemini
 
 #### Config File Path:
 
-- WebAI-to-API\src\Config.conf
+- WebAI-to-API\webai2api\Config.conf
 
 ```bash
 # Case-Sensitive

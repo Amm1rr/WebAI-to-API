@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 import os
 
-with open(os.path.join(os.path.dirname(__file__), 'README.md'), 'r') as f:
+with open(os.path.join('README.MD'), 'r') as f:
     long_description = f.read()
 
 setup(
@@ -14,7 +14,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'fastapi==0.111.0',
-        'uvicorn==0.15.0',
+        'uvicorn',
         'browser_cookie3==0.19.1',
         'httpx==0.27.0',
         'gemini-webapi==1.2.0',
