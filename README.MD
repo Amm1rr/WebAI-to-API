@@ -24,9 +24,9 @@ This project implements a web API that offers a unified interface to Google Gemi
 
 ✅ **_Google Gemini_** API integration available now
 
-✅ ~**_ChatGPT_** API integration is fully complete and available now.~ (Suspended)
-
 ✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path
+
+⚙️ **_PIP_**: In progress
 
 <br>
 
