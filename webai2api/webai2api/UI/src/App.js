@@ -124,12 +124,24 @@ function App() {
                 id="account_gemini"
                 href="https://gemini.google.com/"
                 target="_blank"
-                rel="noreferrer"
+                rel="noreferrer noreferrer"
               >
                 Please ensure you are logged in to your Google Gemini account.
               </a>
             )}
             <div className="googleSession">
+              <a
+                href="https://gemini.google.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="refresh.jpg"
+                  alt="Refresh"
+                  title="Refresh"
+                  href="https://gemini.google.com/"
+                />
+              </a>
               <label htmlFor="googleSession" className="googleSession-label">
                 Google Session ID :
               </label>
@@ -184,6 +196,18 @@ function App() {
               </a>
             )}
             <div className="claudeSession">
+              <a
+                href="https://claude.ai/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="refresh.jpg"
+                  alt="Refresh"
+                  title="Refresh"
+                  href="https://www.claude.ai/"
+                />
+              </a>
               <label
                 htmlFor="claudeSession-value"
                 className="claudeSession-label"

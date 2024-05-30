@@ -11,8 +11,6 @@ examples/UPDATE-NEEDS-to-WORK
 Config.conf
 src/Config.conf
 **/.run
-**/webai2api/build/
-**/webai2api/dist/
 **/webai2api/webai2api/
 **/webai2api/webai2api.egg-info/
 webai2api/
