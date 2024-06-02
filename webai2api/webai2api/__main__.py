@@ -8,6 +8,7 @@ from .utils import utility
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+import argparse
 import uvicorn
 import logging
 import os
@@ -47,11 +48,34 @@ async def webmiddleware(request: Request, call_next):
     return res
 
 
-def run():
+# Run uvicorn server
+def run_server(args):
     logging.info("run.__main__.py")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print(
+        """
+        
+        Welcome to WebAI to API:
 
+        Configuration      : http://localhost:8000/WebAI
+        Swagger UI (Docs)  : http://localhost:8000/docs
+        
+        ----------------------------------------------------------------
+        
+        About:
+            Learn more about the project: https://github.com/amm1rr/WebAI-to-API/
+        
+        """
+    )
+    # print("Welcome to WebAI to API:\n\nConfiguration      : http://localhost:8000/WebAI\nSwagger UI (Docs)  :
+    # http://localhost:8000/docs\n\n----------------------------------------------------------------\n\nAbout:\n
+    # Learn more about the project: https://github.com/amm1rr/WebAI-to-API/\n")
+    uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 if __name__ == "__main__":
-    run()
     logging.info("__main__.py./__name__()")
+    parser = argparse.ArgumentParser(description="Run the server.")
+    parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
+    parser.add_argument("--port", type=int, default=8000, help="Port number")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
+    args = parser.parse_args()
+    run_server(args)
