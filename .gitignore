@@ -2,6 +2,7 @@
 .env
 .venv
 .vscode
+.python-version
 demploys/
 Issues/
 __pycache__
