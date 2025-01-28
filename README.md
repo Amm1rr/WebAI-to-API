@@ -1,385 +1,219 @@
-**NOTE:** This is a research project. Please do not use it commercially and use it responsibly.
+## Disclaimer
+
+**This is a research project. Please do not use it commercially and use it responsibly.**
 
 <hr>
 
-# WebAI to API
+# WebAI-to-API
 
-This project implements a web API that offers a unified interface to Google Gemini, and Claude 3.
+![Logo](assets/Server-Run.png)
 
-[![Image](assets/WebAI-Configuration-Thumb.jpg)](assets/WebAI-Configuration.jpg)
+WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini and Claude. It supports configurable setups and streamlined integration. Please note:
 
-### Key Features
+- Currently, **Gemini** is functional.
+- **Claude** is under development and will be supported soon.
 
-- **Self-hosted:** Python/FastAPI enables flexibility to run anywhere. Not locked into proprietary platforms.
+---
 
-- **Streaming support:** Real-time responses from Claude streaming.
+## Features
 
-- **Lightweight and scalable:** Built with FastAPI for high performance.
+- 🌐 **Endpoints Management**:
+  - `/v1/chat/completions`
+  - `/v1/gemini`
+  - `/v1/claude`
+- 🔄 **Service Switching**: Configure Gemini and Claude in `config.conf`.
+- 🛠️ **Modular Architecture**: Easy to extend and maintain.
 
-- **API Key:** No API Key required.
+![Endpoints](assets/Endpoints-Docs-Thumb.png)
 
-### Status
-
-✅ **_Claude-3_** API integration is also fully implemented and available
-
-✅ **_Google Gemini_** API integration available now
-
-✅ **_UI Configuration_**: Implement routing for [localhost:8000/WebAI](http://localhost:8000/WebAI) path
-
-⚙️ **_PIP_**: In progress
-
-<br>
-
-[![Image](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
-
-<br>
-
-This repository is up-to-date.<br>
-Please don't forget to give a Star ⭐
-
-<br><br>
-
-<hr>
-
-### Prerequisites
-
-Python version >= 3.10
-Accounts on the following (all offer free signups):
-
-- Google Gemini: https://gemini.google.com/
-- Claude: https://claude.ai/
-
-Then, add your token(s) to the [**`Config.conf`**](#configuration) file. (see [**Configuration**](#configuration) section).
-
-<br>
-
-> [!NOTE]
->
-> **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer Auto Login options - you can either log in through your browser and skip this step.
-
-<br>
+---
 
 ## Installation
 
-<br>
+1. Clone the repository:
 
-### Step 1. Clone Repository
+   ```bash
+   git clone https://github.com/Amm1rr/WebAI-to-API.git
+   cd WebAI-to-API
+   ```
 
-```bash
-git clone https://github.com/Amm1rr/WebAI-to-API.git && cd WebAI-to-API
+2. Install dependencies using Poetry:
 
-python -m venv .venv
+   ```bash
+   poetry install
+   ```
 
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\activate     # Windows
+3. Create a configuration file:
 
+   ```bash
+   cp webaitoapi/config.conf.example webaitoapi/config.conf
+   ```
 
-pip install -r requirements.txt
-```
+4. Edit `webaitoapi/config.conf` to set up your desired service settings.
 
-<br>
+5. Run the server:
+   ```bash
+   poetry run python webaitoapi/main.py
+   ```
 
-### Step 2. Start Web Server
-
-Navigate into the **`webai2api`** directory, and run the web server:
-
-```bash
-cd WebAI-to-API/webai2api/
-
-python run.py
-
-```
-
-<br>
-
-Now the _API documentation_ and _Configuration Web UI_ should be available at the following addresses:
-
-> [!TIP]
->
-> **Open Web UI Configuration: [http://localhost:8000/WebAI](http://localhost:8000/WebAI)**
->
-> **Open API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)**
-
-<br>
-
-### Available **Endpoints:**
-
-> [!NOTE]
->
-> **Gemini**
->
-> **http://localhost:8000/gemini**
->
-> ---
->
-> **Claude**
->
-> **http://localhost:8000/claude**
->
-> ---
->
-> **Claude/Gemini**
->
-> **http://localhost:8000/v1/chat/completions**
-
-<br><br>
-
-**Input / Output**
-
-```bash
-# Input:
-_____
-
-    {
-      "message": "Hi, Who are you?",
-      "stream": true
-    }
-
-
---------------------
-
-
-# Output:
-_____
-
-    {
-      I am a Chatbot assistant :)
-    }
-
-
---------------------
-
-
-# Response Output:
-_____
-
-# Streaming
-  "String"
-
-
-# Not Streaming
-  "String"
-
-
-
-```
-
-<br>
-<hr>
-
-## Web UI Development Environment Setup (Optional)
-
-#### Prerequisites:
-
-- [Node.js](http://nodejs.org): Download and install from the official website (https://nodejs.org)
-
-First , **Navigate to the UI directory:**
-
-```bash
-cd WebAI-to-API/webai2api/UI
-```
-
-1. **Install dependencies:**
-
-```bash
-npm install
-```
-
-2. **Build the project:**
-
-```bash
-npm run build
-```
-
-<br>
-
-## Example
-
-Once you have launched the web server using [`python webai2api\run.py`](#step-2-start-web-server):
-
-> [!NOTE]
->
-> Note: The first argument to run the example determines whether to return streaming or not.
-
-```bash
-cd examples/
-
-
-python WebAPI-to-API/webai2api/test.py
-
-OR
-
-python example_claude.py false
-python example_claude.py true
-
-python example_gemini.py
-
-
-```
-
-or try **Claude** with **cURL**
-
-run this cURL command in a terminal window:
-
-```bash
-curl -X 'POST' \
-  'http://localhost:8000/claude' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "message": "who are you?",
-  "stream": false
-}'
-
-```
-
-<br>
-
-> [!NOTE]
->
-> **Note**: The **`session_id`** is configured in the [**Config.conf**](#configuration) file. If you send this variable empty, it will use the [**Config.conf**](#configuration)
-
-<br>
+---
 
 ## Usage
 
-#### How to find tokens
+Send a POST request to `/v1/chat/completions`:
 
-> [!NOTE]
->
-> **Note**: [**Claude**](https://claude.ai/) and [**Gemini**](https://gemini.google.com/) offer two authentication options - you can either log in through your browser and skip this step, or you can follow the instructions below to configure the authentication.
+### Example Request
 
-> [!IMPORTANT]
->
-> "The auto login by browser issue is caused by using multiple accounts or browser profiles. It will take some time to fully resolve. A future update will address it. For now, if you have problems logging in with your browsers, try logging in with just one browser or manually copy sessions and cookies as a workaround, as described in the instructions below."
+```json
+{
+  "model": "gemini",
+  "messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
 
-<br>
+### Example Response
 
-The easiest way is to just log in to the chatbot websites. ([Claude](https://claude.ai/) | [Gemini](https://gemini.google.com/))
-<br>
-    OR
-<br>
-First you need to add your tokens to the [**`Config.conf`**](#configuration) file (see [**Configuration**](#configuration) section).
+```json
+{
+  "id": "chatcmpl-12345",
+  "object": "chat.completion",
+  "created": 1693417200,
+  "model": "gemini",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Hi there!"
+      },
+      "finish_reason": "stop",
+      "index": 0
+    }
+  ]
+}
+```
 
-<br>
+---
 
 <details>
 
   <summary>
 
-#### Gemini
+## Project Structure
 
   </summary>
 
-[![Image](assets/Bard-Thumb.jpg)](assets/Bard.jpg)
+```plaintext
+.
+├── assets
+│   └── (Screenshots)
+├── LICENSE
+├── poetry.lock
+├── Prompt.txt
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── webaitoapi
+    ├── config.conf.example
+    ├── __init__.py
+    ├── main.py
+    └── models
+        ├── claude.py
+        ├── deepseek.py
+        └── gemini.py
+```
 
-**Method 1:** <br>
-For Gemini, all you need to do is [login](https://gemini.google.com/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
-
-**Method 2:** <br>
-_`Google Gemini:`_ Please obtain the cookies mentioned here from an authorized session on gemini.google.com. The cookies can be used to send POST requests to the /gemini endpoint along with a message in a JSON payload. It is important that the **session_id**, which is your **\_\_Secure-1PSID** cookie, and the **session_idts** and **session_idcc**, which is your **Secure-1PSIDTS** and **Secure-1PSIDCC** cookie, are included in the request. ([Screenshot](assets/Bard.jpg))
-<br>
-
-| Name           | Session Name       |
-|----------------|--------------------|
-| `session_id`   | `__Secure-1PSID`   |
-| `session_idts` | `__Secure-1PSIDTS` |
-| `session_idcc` | `__Secure-1PSIDCC` |
-
-1. Login to [gemini.google.com](https://gemini.google.com)
-2. Open `Developer Tools` (Press **F12**)
-3. Go to `Application Tab`
-4. Go to `Cookies Tab`
-5. Copy the content of `__Secure-1PSID` and `__Secure-1PSIDTS` and `__Secure-1PSIDCC`. Copy the value of those cookie.
-6. Set in **[Config.conf](#configuration)** file.
 </details>
-<br><hr><br>
+
+---
+
+## Roadmap
+
+- ✅ Support for Gemini.
+- 🟡 Development for Claude (in progress).
+- 🔬 Experimental model: DeepSeek (not yet operational).
+
+---
 
 <details>
-
   <summary>
-
-#### Claude
-
+    <h2>Configuration ⚙️</h2>
   </summary>
 
-[![Image](assets/Claude-Thumb.jpg)](assets/Claude.jpg)
+### Key Configuration Options
 
-**Method 1:** <br>
-For Claude, all you need to do is [login](https://claude.ai/) to your account using your web browser. (Firefox, Chrome, Safari, Edge...)
+| Section     | Option                   | Description                   | Example Value |
+| ----------- | ------------------------ | ----------------------------- | ------------- |
+| [AI]        | default_ai               | /v1/chat/completions          | `gemini`      |
+| [EnabledAI] | gemini, claude, deepseek | Enable/disable provider       | `true`        |
+| [Browser]   | name                     | Browser for cookie-based auth | `firefox`     |
 
-**Method 2:** <br>
-_`Claude:`_ You can get cookie from the browser's developer tools network tab ( see for any [claude.ai](https://claude.ai/) requests check out cookie ,copy whole value ) or storage tab ( You can find cookie of claude.ai ,there will be four values ) ([Screenshot](assets/Claude.jpg))
+The full configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
+ Leave the cookies field empty to use `browser_cookies3` and the default browser selected in the config file for automatic authentication.
 
-1. Login to [claude.ai](https://claude.ai/)
-2. Open `Developer Tools` (Press **F12**)
-3. Go to `Network Tab`
-4. Select an ajax request (like step 3 in [picture](assets/Claude.jpg))
-5. Copy the content of `Cookie`
-6. Set in **[Config.conf](#configuration)** file.
+---
 
+  <details>
+    <summary>
+      <h3>config.conf</h3>
+    </summary>
+
+    ```ini
+    [AI]
+    # Set the default AI service to be used.
+    # Options: gemini, claude
+    default_ai = gemini
+
+    # Specify the default model for the Gemini AI service.
+    # Available options:
+    # "gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro"
+    default_model_gemini = gemini-1.5-pro
+
+    # Specify the default model for the Claude AI service.
+    # Available options:
+    # "claude-3-sonnet-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"
+    default_model_claude = claude-3-5-sonnet-20241022
+
+    [Cookies]
+    # Provide cookies required for the Claude AI service.
+    claude_cookie =
+
+    # Provide cookies required for the Gemini AI service.
+    gemini_cookie_1psid =
+    gemini_cookie_1psidts =
+
+    [Deepseek]
+    # Token for Deepseek AI service integration.
+    user_token =
+
+    [EnabledAI]
+    # Enable or disable each AI service.
+    # Use "true" to enable or "false" to disable.
+    claude = false
+    gemini = true
+    deepseek = false
+
+    [Browser]
+    # Specify the default browser for any required operations.
+    # Options: firefox, brave, chrome, edge, safari
+    name = firefox
+    ```
+
+  </details>
 </details>
 
-<br>
+- Located at `webaitoapi/config.conf`.
+- Switch between Gemini and Claude services.
+- Example configuration is provided in `config.conf.example`.
 
-## Configuration
+---
 
-- Open Web UI Panel: **[http://localhost:8000/WebAI](http://localhost:8000/WebAI)**
+## License 📜
 
-<br>
+This project is open source under the [MIT License](LICENSE).
 
-How to [find tokens](#usage)
+---
 
-- [Google Gemini](#gemini)
-- [Claude](#claude)
-
-> [!NOTE]
->
-> **Note**: Claude and Gemini present Auto Login options - logging in through your browser or configuring Claude and Gemini using the provided config file.
-
-<br>
-
-### Configuring the Model Type for `/v1/chat/completions`
-
-You can specify the model type in the settings for the `/v1/chat/completions` endpoint. The available options are "Claude" and "Gemini".
-By default, the system uses the "Claude" model.
-
-```bash
-# Case-Sensitive
-
-[Main]
-Model=Claude
-# or
-Model=Gemini
-```
-
-<br>
-
-#### Config File Path:
-
-- WebAI-to-API\webai2api\Config.conf
-
-```bash
-# Case-Sensitive
-
-[Main]
-Model = [Claude] or [Gemini]
-
-[Claude]
-COOKIE=[YOURS]
-
-[Gemini]
-SESSION_ID=[YOURS]
-SESSION_IDTS=[YOURS]
-SESSION_IDCC=[YOURS]
-
-```
-
-<br>
-
-## Licensing
-
-This project is licensed under the MIT License. Feel free to use it however you like.
+> **Note**: This is a research project. Please use it responsibly and avoid commercial use. Additional security configuration and error handling are required for production use.
 
 <br>
 
