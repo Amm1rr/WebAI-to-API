@@ -1,8 +1,8 @@
-from gemini_webapi import GeminiClient
+from gemini_webapi import GeminiClient as WebGeminiClient
 
-class GeminiClient:
+class MyGeminiClient:
     def __init__(self, secure_1psid, secure_1psidts):
-        self.client = GeminiClient(secure_1psid, secure_1psidts)
+        self.client = WebGeminiClient(secure_1psid, secure_1psidts)
 
     async def init(self):
         await self.client.init()
