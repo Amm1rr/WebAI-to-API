@@ -11,7 +11,7 @@ import logging
 import browser_cookie3
 from enum import Enum
 from models.claude import ClaudeClient
-from models.gemini import GeminiClient
+from models.gemini import MyGeminiClient
 from models.deepseek import DeepseekClient
 
 # Define available models for each AI
@@ -29,7 +29,6 @@ class DeepseekModels(str, Enum):
     CHAT = "deepseek-chat"
     REASONER = "deepseek-reasoner"
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,6 +36,18 @@ logger = logging.getLogger(__name__)
 # Load configuration
 config = configparser.ConfigParser()
 config.read("config.conf")
+
+# Set default browser if not specified
+if "Browser" not in config:
+    config["Browser"] = {"name": "brave"}
+
+# Set default Cookies section if not specified
+if "Cookies" not in config:
+    config["Cookies"] = {}
+
+# Write the updated config to file
+with open("config.conf", "w") as configfile:
+    config.write(configfile)
 
 # Check which AIs are enabled
 ENABLED_AI = {
@@ -100,7 +111,7 @@ async def lifespan(app: FastAPI):
             if not gemini_cookie_1PSID or not gemini_cookie_1PSIDTS:
                 gemini_cookie_1PSID, gemini_cookie_1PSIDTS = get_cookie_from_browser("gemini")
             if gemini_cookie_1PSID and gemini_cookie_1PSIDTS:
-                gemini_client = GeminiClient(gemini_cookie_1PSID, gemini_cookie_1PSIDTS)
+                gemini_client = MyGeminiClient(gemini_cookie_1PSID, gemini_cookie_1PSIDTS)
                 await gemini_client.init()
                 logger.info("Gemini client initialized successfully.")
             else:
@@ -134,21 +145,56 @@ async def lifespan(app: FastAPI):
 
 # Helper function to get cookies from browser
 def get_cookie_from_browser(service: Literal["claude", "gemini"]) -> tuple:
-    cookies = browser_cookie3.brave()
+    browser_name = config["Browser"].get("name", "firefox").lower()
+    logger.info(f"Attempting to get cookies from browser: {browser_name} for service: {service}")
+
+    try:
+        if browser_name == "firefox":
+            cookies = browser_cookie3.firefox()
+        elif browser_name == "chrome":
+            cookies = browser_cookie3.chrome()
+        elif browser_name == "brave":
+            cookies = browser_cookie3.brave()
+        elif browser_name == "edge":
+            cookies = browser_cookie3.edge()
+        elif browser_name == "safari":
+            cookies = browser_cookie3.safari()
+        else:
+            raise ValueError(f"Unsupported browser: {browser_name}")
+        
+        logger.info(f"Successfully retrieved cookies from {browser_name}")
+    except Exception as e:
+        logger.error(f"Failed to retrieve cookies from {browser_name}: {e}")
+        return None
+
     if service == "claude":
+        logger.info("Looking for Claude cookie (sessionKey)...")
         for cookie in cookies:
             if cookie.name == "sessionKey" and "claude" in cookie.domain:
+                logger.info(f"Found Claude cookie: {cookie.value}")
                 return cookie.value
+        logger.warning("Claude cookie (sessionKey) not found.")
+        return None
     elif service == "gemini":
+        logger.info("Looking for Gemini cookies (__Secure-1PSID and __Secure-1PSIDTS)...")
         secure_1psid = None
         secure_1psidts = None
         for cookie in cookies:
             if cookie.name == "__Secure-1PSID" and "google" in cookie.domain:
                 secure_1psid = cookie.value
+                logger.info(f"Found __Secure-1PSID: {secure_1psid}")
             elif cookie.name == "__Secure-1PSIDTS" and "google" in cookie.domain:
                 secure_1psidts = cookie.value
-        return secure_1psid, secure_1psidts
-    return None
+                logger.info(f"Found __Secure-1PSIDTS: {secure_1psidts}")
+        if secure_1psid and secure_1psidts:
+            logger.info("Both Gemini cookies found.")
+            return secure_1psid, secure_1psidts
+        else:
+            logger.warning("Gemini cookies not found or incomplete.")
+            return None
+    else:
+        logger.warning(f"Unsupported service: {service}")
+        return None
 
 # Create FastAPI app
 app = FastAPI(lifespan=lifespan)
