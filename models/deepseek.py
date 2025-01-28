@@ -3,6 +3,7 @@ import configparser
 import logging
 from fastapi import HTTPException
 from typing import Optional, AsyncGenerator
+import browser_cookie3
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,9 +30,28 @@ class DeepseekClient:
     def load_cookies(self) -> dict:
         """Load cookies from the browser for chat.deepseek.com."""
         try:
-            import browser_cookie3
-            cookies = browser_cookie3.brave(domain_name="chat.deepseek.com")
+            # Get browser name from config
+            config = configparser.ConfigParser()
+            config.read("config.conf")
+            browser_name = config.get("Browser", "name", fallback="firefox").lower()
+
+            # Load cookies based on browser name
+            if browser_name == "firefox":
+                cookies = browser_cookie3.firefox(domain_name="chat.deepseek.com")
+            elif browser_name == "chrome":
+                cookies = browser_cookie3.chrome(domain_name="chat.deepseek.com")
+            elif browser_name == "brave":
+                cookies = browser_cookie3.brave(domain_name="chat.deepseek.com")
+            elif browser_name == "edge":
+                cookies = browser_cookie3.edge(domain_name="chat.deepseek.com")
+            elif browser_name == "safari":
+                cookies = browser_cookie3.safari(domain_name="chat.deepseek.com")
+            else:
+                raise ValueError(f"Unsupported browser: {browser_name}")
+
+            # Convert cookies to a dictionary
             cookie_dict = {cookie.name: cookie.value for cookie in cookies}
+            logger.info(f"Successfully loaded cookies from {browser_name} for Deepseek.")
             return cookie_dict
         except Exception as e:
             logger.warning(f"Failed to load cookies: {e}. Proceeding without cookies.")
