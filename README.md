@@ -24,7 +24,7 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 - 🔄 **Service Switching**: Configure Gemini and Claude in `config.conf`.
 - 🛠️ **Modular Architecture**: Easy to extend and maintain.
 
-![Endpoints](assets/Endpoints-Docs-Thumb.png)
+[![Endpoints Documentation](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
 ---
 
@@ -157,7 +157,7 @@ The full configuration template is available in [`config.conf.example`](webaitoa
       <h3>config.conf</h3>
     </summary>
 
-    ```ini
+    ```
     [AI]
     # Set the default AI service to be used.
     # Options: gemini, claude
