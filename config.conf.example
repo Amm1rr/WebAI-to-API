@@ -1,20 +1,38 @@
 [AI]
-default_ai = gemini  # Options: gemini, claude
-default_model_gemini = gemini-1.5-pro # "gemini-1.5-flash" , "gemini-2.0-flash-exp" , "gemini-1.5-pro"
-default_model_claude = claude-3-5-sonnet-20241022 # "claude-3-sonnet-20240229" , "claude-3-5-sonnet-20241022" , "claude-3-5-haiku-20241022"
+# Set the default AI service to be used.
+# Options: gemini, claude
+default_ai = gemini
+
+# Specify the default model for the Gemini AI service.
+# Available options:
+# "gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro"
+default_model_gemini = gemini-1.5-pro
+
+# Specify the default model for the Claude AI service.
+# Available options:
+# "claude-3-sonnet-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"
+default_model_claude = claude-3-5-sonnet-20241022
 
 [Cookies]
+# Provide cookies required for the Claude AI service.
 claude_cookie = 
+
+# Provide cookies required for the Gemini AI service.
 gemini_cookie_1psid = 
 gemini_cookie_1psidts = 
 
 [Deepseek]
+# Token for Deepseek AI service integration.
 user_token = 
 
 [EnabledAI]
+# Enable or disable each AI service.
+# Use "true" to enable or "false" to disable.
 claude = false
 gemini = true
 deepseek = false
 
 [Browser]
-name = firefox # Options: firefox, chrome, edge, safari
+# Specify the default browser for any required operations.
+# Options: firefox, brave, chrome, edge, safari
+name = firefox
