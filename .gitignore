@@ -8,13 +8,11 @@ Issues/
 __pycache__
 .idea
 Changes.txt
-examples/UPDATE-NEEDS-to-WORK
 Config.conf
-src/Config.conf
+config.conf
 **/.run
-**/webai2api/webai2api/
-**/webai2api/webai2api.egg-info/
-webai2api/
-webai2api.egg-info/
-build/
-dist/
+main copy 3.py
+new copy 2.py
+new copy.py
+new.py
+chromium/
