@@ -25,9 +25,10 @@ class ClaudeModels(str, Enum):
     HAIKU_5 = "claude-3-5-haiku-20241022"
 
 class GeminiModels(str, Enum):
-    FLASH = "gemini-1.5-flash"
-    FLASH_EXP = "gemini-2.0-flash-exp"
-    PRO = "gemini-1.5-pro"
+    FLASH_1_5 = "gemini-1.5-flash"
+    FLASH_2_0 = "gemini-2.0-flash"
+    FLASH_THINKING = "gemini-2.0-flash-thinking"
+    FLASH_THINKING_WITH_APPS = "gemini-2.0-flash-thinking-with-apps"
 
 class DeepseekModels(str, Enum):
     CHAT = "deepseek-chat"
@@ -68,7 +69,7 @@ class ClaudeRequest(BaseModel):
 
 class GeminiRequest(BaseModel):
     message: str
-    model: GeminiModels = Field(default=GeminiModels.FLASH, description="Model to use for Gemini.")
+    model: GeminiModels = Field(default=GeminiModels.FLASH_2_0, description="Model to use for Gemini.")
     images: Optional[List[str]] = []
 
 class DeepseekRequest(BaseModel):
