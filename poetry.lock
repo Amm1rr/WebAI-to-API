@@ -242,14 +242,14 @@ standard = ["email-validator (>=2.0.0)", "fastapi-cli[standard] (>=0.0.5)", "htt
 
 [[package]]
 name = "gemini-webapi"
-version = "1.8.3"
+version = "1.9.0"
 description = "✨ An elegant async Python wrapper for Google Gemini web app"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "gemini_webapi-1.8.3-py3-none-any.whl", hash = "sha256:14d3e039cac2d1bb9fbfd07e5bea6a20311b62b4e88fb42c70c377232c19bffe"},
-    {file = "gemini_webapi-1.8.3.tar.gz", hash = "sha256:2ccf2115ae0706dcdd36e9e26cb381fdc19b5ce504681c5735c6aa0a2815ce9c"},
+    {file = "gemini_webapi-1.9.0-py3-none-any.whl", hash = "sha256:b47efacdf6e82831b95496b6009cbf19308f4344c3cbadd6e47410d0691a579b"},
+    {file = "gemini_webapi-1.9.0.tar.gz", hash = "sha256:b0fcc90ed0b1a3552d2bb6c411f785b9226e13d793f881817ca236c3532b10c9"},
 ]
 
 [package.dependencies]
