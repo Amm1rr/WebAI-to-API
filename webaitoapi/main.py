@@ -12,7 +12,6 @@ import browser_cookie3
 from enum import Enum
 from models.claude import ClaudeClient
 from models.gemini import MyGeminiClient
-from models.deepseek import DeepseekClient
 from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
@@ -29,10 +28,6 @@ class GeminiModels(str, Enum):
     FLASH_2_0 = "gemini-2.0-flash"
     FLASH_THINKING = "gemini-2.0-flash-thinking"
     FLASH_THINKING_WITH_APPS = "gemini-2.0-flash-thinking-with-apps"
-
-class DeepseekModels(str, Enum):
-    CHAT = "deepseek-chat"
-    REASONER = "deepseek-reasoner"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -58,7 +53,6 @@ with open("config.conf", "w") as configfile:
 ENABLED_AI = {
     "claude": config.getboolean("EnabledAI", "claude", fallback=True),
     "gemini": config.getboolean("EnabledAI", "gemini", fallback=True),
-    "deepseek": config.getboolean("EnabledAI", "deepseek", fallback=True),
 }
 
 # Define request schemas
@@ -72,20 +66,14 @@ class GeminiRequest(BaseModel):
     model: GeminiModels = Field(default=GeminiModels.FLASH_2_0, description="Model to use for Gemini.")
     images: Optional[List[str]] = []
 
-class DeepseekRequest(BaseModel):
-    message: str
-    model: DeepseekModels = Field(default=DeepseekModels.CHAT, description="Model to use for Deepseek.")
-    stream: Optional[bool] = False
-
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
-    model: Optional[Union[ClaudeModels, GeminiModels, DeepseekModels]] = None
+    model: Optional[Union[ClaudeModels, GeminiModels]] = None
     stream: Optional[bool] = False
 
 # Initialize AI clients
 claude_client = None
 gemini_client = None
-deepseek_client = None
 
 # Translation session variables
 translate_chat_session = None
@@ -99,7 +87,7 @@ gemini_chat_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global claude_client, gemini_client, deepseek_client
+    global claude_client, gemini_client
 
     # Initialize Claude client if enabled
     if ENABLED_AI["claude"]:
@@ -137,26 +125,12 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Gemini client is disabled. Skipping initialization.")
 
-    # Initialize Deepseek client if enabled
-    if ENABLED_AI["deepseek"]:
-        try:
-            deepseek_client = DeepseekClient()
-            logger.info("Deepseek client initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Deepseek client: {e}")
-            deepseek_client = None
-    else:
-        logger.info("Deepseek client is disabled. Skipping initialization.")
-
     yield
 
     # Cleanup
     if gemini_client:
         await gemini_client.close()
         logger.info("Gemini client closed successfully.")
-    if deepseek_client:
-        await deepseek_client.close()
-        logger.info("Deepseek client closed successfully.")
 
 # Helper function to get cookies from browser
 def get_cookie_from_browser(service: Literal["claude", "gemini"]) -> tuple:
@@ -324,28 +298,6 @@ async def gemini_chat(request: GeminiRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Deepseek endpoint
-@app.post("/deepseek")
-async def deepseek_chat(request: DeepseekRequest):
-    if not ENABLED_AI["deepseek"]:
-        raise HTTPException(status_code=400, detail="Deepseek client is disabled.")
-    if not deepseek_client:
-        raise HTTPException(status_code=500, detail="Deepseek client is not initialized.")
-
-    try:
-        if request.stream:
-            return StreamingResponse(
-                deepseek_client.chat(request.message, request.model),
-                media_type="application/json",
-            )
-        else:
-            response = ""
-            async for chunk in deepseek_client.chat(request.message, request.model):
-                response += chunk
-            return {"response": response}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 # OpenAI-compatible endpoint
 @app.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
@@ -383,24 +335,6 @@ async def chat_completions(request: OpenAIChatRequest):
                 return convert_to_openai_format(response.text, request.model.value)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-
-        elif isinstance(request.model, DeepseekModels):
-            if not ENABLED_AI["deepseek"]:
-                raise HTTPException(status_code=400, detail="Deepseek client is disabled.")
-            if not deepseek_client:
-                raise HTTPException(status_code=500, detail="Deepseek client is not initialized.")
-            try:
-                if request.stream:
-                    return StreamingResponse(
-                        deepseek_client.chat(user_message, request.model.value),
-                        media_type="application/json",
-                    )
-                else:
-                    response = await deepseek_client.chat(user_message, request.model.value)
-                    return convert_to_openai_format(response, request.model.value)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
         else:
             raise HTTPException(status_code=400, detail="Invalid model specified. Choose a valid model.")
 

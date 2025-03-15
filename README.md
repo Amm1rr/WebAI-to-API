@@ -118,7 +118,6 @@ Send a POST request to `/v1/chat/completions`:
     ├── main.py
     └── models
         ├── claude.py
-        ├── deepseek.py
         └── gemini.py
 ```
 
@@ -129,8 +128,7 @@ Send a POST request to `/v1/chat/completions`:
 ## Roadmap
 
 - ✅ Support for Gemini.
-- 🟡 Development for Claude (in progress).
-- 🔬 Experimental model: DeepSeek (not yet operational).
+- 🟡 Development for Claude (stop development).
 
 ---
 
@@ -141,11 +139,11 @@ Send a POST request to `/v1/chat/completions`:
 
 ### Key Configuration Options
 
-| Section     | Option                   | Description                   | Example Value |
-| ----------- | ------------------------ | ----------------------------- | ------------- |
-| [AI]        | default_ai               | /v1/chat/completions          | `gemini`      |
-| [EnabledAI] | gemini, claude, deepseek | Enable/disable provider       | `true`        |
-| [Browser]   | name                     | Browser for cookie-based auth | `firefox`     |
+| Section     | Option          | Description                   | Example Value |
+| ----------- | --------------- | ----------------------------- | ------------- |
+| [AI]        | default_ai      | /v1/chat/completions          | `gemini`      |
+| [EnabledAI] | gemini, claude, | Enable/disable provider       | `true`        |
+| [Browser]   | name            | Browser for cookie-based auth | `firefox`     |
 
 The full configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
  Leave the cookies field empty to use `browser_cookies3` and the default browser selected in the config file for automatic authentication.
@@ -181,16 +179,11 @@ The full configuration template is available in [`config.conf.example`](webaitoa
     gemini_cookie_1psid =
     gemini_cookie_1psidts =
 
-    [Deepseek]
-    # Token for Deepseek AI service integration.
-    user_token =
-
     [EnabledAI]
     # Enable or disable each AI service.
     # Use "true" to enable or "false" to disable.
     claude = false
     gemini = true
-    deepseek = false
 
     [Browser]
     # Specify the default browser for any required operations.
