@@ -15,6 +15,9 @@ from models.gemini import MyGeminiClient
 from models.deepseek import DeepseekClient
 from fastapi.middleware.cors import CORSMiddleware
 
+from contextlib import asynccontextmanager
+import asyncio
+
 # Define available models for each AI
 class ClaudeModels(str, Enum):
     SONNET = "claude-3-sonnet-20240229"
@@ -82,6 +85,16 @@ class OpenAIChatRequest(BaseModel):
 claude_client = None
 gemini_client = None
 deepseek_client = None
+
+# Translation session variables
+translate_chat_session = None
+translate_chat_model = None
+translate_chat_lock = asyncio.Lock()
+
+# Gemini Chat session variables
+gemini_chat_model = None
+gemini_chat_session = None
+gemini_chat_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -238,6 +251,74 @@ async def gemini_chat(request: GeminiRequest):
 
     try:
         response = await gemini_client.generate_content(request.message, request.model, images=request.images)
+        return {"response": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Translate endpoint
+@app.post("/translate")
+async def translate_chat(request: GeminiRequest):
+    global translate_chat_session, translate_chat_model, translate_chat_lock
+
+    if not ENABLED_AI["gemini"]:
+        raise HTTPException(status_code=400, detail="Gemini client is disabled.")
+    if not gemini_client:
+        raise HTTPException(status_code=500, detail="Gemini client is not initialized.")
+
+    try:
+        async with translate_chat_lock:
+            # Check if model changed or session not initialized
+            if (
+                translate_chat_session is None
+                or translate_chat_model != request.model
+            ):
+                # Close previous session if exists
+                if translate_chat_session is not None:
+                    await translate_chat_session.close()
+                
+                # Start new session with selected model
+                translate_chat_session = gemini_client.start_chat(model=request.model)
+                translate_chat_model = request.model
+
+        # Send message with images to existing session
+        response = await translate_chat_session.send_message(
+            request.message, 
+            images=request.images
+        )
+        return {"response": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Translate endpoint
+@app.post("/gemini-chat")
+async def gemini_chat(request: GeminiRequest):
+    global gemini_chat_session, gemini_chat_model, gemini_chat_lock
+
+    if not ENABLED_AI["gemini"]:
+        raise HTTPException(status_code=400, detail="Gemini client is disabled.")
+    if not gemini_client:
+        raise HTTPException(status_code=500, detail="Gemini client is not initialized.")
+
+    try:
+        async with gemini_chat_lock:
+            # Check if model changed or session not initialized
+            if (
+                gemini_chat_session is None
+                or gemini_chat_model != request.model
+            ):
+                # Close previous session if exists
+                if gemini_chat_session is not None:
+                    await gemini_chat_session.close()
+                
+                # Start new session with selected model
+                gemini_chat_session = gemini_client.start_chat(model=request.model)
+                gemini_chat_model = request.model
+
+        # Send message with images to existing session
+        response = await gemini_chat_session.send_message(
+            request.message, 
+            images=request.images
+        )
         return {"response": response.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -16,3 +16,6 @@ class MyGeminiClient:
 
     async def close(self):
         await self.client.close()
+
+    def start_chat(self, model):
+        return self.client.start_chat(model=model)
