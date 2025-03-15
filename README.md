@@ -19,6 +19,8 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 - 🌐 **Endpoints Management**:
   - `/v1/chat/completions`
   - `/gemini`
+  - `/gemini-chat`
+  - `/translate`
 - 🔄 **Service Switching**: Configure Gemini in `config.conf`.
 - 🛠️ **Modular Architecture**: Easy to extend and maintain.
 
