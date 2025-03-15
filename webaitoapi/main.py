@@ -13,6 +13,7 @@ from enum import Enum
 from models.claude import ClaudeClient
 from models.gemini import MyGeminiClient
 from models.deepseek import DeepseekClient
+from fastapi.middleware.cors import CORSMiddleware
 
 # Define available models for each AI
 class ClaudeModels(str, Enum):
@@ -198,6 +199,14 @@ def get_cookie_from_browser(service: Literal["claude", "gemini"]) -> tuple:
 
 # Create FastAPI app
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Claude endpoint
 @app.post("/claude")
