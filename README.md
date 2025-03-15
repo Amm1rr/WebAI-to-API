@@ -8,10 +8,9 @@
 
 ![Logo](assets/Server-Run.png)
 
-WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini and Claude. It supports configurable setups and streamlined integration. Please note:
+WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini. It supports configurable setups and streamlined integration. Please note:
 
 - Currently, **Gemini** is functional.
-- **Claude** is under development and will be supported soon.
 
 ---
 
@@ -20,8 +19,7 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 - 🌐 **Endpoints Management**:
   - `/v1/chat/completions`
   - `/gemini`
-  - `/claude`
-- 🔄 **Service Switching**: Configure Gemini and Claude in `config.conf`.
+- 🔄 **Service Switching**: Configure Gemini in `config.conf`.
 - 🛠️ **Modular Architecture**: Easy to extend and maintain.
 
 [![Endpoints Documentation](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
@@ -117,7 +115,6 @@ Send a POST request to `/v1/chat/completions`:
     ├── __init__.py
     ├── main.py
     └── models
-        ├── claude.py
         └── gemini.py
 ```
 
@@ -127,8 +124,8 @@ Send a POST request to `/v1/chat/completions`:
 
 ## Roadmap
 
-- ✅ Support for Gemini.
-- 🟡 Development for Claude (stop development).
+- ✅ Gemini Support: Implemented
+- 🟡 ~~Claude, ChatGPT Development~~: Discontinued
 
 ---
 
@@ -139,11 +136,11 @@ Send a POST request to `/v1/chat/completions`:
 
 ### Key Configuration Options
 
-| Section     | Option          | Description                   | Example Value |
-| ----------- | --------------- | ----------------------------- | ------------- |
-| [AI]        | default_ai      | /v1/chat/completions          | `gemini`      |
-| [EnabledAI] | gemini, claude, | Enable/disable provider       | `true`        |
-| [Browser]   | name            | Browser for cookie-based auth | `firefox`     |
+| Section     | Option     | Description                   | Example Value |
+| ----------- | ---------- | ----------------------------- | ------------- |
+| [AI]        | default_ai | /v1/chat/completions          | `gemini`      |
+| [EnabledAI] | gemini     | Enable/disable provider       | `true`        |
+| [Browser]   | name       | Browser for cookie-based auth | `firefox`     |
 
 The full configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
  Leave the cookies field empty to use `browser_cookies3` and the default browser selected in the config file for automatic authentication.
@@ -158,22 +155,13 @@ The full configuration template is available in [`config.conf.example`](webaitoa
     ```
     [AI]
     # Set the default AI service to be used.
-    # Options: gemini, claude
+    # Options: gemini
     default_ai = gemini
 
     # Specify the default model for the Gemini AI service.
     # Available options:
-    # "gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro"
-    default_model_gemini = gemini-1.5-pro
-
-    # Specify the default model for the Claude AI service.
-    # Available options:
-    # "claude-3-sonnet-20240229", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"
-    default_model_claude = claude-3-5-sonnet-20241022
-
-    [Cookies]
-    # Provide cookies required for the Claude AI service.
-    claude_cookie =
+    # "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-thinking", "gemini-2.0-flash-thinking-with-apps"
+    default_model_gemini = gemini-2.0-flash
 
     # Provide cookies required for the Gemini AI service.
     gemini_cookie_1psid =
@@ -182,7 +170,6 @@ The full configuration template is available in [`config.conf.example`](webaitoa
     [EnabledAI]
     # Enable or disable each AI service.
     # Use "true" to enable or "false" to disable.
-    claude = false
     gemini = true
 
     [Browser]
@@ -195,7 +182,7 @@ The full configuration template is available in [`config.conf.example`](webaitoa
 </details>
 
 - Located at `webaitoapi/config.conf`.
-- Switch between Gemini and Claude services.
+- Switch between Gemini and other services.
 - Example configuration is provided in `config.conf.example`.
 
 ---

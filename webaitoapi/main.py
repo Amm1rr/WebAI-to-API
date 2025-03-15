@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 import logging
 import browser_cookie3
 from enum import Enum
-from models.claude import ClaudeClient
 from models.gemini import MyGeminiClient
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,11 +17,6 @@ from contextlib import asynccontextmanager
 import asyncio
 
 # Define available models for each AI
-class ClaudeModels(str, Enum):
-    SONNET = "claude-3-sonnet-20240229"
-    SONNET_5 = "claude-3-5-sonnet-20241022"
-    HAIKU_5 = "claude-3-5-haiku-20241022"
-
 class GeminiModels(str, Enum):
     FLASH_1_5 = "gemini-1.5-flash"
     FLASH_2_0 = "gemini-2.0-flash"
@@ -51,16 +45,10 @@ with open("config.conf", "w") as configfile:
 
 # Check which AIs are enabled
 ENABLED_AI = {
-    "claude": config.getboolean("EnabledAI", "claude", fallback=True),
     "gemini": config.getboolean("EnabledAI", "gemini", fallback=True),
 }
 
 # Define request schemas
-class ClaudeRequest(BaseModel):
-    message: str
-    model: ClaudeModels = Field(default=ClaudeModels.SONNET, description="Model to use for Claude.")
-    stream: Optional[bool] = False
-
 class GeminiRequest(BaseModel):
     message: str
     model: GeminiModels = Field(default=GeminiModels.FLASH_2_0, description="Model to use for Gemini.")
@@ -68,11 +56,10 @@ class GeminiRequest(BaseModel):
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
-    model: Optional[Union[ClaudeModels, GeminiModels]] = None
+    model: Optional[Union[GeminiModels]] = None
     stream: Optional[bool] = False
 
 # Initialize AI clients
-claude_client = None
 gemini_client = None
 
 # Translation session variables
@@ -87,24 +74,7 @@ gemini_chat_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global claude_client, gemini_client
-
-    # Initialize Claude client if enabled
-    if ENABLED_AI["claude"]:
-        try:
-            claude_cookie = config["Cookies"].get("claude_cookie")
-            if not claude_cookie:
-                claude_cookie = get_cookie_from_browser("claude")
-            if claude_cookie:
-                claude_client = ClaudeClient(claude_cookie)
-                logger.info("Claude client initialized successfully.")
-            else:
-                logger.warning("Claude cookie not found. Claude API will not be available.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Claude client: {e}")
-            claude_client = None
-    else:
-        logger.info("Claude client is disabled. Skipping initialization.")
+    global gemini_client
 
     # Initialize Gemini client if enabled
     if ENABLED_AI["gemini"]:
@@ -133,7 +103,7 @@ async def lifespan(app: FastAPI):
         logger.info("Gemini client closed successfully.")
 
 # Helper function to get cookies from browser
-def get_cookie_from_browser(service: Literal["claude", "gemini"]) -> tuple:
+def get_cookie_from_browser(service: Literal["gemini"]) -> tuple:
     browser_name = config["Browser"].get("name", "firefox").lower()
     logger.info(f"Attempting to get cookies from browser: {browser_name} for service: {service}")
 
@@ -156,15 +126,7 @@ def get_cookie_from_browser(service: Literal["claude", "gemini"]) -> tuple:
         logger.error(f"Failed to retrieve cookies from {browser_name}: {e}")
         return None
 
-    if service == "claude":
-        logger.info("Looking for Claude cookie (sessionKey)...")
-        for cookie in cookies:
-            if cookie.name == "sessionKey" and "claude" in cookie.domain:
-                logger.info(f"Found Claude cookie: {cookie.value}")
-                return cookie.value
-        logger.warning("Claude cookie (sessionKey) not found.")
-        return None
-    elif service == "gemini":
+    if service == "gemini":
         logger.info("Looking for Gemini cookies (__Secure-1PSID and __Secure-1PSIDTS)...")
         secure_1psid = None
         secure_1psidts = None
@@ -195,26 +157,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Claude endpoint
-@app.post("/claude")
-async def claude_chat(request: ClaudeRequest):
-    if not ENABLED_AI["claude"]:
-        raise HTTPException(status_code=400, detail="Claude client is disabled.")
-    if not claude_client:
-        raise HTTPException(status_code=500, detail="Claude client is not initialized.")
-
-    try:
-        if request.stream:
-            return StreamingResponse(
-                claude_client.stream_message(request.message, request.model),
-                media_type="application/json",
-            )
-        else:
-            response = claude_client.send_message(request.message, request.model)
-            return {"response": response}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # Gemini endpoint
 @app.post("/gemini")
@@ -308,24 +250,7 @@ async def chat_completions(request: OpenAIChatRequest):
 
     # Determine which AI to use based on the model
     if request.model:
-        if isinstance(request.model, ClaudeModels):
-            if not ENABLED_AI["claude"]:
-                raise HTTPException(status_code=400, detail="Claude client is disabled.")
-            if not claude_client:
-                raise HTTPException(status_code=500, detail="Claude client is not initialized.")
-            try:
-                if request.stream:
-                    return StreamingResponse(
-                        claude_client.stream_message(user_message, request.model.value),
-                        media_type="application/json",
-                    )
-                else:
-                    response = claude_client.send_message(user_message, request.model.value)
-                    return convert_to_openai_format(response, request.model.value)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        elif isinstance(request.model, GeminiModels):
+        if isinstance(request.model, GeminiModels):
             if not ENABLED_AI["gemini"]:
                 raise HTTPException(status_code=400, detail="Gemini client is disabled.")
             if not gemini_client:
