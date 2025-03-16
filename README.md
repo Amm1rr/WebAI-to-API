@@ -46,10 +46,10 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 3. **Create and update the configuration file:**
 
    ```bash
-   cp webaitoapi/config.conf.example webaitoapi/config.conf
+   cp config.conf.example config.conf
    ```
 
-   Then, edit `webaitoapi/config.conf` to adjust service settings and other options.
+   Then, edit `config.conf` to adjust service settings and other options.
 
 4. **Run the server:**
 
@@ -120,7 +120,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`        |
 | [Browser]   | name       | Browser for cookie-based authentication    | `firefox`     |
 
-The complete configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
+The complete configuration template is available in [`WebAI-to-API/config.conf.example`](WebAI-to-API/config.conf.example).  
 If the cookies are left empty, the application will automatically retrieve them using the default browser specified.
 
 ---
@@ -157,7 +157,7 @@ name = firefox
 The project now follows a modular layout that separates configuration, business logic, API endpoints, and utilities:
 
 ```plaintext
-project_root/
+src/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                # FastAPI app creation, configuration, and lifespan management.

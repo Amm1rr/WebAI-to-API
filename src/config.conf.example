@@ -1,6 +1,6 @@
-[AI]
 # Set the default AI service to be used.
 # Options: gemini
+[AI]
 default_ai = gemini
 
 # Specify the default model for the Gemini AI service.
@@ -8,17 +8,17 @@ default_ai = gemini
 # "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-thinking", "gemini-2.0-flash-thinking-with-apps"
 default_model_gemini = gemini-2.0-flash
 
+# Provide the necessary cookies for the Gemini AI service, or use a browser to log into your Google account
 [Cookies]
-# Provide cookies required for the Gemini AI service.
 gemini_cookie_1psid = 
 gemini_cookie_1psidts = 
 
-[EnabledAI]
 # Enable or disable each AI service.
 # Use "true" to enable or "false" to disable.
+[EnabledAI]
 gemini = true
 
-[Browser]
 # Specify the default browser for any required operations.
 # Options: firefox, brave, chrome, edge, safari
-name = firefox
+[Browser]
+name = chrome
