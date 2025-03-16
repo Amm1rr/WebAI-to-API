@@ -8,9 +8,9 @@
 
 ![Logo](assets/Server-Run.png)
 
-WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini. It supports configurable setups and streamlined integration. Please note:
+WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini. It features a clean, extendable architecture that simplifies configuration, integration, and maintenance.
 
-- Currently, **Gemini** is functional.
+> **Note:** Currently, **Gemini** is the primary supported AI service.
 
 ---
 
@@ -21,8 +21,8 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
   - `/gemini`
   - `/gemini-chat`
   - `/translate`
-- 🔄 **Service Switching**: Configure Gemini in `config.conf`.
-- 🛠️ **Modular Architecture**: Easy to extend and maintain.
+- 🔄 **Service Switching**: Easily configure and switch between AI providers via `config.conf`.
+- 🛠️ **Modular Architecture**: Organized into clearly defined modules for API routes, services, configurations, and utilities, making development and maintenance straightforward.
 
 [![Endpoints Documentation](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
 
@@ -30,43 +30,44 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 
 ## Installation
 
-1. Clone the repository:
+1. **Clone the repository:**
 
    ```bash
    git clone https://github.com/Amm1rr/WebAI-to-API.git
    cd WebAI-to-API
    ```
 
-2. Install dependencies using Poetry:
+2. **Install dependencies using Poetry:**
 
    ```bash
    poetry install
    ```
 
-3. Create a configuration file:
+3. **Create and update the configuration file:**
 
    ```bash
    cp webaitoapi/config.conf.example webaitoapi/config.conf
    ```
 
-4. Edit `webaitoapi/config.conf` to set up your desired service settings.
+   Then, edit `webaitoapi/config.conf` to adjust service settings and other options.
 
-5. Run the server:
+4. **Run the server:**
+
    ```bash
-   poetry run python webaitoapi/main.py
+   poetry run python run.py
    ```
 
 ---
 
 ## Usage
 
-Send a POST request to `/v1/chat/completions`:
+Send a POST request to `/v1/chat/completions` (or any other available endpoint) with the required payload.
 
 ### Example Request
 
 ```json
 {
-  "model": "gemini",
+  "model": "gemini-2.0-flash",
   "messages": [{ "role": "user", "content": "Hello!" }]
 }
 ```
@@ -78,7 +79,7 @@ Send a POST request to `/v1/chat/completions`:
   "id": "chatcmpl-12345",
   "object": "chat.completion",
   "created": 1693417200,
-  "model": "gemini",
+  "model": "gemini-2.0-flash",
   "choices": [
     {
       "message": {
@@ -88,39 +89,14 @@ Send a POST request to `/v1/chat/completions`:
       "finish_reason": "stop",
       "index": 0
     }
-  ]
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  }
 }
 ```
-
----
-
-<details>
-
-  <summary>
-
-## Project Structure
-
-  </summary>
-
-```plaintext
-.
-├── assets
-│   └── (Screenshots)
-├── LICENSE
-├── poetry.lock
-├── Prompt.txt
-├── pyproject.toml
-├── README.md
-├── requirements.txt
-└── webaitoapi
-    ├── config.conf.example
-    ├── __init__.py
-    ├── main.py
-    └── models
-        └── gemini.py
-```
-
-</details>
 
 ---
 
@@ -138,54 +114,104 @@ Send a POST request to `/v1/chat/completions`:
 
 ### Key Configuration Options
 
-| Section     | Option     | Description                   | Example Value |
-| ----------- | ---------- | ----------------------------- | ------------- |
-| [AI]        | default_ai | /v1/chat/completions          | `gemini`      |
-| [EnabledAI] | gemini     | Enable/disable provider       | `true`        |
-| [Browser]   | name       | Browser for cookie-based auth | `firefox`     |
+| Section     | Option     | Description                                | Example Value |
+| ----------- | ---------- | ------------------------------------------ | ------------- |
+| [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`      |
+| [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`        |
+| [Browser]   | name       | Browser for cookie-based authentication    | `firefox`     |
 
-The full configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
- Leave the cookies field empty to use `browser_cookies3` and the default browser selected in the config file for automatic authentication.
+The complete configuration template is available in [`config.conf.example`](webaitoapi/config.conf.example).  
+If the cookies are left empty, the application will automatically retrieve them using the default browser specified.
 
 ---
 
-  <details>
-    <summary>
-      <h3>config.conf</h3>
-    </summary>
+### Sample `config.conf`
 
-    ```
-    [AI]
-    # Set the default AI service to be used.
-    # Options: gemini
-    default_ai = gemini
+```ini
+[AI]
+# Default AI service.
+default_ai = gemini
 
-    # Specify the default model for the Gemini AI service.
-    # Available options:
-    # "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-thinking", "gemini-2.0-flash-thinking-with-apps"
-    default_model_gemini = gemini-2.0-flash
+# Default model for Gemini.
+default_model_gemini = gemini-2.0-flash
 
-    # Provide cookies required for the Gemini AI service.
-    gemini_cookie_1psid =
-    gemini_cookie_1psidts =
+# Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
+gemini_cookie_1psid =
+gemini_cookie_1psidts =
 
-    [EnabledAI]
-    # Enable or disable each AI service.
-    # Use "true" to enable or "false" to disable.
-    gemini = true
+[EnabledAI]
+# Enable or disable AI services.
+gemini = true
 
-    [Browser]
-    # Specify the default browser for any required operations.
-    # Options: firefox, brave, chrome, edge, safari
-    name = firefox
-    ```
+[Browser]
+# Default browser options: firefox, brave, chrome, edge, safari.
+name = firefox
+```
 
-  </details>
 </details>
 
-- Located at `webaitoapi/config.conf`.
-- Switch between Gemini and other services.
-- Example configuration is provided in `config.conf.example`.
+---
+
+## Project Structure
+
+The project now follows a modular layout that separates configuration, business logic, API endpoints, and utilities:
+
+```plaintext
+project_root/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                # FastAPI app creation, configuration, and lifespan management.
+│   ├── config.py              # Global configuration loader/updater.
+│   ├── logger.py              # Centralized logging configuration.
+│   ├── endpoints/             # API endpoint routers.
+│   │   ├── __init__.py
+│   │   ├── gemini.py          # Endpoints for Gemini (e.g., /gemini, /gemini-chat).
+│   │   └── chat.py            # Endpoints for translation and OpenAI-compatible requests.
+│   ├── services/              # Business logic and service wrappers.
+│   │   ├── __init__.py
+│   │   ├── gemini_client.py   # Gemini client initialization, content generation, and cleanup.
+│   │   └── session_manager.py # Session management for chat and translation.
+│   └── utils/                 # Helper functions.
+│       ├── __init__.py
+│       └── browser.py         # Browser-based cookie retrieval.
+├── models/                    # Models and wrappers (e.g., MyGeminiClient).
+│   └── gemini.py
+├── schemas/                   # Pydantic schemas for request/response validation.
+│   └── request.py
+├── config.conf                # Application configuration file.
+└── run.py                     # Entry point to run the server.
+```
+
+---
+
+## Developer Documentation
+
+### Overview
+
+The project is built on a modular architecture designed for scalability and ease of maintenance. Its primary components are:
+
+- **app/main.py:** Initializes the FastAPI application, configures middleware, and manages application lifespan (startup and shutdown routines).
+- **app/config.py:** Handles the loading and updating of configuration settings from `config.conf`.
+- **app/logger.py:** Sets up a centralized logging system.
+- **app/endpoints/:** Contains separate modules for handling API endpoints. Each module (e.g., `gemini.py` and `chat.py`) manages routes specific to their functionality.
+- **app/services/:** Encapsulates business logic, including the Gemini client wrapper (`gemini_client.py`) and session management (`session_manager.py`).
+- **app/utils/browser.py:** Provides helper functions, such as retrieving cookies from the browser for authentication.
+- **models/:** Holds model definitions like `MyGeminiClient` for interfacing with the Gemini Web API.
+- **schemas/:** Defines Pydantic models for validating API requests.
+
+### How It Works
+
+1. **Application Initialization:**  
+   On startup, the application loads configurations and initializes the Gemini client and session managers. This is managed via the `lifespan` context in `app/main.py`.
+
+2. **Routing:**  
+   The API endpoints are organized into dedicated routers under `app/endpoints/`, which are then included in the main FastAPI application.
+
+3. **Service Layer:**  
+   The `app/services/` directory contains the logic for interacting with the Gemini API and managing user sessions, ensuring that the API routes remain clean and focused on request handling.
+
+4. **Utilities and Configurations:**  
+   Helper functions and configuration logic are kept separate to maintain clarity and ease of updates.
 
 ---
 
@@ -195,7 +221,7 @@ This project is open source under the [MIT License](LICENSE).
 
 ---
 
-> **Note**: This is a research project. Please use it responsibly and avoid commercial use. Additional security configuration and error handling are required for production use.
+> **Note:** This is a research project. Please use it responsibly, and be aware that additional security measures and error handling are necessary for production deployments.
 
 <br>
 
