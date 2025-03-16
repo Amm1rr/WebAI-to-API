@@ -54,7 +54,7 @@ WebAI-to-API is a modular web server built with FastAPI, designed to manage requ
 4. **Run the server:**
 
    ```bash
-   poetry run python run.py
+   poetry run python src/run.py
    ```
 
 ---
