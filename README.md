@@ -215,6 +215,10 @@ The project is built on a modular architecture designed for scalability and ease
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Amm1rr/WebAI-to-API&type=Date)](https://www.star-history.com/#Amm1rr/WebAI-to-API&Date)
+
 ## License 📜
 
 This project is open source under the [MIT License](LICENSE).
