@@ -1,0 +1,23 @@
+# docker-compose.yml
+
+services:
+  web_ai:
+    build: .
+    image: cornatul/webai.ai
+    container_name: web_ai_server
+    restart: always
+    ports:
+      - "6969:6969"
+    volumes:
+      - ./:/app/
+    environment:
+      - PYTHONPATH=/app/src
+      - ENVIRONMENT=${ENVIRONMENT:-development} # If ENVIRONMENT not found, Default is development
+    command: >
+      sh -c "
+        if [ \"$ENVIRONMENT\" = \"production\" ]; then
+          uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 4 --log-level info;
+        else
+          uvicorn app.main:app --host 0.0.0.0 --port 6969 --reload --log-level debug;
+        fi
+      "
