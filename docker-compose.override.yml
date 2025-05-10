@@ -1,0 +1,17 @@
+# docker-compose.override.yml
+
+# This file is for development mode only.
+
+services:
+  web_ai:
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./app
+          target: /app/app
+        - action: sync
+          path: ./requirements.txt
+          target: /app/requirements.txt

@@ -1,5 +1,7 @@
 # docker-compose.yml
 
+# This file is for production mode only.
+
 services:
   web_ai:
     build: .
@@ -8,16 +10,12 @@ services:
     restart: always
     ports:
       - "6969:6969"
-    volumes:
-      - ./:/app/
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app/src
-      - ENVIRONMENT=${ENVIRONMENT:-development} # If ENVIRONMENT not found, Default is development
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     command: >
       sh -c "
-        if [ \"$ENVIRONMENT\" = \"production\" ]; then
-          uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 4 --log-level info;
-        else
-          uvicorn app.main:app --host 0.0.0.0 --port 6969 --reload --log-level debug;
-        fi
+        uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 4 --log-level info;
       "
