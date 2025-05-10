@@ -1,19 +1,7 @@
-# Project exclude paths
-.env
-.venv
+# File; .gitignore
+
 .vscode
 .python-version
-demploys/
-Issues/
 __pycache__
 .idea
-Changes.txt
-Config.conf
 config.conf
-**/.run
-main copy 3.py
-new copy 2.py
-new copy.py
-new.py
-chromium/
-Prompt.txt
