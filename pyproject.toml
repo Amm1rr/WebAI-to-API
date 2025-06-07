@@ -22,6 +22,8 @@ httpx = ">=0.28.1,<0.29.0"
 curl-cffi = ">=0.7.4,<0.8.0"
 gemini-webapi = ">=1.8.3,<2.0.0"
 uvicorn = {extras = ["standard"], version = ">=0.34.0,<0.35.0"}
+pywin32 = "^310"
+pycryptodome = "^3.23.0"
 
 
 [build-system]
