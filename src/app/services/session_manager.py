@@ -15,14 +15,17 @@ class SessionManager:
             # Start a new session if none exists or the model has changed
             if self.session is None or self.model != model:
                 if self.session is not None:
-                    await self.session.close()
+                    # Closing the session is handled by the library's internal logic
+                    pass
                 # If model is an Enum, use its value
                 model_value = model.value if hasattr(model, "value") else model
                 self.session = self.client.start_chat(model=model_value)
                 self.model = model
 
             try:
-                return await self.session.send_message(message, images=images)
+                # FIX: The underlying library `gemini-webapi` has changed its keyword arguments
+                # in a recent update. `message` is now `prompt` and `images` is now `files`.
+                return await self.session.send_message(prompt=message, files=images)
             except Exception as e:
                 logger.error(f"Error in session get_response: {e}", exc_info=True)
                 raise
