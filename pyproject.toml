@@ -2,7 +2,7 @@
 
 [tool.poetry]
 name = "webaitoapi"
-version = "0.2.0"
+version = "0.3.0"
 description = "WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services."
 authors = ["Mohammad <m.khani2810@gmail.com>"]
 license = "MIT"
@@ -22,8 +22,11 @@ httpx = ">=0.28.1,<0.29.0"
 curl-cffi = ">=0.7.4,<0.8.0"
 gemini-webapi = ">=1.8.3,<2.0.0"
 uvicorn = {extras = ["standard"], version = ">=0.34.0,<0.35.0"}
-pywin32 = "^310"
-pycryptodome = "^3.23.0"
+
+# Windows-specific dependencies for cookie decryption
+# These will only be installed on Windows systems
+pywin32 = { version = "==308", platform = "win32" }
+pycryptodomex = { version = "==3.21.0", platform = "win32" }
 
 
 [build-system]
