@@ -27,6 +27,7 @@ uvicorn = {extras = ["standard"], version = ">=0.34.0,<0.35.0"}
 # These will only be installed on Windows systems
 pywin32 = { version = "==308", platform = "win32" }
 pycryptodomex = { version = "==3.21.0", platform = "win32" }
+g4f = {version = "^0.5.5.5", extras = ["api"]}
 
 
 [build-system]
