@@ -5,3 +5,5 @@
 __pycache__
 .idea
 config.conf
+generated_media
+har_and_cookie
