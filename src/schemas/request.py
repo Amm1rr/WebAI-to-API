@@ -49,7 +49,7 @@ class GeminiModels(str, Enum):
 class GeminiRequest(BaseModel):
     message: str
     model: GeminiModels = Field(default=GeminiModels.FLASH_2_0, description="Model to use for Gemini.")
-    images: Optional[List[str]] = []
+    files: Optional[List[str]] = []
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]

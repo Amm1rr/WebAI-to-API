@@ -16,7 +16,7 @@ async def translate_chat(request: GeminiRequest):
         raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
     try:
         # This call now correctly uses the fixed session manager
-        response = await session_manager.get_response(request.model, request.message, request.images)
+        response = await session_manager.get_response(request.model, request.message, request.files)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
@@ -61,8 +61,8 @@ async def chat_completions(request: OpenAIChatRequest):
         try:
             # FIX: The underlying `generate_content` call needs to be adapted.
             # This assumes `MyGeminiClient.generate_content` is also updated to use `prompt`.
-            # We pass `images=None` as this endpoint doesn't handle images.
-            response = await gemini_client.generate_content(message=user_message, model=request.model.value, images=None)
+            # We pass `files=None` as this endpoint doesn't handle files.
+            response = await gemini_client.generate_content(message=user_message, model=request.model.value, files=None)
             return convert_to_openai_format(response.text, request.model.value, is_stream)
         except Exception as e:
             logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)

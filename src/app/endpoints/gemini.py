@@ -5,6 +5,9 @@ from schemas.request import GeminiRequest
 from app.services.gemini_client import get_gemini_client
 from app.services.session_manager import get_gemini_chat_manager
 
+from pathlib import Path
+from typing import Union, List, Optional
+
 router = APIRouter()
 
 @router.post("/gemini")
@@ -14,7 +17,8 @@ async def gemini_generate(request: GeminiRequest):
         raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
     try:
         # Use the value attribute for the model (since GeminiRequest.model is an Enum)
-        response = await gemini_client.generate_content(request.message, request.model.value, images=request.images)
+        files: Optional[List[Union[str, Path]]] = [Path(f) for f in request.files] if request.files else None
+        response = await gemini_client.generate_content(request.message, request.model.value, files=files)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /gemini endpoint: {e}", exc_info=True)
@@ -27,7 +31,7 @@ async def gemini_chat(request: GeminiRequest):
     if not gemini_client or not session_manager:
         raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
     try:
-        response = await session_manager.get_response(request.model, request.message, request.images)
+        response = await session_manager.get_response(request.model, request.message, request.files)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /gemini-chat endpoint: {e}", exc_info=True)

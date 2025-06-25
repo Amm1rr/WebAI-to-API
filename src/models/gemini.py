@@ -1,5 +1,6 @@
 # src/models/gemini.py
-from typing import Optional, List
+from typing import Optional, List, Union
+from pathlib import Path
 from gemini_webapi import GeminiClient as WebGeminiClient
 
 class MyGeminiClient:
@@ -12,12 +13,11 @@ class MyGeminiClient:
     async def init(self) -> None:
         """Initialize the Gemini client."""
         await self.client.init()
-
-    async def generate_content(self, message: str, model: str, images: Optional[List[str]] = None):
+    async def generate_content(self, message: str, model: str, files: Optional[List[Union[str, Path]]] = None):
         """
         Generate content using the Gemini client.
         """
-        return await self.client.generate_content(message, model=model, images=images)
+        return await self.client.generate_content(message, model=model, files=files)
 
     async def close(self) -> None:
         """Close the Gemini client."""
