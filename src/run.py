@@ -43,7 +43,7 @@ def print_server_info(host: str, port: int, mode: str):
                 print(f"  - {base_url}{path}")
     
     elif mode == "g4f":
-        print("🚀 G4F Fallback Server Initialized 🚀".center(60))
+        print("🚀 G4F Server Initialized 🚀".center(60))
         print("="*60)
         g4f_base_url = f"{base_url}/v1"
         print("\n✨ G4F Service Info:")
@@ -63,46 +63,77 @@ def print_server_info(host: str, port: int, mode: str):
     print("Starting Server... (Press CTRL+C to quit)")
     print("="*60 + "\n")
 
+def get_user_choice(webai_available: bool, g4f_available: bool) -> str | None:
+    """
+    Presents an interactive menu to the user and returns their choice.
+    """
+    print("\n" + "~"*60)
+    print("Please select the server to run:".center(60))
+    print("~"*60)
+
+    options = {}
+    if webai_available:
+        print("  [1] WebAI-to-API (Requires valid Gemini cookies)")
+        options['1'] = 'webai'
+    if g4f_available:
+        print("  [2] G4F Server (Fallback, no cookies required)")
+        options['2'] = 'g4f'
+
+    if not options:
+        print("\nERROR: No server modes are available to run.")
+        print("       - WebAI mode requires valid cookies.")
+        print("       - G4F mode requires the 'g4f' library to be installed.")
+        return None
+
+    while True:
+        try:
+            choice = input(f"Enter your choice ({', '.join(options.keys())}) or 'q' to quit: ")
+            if choice in options:
+                return options[choice]
+            elif choice.lower() == 'q':
+                return None
+            else:
+                print(f"Invalid choice. Please enter one of the following: {', '.join(options.keys())}")
+        except KeyboardInterrupt:
+            print("\nExiting.")
+            return None
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the server.")
-    # Use 'auto' as default to trigger automatic detection logic.
-    parser.add_argument("--mode", type=str, default="auto", choices=['auto', 'webai', 'g4f'], help="Running method: 'auto' (default), 'webai', or 'g4f'")
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=6969, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reloading")
     args = parser.parse_args()
 
     # --- Main Logic ---
+
+    # Step 1: Determine which modes are available.
+    print("INFO:     Checking availability of server modes...")
+    webai_is_available = asyncio.run(init_gemini_client())
     
-    # Case 1: User explicitly forces a mode
-    if args.mode == "webai":
-        print("INFO:     --mode=webai selected. Forcing WebAI-to-API server start.")
+    if webai_is_available:
+        print("INFO:     ✅ WebAI-to-API mode is available (Gemini cookies found).")
+    else:
+        print("WARN:     ⚠️ WebAI-to-API mode is not available (Could not initialize Gemini client).")
+        
+    if G4F_AVAILABLE:
+        print("INFO:     ✅ G4F mode is available ('g4f' library is installed).")
+    else:
+        print("WARN:     ⚠️ G4F mode is not available ('g4f' library not found).")
+
+    # Step 2: Get the user's choice from the interactive menu.
+    chosen_mode = get_user_choice(webai_is_available, G4F_AVAILABLE)
+
+    # Step 3: Run the selected server.
+    if chosen_mode == "webai":
         print_server_info(args.host, args.port, mode="webai")
-        # Note: This mode assumes cookies are valid. It skips the check.
         uvicorn.run(webai_app, host=args.host, port=args.port, reload=args.reload)
         
-    elif args.mode == "g4f":
-        print("INFO:     --mode=g4f selected. Forcing g4f server start.")
-        if not G4F_AVAILABLE:
-            print("ERROR:    g4f library is not installed. Please run 'poetry add g4f'.")
-        else:
-            print_server_info(args.host, args.port, mode="g4f")
-            run_g4f_api(host=args.host, port=args.port)
+    elif chosen_mode == "g4f":
+        print_server_info(args.host, args.port, mode="g4f")
+        run_g4f_api(host=args.host, port=args.port)
 
-    # Case 2: Automatic detection (default behavior)
-    else: # args.mode == "auto"
-        print("INFO:     Automatic mode selected. Checking for Gemini cookies...")
-        initialization_successful = asyncio.run(init_gemini_client())
+    else:
+        print("\nNo server selected. Exiting program.")
 
-        if initialization_successful:
-            print("INFO:     ✅ Gemini client initialized successfully. Starting WebAI-to-API server.")
-            print_server_info(args.host, args.port, mode="webai")
-            uvicorn.run(webai_app, host=args.host, port=args.port, reload=args.reload)
-        else:
-            print("WARN:     ⚠️ Failed to initialize Gemini client. Falling back to g4f API server.")
-            if not G4F_AVAILABLE:
-                print("ERROR:    g4f library is not installed. Please run 'poetry add g4f' to use the fallback mode.")
-            else:
-                print_server_info(args.host, args.port, mode="g4f")
-                run_g4f_api(host=args.host, port=args.port)
