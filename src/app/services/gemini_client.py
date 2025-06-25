@@ -23,7 +23,7 @@ async def init_gemini_client() -> bool:
                     gemini_cookie_1PSID, gemini_cookie_1PSIDTS = cookies
             
             if gemini_cookie_1PSID and gemini_cookie_1PSIDTS:
-                _gemini_client = MyGeminiClient(gemini_cookie_1PSID, gemini_cookie_1PSIDTS)
+                _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS)
                 await _gemini_client.init()
                 logger.info("Gemini client initialized successfully.")
                 return True
@@ -38,14 +38,9 @@ async def init_gemini_client() -> bool:
         logger.info("Gemini client is disabled.")
         return False
 
-async def close_gemini_client():
-    """
-    Close the Gemini client when the application shuts down.
-    """
-    global _gemini_client
-    if _gemini_client:
-        await _gemini_client.close()
-        logger.info("Gemini client closed successfully.")
 
 def get_gemini_client():
+    """
+    Returns the initialized Gemini client instance.
+    """
     return _gemini_client
