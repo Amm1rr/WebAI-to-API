@@ -133,7 +133,7 @@ def print_server_info(host: str, port: int, mode: str):
     elif mode == "g4f":
         print("🚀 gpt4free Server is RUNNING 🚀".center(80))
         print("")
-        print("https://github.com/amm1rr/WebAI-to-API".center(80))
+        print("https://github.com/gpt4free/g4f.dev".center(80))
         print("="*80)
         g4f_base_url = f"{base_url}/v1"
         print("\n✨ gpt4free Service Info:")
