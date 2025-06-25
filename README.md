@@ -6,7 +6,10 @@
 
 # WebAI-to-API
 
-![Logo](assets/Server-Run.png)
+<p align="center">
+  <img src="./assets/Server-Run-WebAI.png" alt="Screenshot of WebAI-to-API" height="280" />
+  <img src="./assets/Server-Run-G4F.png" alt="Screenshot of gpt4free" height="280" />
+</p>
 
 WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini. It features a clean, extendable architecture that simplifies configuration, integration, and maintenance.
 
