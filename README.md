@@ -1,33 +1,69 @@
 ## Disclaimer
 
-**This is a research project. Please do not use it commercially and use it responsibly.**
+> **This project is intended for research and educational purposes only.**  
+> Please refrain from any commercial use and act responsibly when deploying or modifying this tool.
 
-<hr>
+---
 
 # WebAI-to-API
 
 <p align="center">
-  <img src="./assets/Server-Run-WebAI.png" alt="Screenshot of WebAI-to-API" height="280" />
-  <img src="./assets/Server-Run-G4F.png" alt="Screenshot of gpt4free" height="280" />
+  <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
+  <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
 </p>
 
-WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services like Gemini. It features a clean, extendable architecture that simplifies configuration, integration, and maintenance.
+**WebAI-to-API** is a modular web server built with FastAPI that allows you to expose your preferred browser-based LLM (such as Gemini) as a local API endpoint.
 
-> **Note:** Currently, **Gemini** is the primary supported AI service.
+---
+
+This project supports **two operational modes**:
+
+1. **Primary Web Server**
+
+   > WebAI-to-API
+
+   Connects to the Gemini web interface using your browser cookies and exposes it as an API endpoint. This method is lightweight, fast, and efficient for personal use.
+
+2. **Fallback Web Server (gpt4free)**
+
+   > [gpt4free](https://github.com/xtekky/gpt4free)
+
+   A secondary server powered by the `gpt4free` library, offering broader access to multiple LLMs beyond Gemini, including:
+
+   - ChatGPT
+   - Claude
+   - DeepSeek
+   - Copilot
+   - HuggingFace Inference
+   - Grok
+   - ...and many more.
+
+This design provides both **speed and redundancy**, ensuring flexibility depending on your use case and available resources.
 
 ---
 
 ## Features
 
-- 🌐 **Endpoints Management**:
-  - `/v1/chat/completions`
-  - `/gemini`
-  - `/gemini-chat`
-  - `/translate`
-- 🔄 **Service Switching**: Easily configure and switch between AI providers via `config.conf`.
+- 🌐 **Available Endpoints**:
+
+  - **WebAI Server**:
+
+    - `/v1/chat/completions`
+    - `/gemini`
+    - `/gemini-chat`
+    - `/translate`
+
+  - **gpt4free Server**:
+    - `/v1`
+    - `/v1/chat/completions`
+
+- 🔄 **Server Switching**: Easily switch between servers in terminal.
+
 - 🛠️ **Modular Architecture**: Organized into clearly defined modules for API routes, services, configurations, and utilities, making development and maintenance straightforward.
 
-[![Endpoints Documentation](assets/Endpoints-Docs-Thumb.png)](assets/Endpoints-Docs.png)
+<p align="center">
+  <img src="./assets/Endpoints-Docs.png" alt="Endpoints" height="280" />
+</p>
 
 ---
 
@@ -103,10 +139,89 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ---
 
+## Documentation
+
+### WebAI-to-API Endpoints
+
+> `GET /gemini`
+
+Initiates a new conversation with the LLM. Each request creates a **fresh session**, making it suitable for stateless interactions.
+
+> `POST /gemini-chat`
+
+Continues a persistent conversation with the LLM without starting a new session. Ideal for use cases that require context retention between messages.
+
+> `POST /translate`
+
+Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.  
+Functionally identical to `/gemini-chat`, meaning it **maintains session context** across requests.
+
+> `POST /v1/chat/completions`
+
+A **minimalistic implementation** of the OpenAI-compatible endpoint.  
+Built for simplicity and ease of integration with clients that expect the OpenAI API format.
+
+---
+
+### gpt4free Endpoints
+
+These endpoints follow the **OpenAI-compatible structure** and are powered by the `gpt4free` library.  
+For detailed usage and advanced customization, refer to the official documentation:
+
+- 📄 [Provider Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/selecting_a_provider.md)
+- 📄 [Model Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/providers-and-models.md)
+
+#### Available Endpoints (gpt4free API Layer)
+
+```
+GET  /                              # Health check
+GET  /v1                            # Version info
+GET  /v1/models                     # List all available models
+GET  /api/{provider}/models         # List models from a specific provider
+GET  /v1/models/{model_name}        # Get details of a specific model
+
+POST /v1/chat/completions           # Chat with default configuration
+POST /api/{provider}/chat/completions
+POST /api/{provider}/{conversation_id}/chat/completions
+
+POST /v1/responses                  # General response endpoint
+POST /api/{provider}/responses
+
+POST /api/{provider}/images/generations
+POST /v1/images/generations
+POST /v1/images/generate            # Generate images using selected provider
+
+POST /v1/media/generate             # Media generation (audio/video/etc.)
+
+GET  /v1/providers                  # List all providers
+GET  /v1/providers/{provider}       # Get specific provider info
+
+POST /api/{path_provider}/audio/transcriptions
+POST /v1/audio/transcriptions       # Audio-to-text
+
+POST /api/markitdown                # Markdown rendering
+
+POST /api/{path_provider}/audio/speech
+POST /v1/audio/speech               # Text-to-speech
+
+POST /v1/upload_cookies             # Upload session cookies (browser-based auth)
+
+GET  /v1/files/{bucket_id}          # Get uploaded file from bucket
+POST /v1/files/{bucket_id}          # Upload file to bucket
+
+GET  /v1/synthesize/{provider}      # Audio synthesis
+
+POST /json/{filename}               # Submit structured JSON data
+
+GET  /media/{filename}              # Retrieve media
+GET  /images/{filename}             # Retrieve images
+```
+
+---
+
 ## Roadmap
 
-- ✅ Gemini Support: Implemented
-- 🟡 ~~Claude, ChatGPT Development~~: Discontinued
+- ✅ Maintenance
 
 ---
 
@@ -120,8 +235,8 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | Section     | Option     | Description                                | Example Value |
 | ----------- | ---------- | ------------------------------------------ | ------------- |
 | [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`      |
-| [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`        |
 | [Browser]   | name       | Browser for cookie-based authentication    | `firefox`     |
+| [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`        |
 
 The complete configuration template is available in [`WebAI-to-API/config.conf.example`](WebAI-to-API/config.conf.example).  
 If the cookies are left empty, the application will automatically retrieve them using the default browser specified.
