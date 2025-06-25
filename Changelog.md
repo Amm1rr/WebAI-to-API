@@ -5,7 +5,7 @@
 ##### Added
 
 - Improved server startup information display, including available services and API endpoints.
-- Added a new method using the [gpt4free v0.5.5.5](https://github.com/gpt4free/g4f.dev) library, which also functions as a fallback.
+- Added a new method using the [gpt4free v0.5.5.5](https://github.com/xtekky/gpt4free) library, which also functions as a fallback.
 - Introduced support for switching between models using keyboard shortcuts (keys `1` and `2`) in the terminal.
 - WebAI-to-API now uses your browser and cookies **only for Gemini**, resulting in faster performance.
 - `gpt4free` integration provides access to multiple providers (ChatGPT, Gemini, Claude, DeepSeek, etc.), ensuring continuous availability of various models.
