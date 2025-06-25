@@ -7,8 +7,18 @@ import time
 import sys
 import threading
 import os
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
 from fastapi.routing import APIRoute
+
+# Import tomli to read pyproject.toml
+try:
+    import tomli
+except ImportError:
+    # For Python 3.11+, tomllib is in the standard library
+    try:
+        import tomllib as tomli
+    except ImportError:
+        tomli = None
 
 # --- App and Service Imports ---
 from app.config import load_config
@@ -24,15 +34,38 @@ except ImportError:
 
 # Helper class for terminal colors
 class Colors:
-    """A class to hold ANSI color codes for terminal output."""
-    YELLOW = '\033[93m'
-    CYAN = '\033[96m'
+    """A class to hold ANSI color codes for terminal output."""    
     RESET = '\033[0m'
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    DARKCYAN = '\033[36m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    
+    RED = '\033[91m'
     BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    END = '\033[0m'
 
 # --- Shared State for Inter-Process/Thread Communication ---
 initial_data: Dict[str, Union[str, None]] = {'requested_mode': None}
 shared_state = multiprocessing.Manager().dict(initial_data)
+
+# --- Helper function to get app info ---
+def get_app_info() -> Tuple[str, str]:
+    """Reads application name and version from pyproject.toml."""
+    if not tomli:
+        return "WebAI to API", "N/A (tomli not installed)"
+    try:
+        with open("pyproject.toml", "rb") as f:
+            toml_data = tomli.load(f)
+        poetry_data = toml_data.get("tool", {}).get("poetry", {})
+        name = poetry_data.get("name", "WebAI-to-API").replace("-", " ").title()
+        version = poetry_data.get("version", "N/A")
+        return name, version
+    except (FileNotFoundError, KeyError):
+        return "WebAI-to-API", "N/A"
 
 # --- Server Runner Functions (to be run in separate processes) ---
 def start_webai_server(host, port, reload):
@@ -47,10 +80,7 @@ def start_g4f_server(host, port):
 
 # --- Standard Input Listener ---
 def input_listener():
-    """
-    Listens for user input in a separate thread to avoid blocking.
-    Updates the shared state with the user's choice.
-    """
+    """Listens for user input in a separate thread to avoid blocking."""
     while True:
         try:
             choice = input()
@@ -66,14 +96,22 @@ def input_listener():
 # --- Helper Function for Printing Info ---
 def print_server_info(host: str, port: int, mode: str):
     """
-    Displays complete, formatted information about the running server.
+    Displays complete, formatted information about the running server,
+    including app name and version.
     """
     protocol = "http"
     base_url = f"{protocol}://{host}:{port}"
-    
+    app_name, app_version = get_app_info()
+
+    app_info_line = f"WebAI-to-API v{app_version}".center(80)
+
     print("\n" + "="*80)
+    print(f"{Colors.BOLD}{Colors.YELLOW}{app_info_line}{Colors.RESET}")
+    
     if mode == "webai":
         print("🚀 WebAI-to-API Server is RUNNING (Primary Mode) 🚀".center(80))
+        print("")
+        print("https://github.com/amm1rr/WebAI-to-API".center(80))
         print("="*80)
         print("\n✨ Available Services:")
         print(f"  - Docs (Swagger): {base_url}/docs")
@@ -94,6 +132,8 @@ def print_server_info(host: str, port: int, mode: str):
     
     elif mode == "g4f":
         print("🚀 gpt4free Server is RUNNING 🚀".center(80))
+        print("")
+        print("https://github.com/amm1rr/WebAI-to-API".center(80))
         print("="*80)
         g4f_base_url = f"{base_url}/v1"
         print("\n✨ gpt4free Service Info:")
@@ -188,6 +228,5 @@ if __name__ == "__main__":
             current_process.terminate()
             current_process.join()
         print("[Controller] Shutdown complete.")
-        # FIX: Forcefully exit the entire program to prevent hanging.
         os._exit(0)
 
