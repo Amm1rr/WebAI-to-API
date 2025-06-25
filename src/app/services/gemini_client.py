@@ -28,7 +28,7 @@ async def init_gemini_client() -> bool:
             if gemini_cookie_1PSID and gemini_cookie_1PSIDTS:
                 _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS)
                 await _gemini_client.init()
-                logger.info("Gemini client initialized successfully.")
+                # logger.info("Gemini client initialized successfully.")
                 return True
             else:
                 logger.warning("Gemini cookies not found. Gemini API will not be available.")
