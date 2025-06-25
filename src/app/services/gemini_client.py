@@ -4,6 +4,9 @@ from app.config import CONFIG
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 
+# Import the specific exception to handle it gracefully
+from gemini_webapi.exceptions import AuthError
+
 # Global variable to store the Gemini client instance
 _gemini_client = None
 
@@ -30,8 +33,19 @@ async def init_gemini_client() -> bool:
             else:
                 logger.warning("Gemini cookies not found. Gemini API will not be available.")
                 return False
+
+        # FIX: Catch the specific AuthError for better logging and error handling.
+        except AuthError as e:
+            logger.error(
+                f"Gemini authentication or connection failed: {e}. "
+                "This could be due to expired cookies or a temporary network issue with Google's servers (like a 502 error)."
+            )
+            _gemini_client = None
+            return False
+            
+        # Keep a general exception handler for any other unexpected issues.
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
+            logger.error(f"An unexpected error occurred while initializing Gemini client: {e}", exc_info=True)
             _gemini_client = None
             return False
     else:
@@ -44,3 +58,4 @@ def get_gemini_client():
     Returns the initialized Gemini client instance.
     """
     return _gemini_client
+
