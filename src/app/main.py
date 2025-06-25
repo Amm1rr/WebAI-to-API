@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.gemini_client import get_gemini_client, close_gemini_client
+from app.services.gemini_client import get_gemini_client
 from app.services.session_manager import init_session_managers
 from app.logger import logger
 
@@ -12,14 +12,21 @@ from app.endpoints import gemini, chat
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialization logic is now in run.py
-    # We only initialize session managers if the client was created successfully.
+    """
+    Application lifespan manager.
+    Initializes services on startup.
+    """
+    # Initialization logic is handled by the `run.py` script before the app starts.
+    # We only initialize session managers here if the client was created successfully.
     if get_gemini_client():
         init_session_managers()
         logger.info("Session managers initialized for WebAI-to-API.")
+    
     yield
-    # Close the Gemini client during shutdown (if it was created)
-    await close_gemini_client()
+    
+    # Shutdown logic: No explicit client closing is needed anymore.
+    # The underlying HTTPX client manages its connection pool automatically.
+    logger.info("Application shutdown complete.")
 
 app = FastAPI(lifespan=lifespan)
 
