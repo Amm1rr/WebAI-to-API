@@ -1,7 +1,7 @@
 # File: pyproject.toml
 
 [tool.poetry]
-name = "webaitoapi"
+name = "webai-to-api"
 version = "0.3.0"
 description = "WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services."
 authors = ["Mohammad <m.khani2810@gmail.com>"]
