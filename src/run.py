@@ -60,19 +60,24 @@ def get_app_info() -> Tuple[str, str]:
 # --- Server Runner Functions (to be run in separate processes) ---
 def start_webai_server(host, port, reload):
     """Function to start the WebAI (Uvicorn) server."""
+    # FIX: Set the policy for the child process on Windows
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     print_server_info(host, port, "webai")
     uvicorn.run(webai_app, host=host, port=port, reload=reload, log_config=None)
 
 def start_g4f_server(host, port):
     """Function to start the G4F server."""
+    # FIX: Set the policy for the child process on Windows
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     print_server_info(host, port, "g4f")
-    run_g4f_api(host=host, port=port)
+    run_g4f_api(host=host, port=port, proxy=None)
 
 # --- Standard Input Listener ---
 def input_listener(shared_state: Dict):
     """
     Listens for user input in a separate thread to avoid blocking.
-    Updates the shared state with the user's choice.
     """
     while True:
         try:
@@ -143,12 +148,14 @@ def print_server_info(host: str, port: int, mode: str):
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
-    # FIX: Add freeze_support() for Windows compatibility.
-    # This must be the first line inside the main block.
+    # Fix: Set the asyncio event loop policy for Windows in the main process as well.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    # This must be the first line inside the main block for multiprocessing on Windows.
     multiprocessing.freeze_support()
 
-    # FIX: Move the multiprocessing Manager inside the main block.
-    # This prevents child processes from re-initializing it on Windows.
+    # Fix: Move the multiprocessing Manager inside the main block.
     initial_data: Dict[str, Union[str, None]] = {'requested_mode': None}
     shared_state = multiprocessing.Manager().dict(initial_data)
 
@@ -172,13 +179,13 @@ if __name__ == "__main__":
     else:
         print(f"WARN:     ⚠️ {Colors.YELLOW}gpt4free mode is not available{Colors.RESET} ('g4f' library not found).")
     
-    # Step 2: Set the initial mode
+    # Set the initial mode
     initial_mode = "webai" if webai_is_available else "g4f"
     if not webai_is_available and not G4F_AVAILABLE:
         print("\nERROR:    No server modes are available to run. Exiting.")
         sys.exit(1)
 
-    # Step 3: Start background input listener thread
+    # Start background input listener thread
     # FIX: Pass the shared_state dictionary as an argument to the listener thread.
     input_thread = threading.Thread(target=input_listener, args=(shared_state,), daemon=True)
     input_thread.start()
@@ -225,4 +232,3 @@ if __name__ == "__main__":
             current_process.join()
         print("[Controller] Shutdown complete.")
         os._exit(0)
-
