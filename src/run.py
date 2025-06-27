@@ -34,23 +34,13 @@ except ImportError:
 
 # Helper class for terminal colors
 class Colors:
-    """A class to hold ANSI color codes for terminal output."""    
-    RESET = '\033[0m'
-    PURPLE = '\033[95m'
-    CYAN = '\033[96m'
-    DARKCYAN = '\033[36m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
+    """A class to hold ANSI color codes for terminal output."""
     YELLOW = '\033[93m'
-    
+    CYAN = '\033[96m'
+    MAGENTA = '\033[95m'
     RED = '\033[91m'
+    RESET = '\033[0m'
     BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-    END = '\033[0m'
-
-# --- Shared State for Inter-Process/Thread Communication ---
-initial_data: Dict[str, Union[str, None]] = {'requested_mode': None}
-shared_state = multiprocessing.Manager().dict(initial_data)
 
 # --- Helper function to get app info ---
 def get_app_info() -> Tuple[str, str]:
@@ -79,39 +69,37 @@ def start_g4f_server(host, port):
     run_g4f_api(host=host, port=port)
 
 # --- Standard Input Listener ---
-def input_listener():
-    """Listens for user input in a separate thread to avoid blocking."""
+def input_listener(shared_state: Dict):
+    """
+    Listens for user input in a separate thread to avoid blocking.
+    Updates the shared state with the user's choice.
+    """
     while True:
         try:
             choice = input()
             if choice == '1':
-                print(f"\n[Controller] Input '1' received. Requesting to run {Colors.CYAN}WebAI to API mode{Colors.RESET}...")
+                print(f"\n[Controller] Input '1' received. Requesting to run {Colors.CYAN}WebAI mode{Colors.RESET}...")
                 shared_state['requested_mode'] = 'webai'
             elif choice == '2':
-                print(f"\n[Controller] Input '2' received. Requesting to run {Colors.CYAN}gpt4free mode{Colors.RESET}...")
+                print(f"\n[Controller] Input '2' received. Requesting to run {Colors.CYAN}G4F mode{Colors.RESET}...")
                 shared_state['requested_mode'] = 'g4f'
         except (EOFError, KeyboardInterrupt):
             break
 
 # --- Helper Function for Printing Info ---
 def print_server_info(host: str, port: int, mode: str):
-    """
-    Displays complete, formatted information about the running server,
-    including app name and version.
-    """
+    """Displays complete, formatted information about the running server."""
     protocol = "http"
     base_url = f"{protocol}://{host}:{port}"
     app_name, app_version = get_app_info()
-
-    app_info_line = f"WebAI-to-API v{app_version}".center(80)
-
+    
+    app_info_line = f"{app_name} v{app_version}".center(80)
+    
     print("\n" + "="*80)
     print(f"{Colors.BOLD}{Colors.YELLOW}{app_info_line}{Colors.RESET}")
     
     if mode == "webai":
         print("🚀 WebAI-to-API Server is RUNNING (Primary Mode) 🚀".center(80))
-        print("")
-        print("https://github.com/amm1rr/WebAI-to-API".center(80))
         print("="*80)
         print("\n✨ Available Services:")
         print(f"  - Docs (Swagger): {base_url}/docs")
@@ -132,8 +120,6 @@ def print_server_info(host: str, port: int, mode: str):
     
     elif mode == "g4f":
         print("🚀 gpt4free Server is RUNNING 🚀".center(80))
-        print("")
-        print("https://github.com/gpt4free/g4f.dev".center(80))
         print("="*80)
         g4f_base_url = f"{base_url}/v1"
         print("\n✨ gpt4free Service Info:")
@@ -157,6 +143,15 @@ def print_server_info(host: str, port: int, mode: str):
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
+    # FIX: Add freeze_support() for Windows compatibility.
+    # This must be the first line inside the main block.
+    multiprocessing.freeze_support()
+
+    # FIX: Move the multiprocessing Manager inside the main block.
+    # This prevents child processes from re-initializing it on Windows.
+    initial_data: Dict[str, Union[str, None]] = {'requested_mode': None}
+    shared_state = multiprocessing.Manager().dict(initial_data)
+
     parser = argparse.ArgumentParser(description="Run a managed server with hot-switching capability.")
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=6969, help="Port number")
@@ -176,7 +171,7 @@ if __name__ == "__main__":
         print(f"INFO:     ✅ {Colors.CYAN}gpt4free mode is available{Colors.RESET} ('g4f' library is installed).")
     else:
         print(f"WARN:     ⚠️ {Colors.YELLOW}gpt4free mode is not available{Colors.RESET} ('g4f' library not found).")
-
+    
     # Step 2: Set the initial mode
     initial_mode = "webai" if webai_is_available else "g4f"
     if not webai_is_available and not G4F_AVAILABLE:
@@ -184,7 +179,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Step 3: Start background input listener thread
-    input_thread = threading.Thread(target=input_listener, daemon=True)
+    # FIX: Pass the shared_state dictionary as an argument to the listener thread.
+    input_thread = threading.Thread(target=input_listener, args=(shared_state,), daemon=True)
     input_thread.start()
 
     current_process = None
