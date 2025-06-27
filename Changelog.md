@@ -1,5 +1,22 @@
 ### Changelog – WebAI to API
 
+#### v0.4.0 – 2025-06-27
+
+##### Added
+
+- Displayed a user message explaining how to use the `gpt4free` server.
+
+##### Fixed
+
+- Resolved execution issue on Windows 11.
+- Improved error handling with appropriate user-facing messages.
+
+##### Changed
+
+- Updated internal libraries and dependencies.
+
+---
+
 #### v0.3.0 – 2025-06-25
 
 ##### Added
