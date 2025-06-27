@@ -152,6 +152,17 @@ def print_server_info(host: str, port: int, mode: str):
         print("\n🔗 Main API Endpoints:")
         print(f"  - Chat Completions: {g4f_base_url}/chat/completions")
         print(f"  - Image Generation: {g4f_base_url}/images/generate")
+
+        print(
+            f"\n{Colors.BOLD}{Colors.YELLOW}IMPORTANT USAGE NOTES FOR gpt4free MODE:{Colors.RESET}"
+        )
+        print(
+            f"  - {Colors.YELLOW}To avoid {Colors.BOLD}ProviderNotFoundError{Colors.RESET}{Colors.YELLOW}, your client must send a valid provider name (not a model name).{Colors.RESET}"
+        )
+        print(
+            f"    {Colors.YELLOW}Check the list of valid providers at the {Colors.CYAN}/v1/providers{Colors.YELLOW} endpoint.{Colors.RESET}"
+        )
+
     print("\n" + "=" * 80)
     instruction_text = "Press '1' then Enter for WebAI (Faster) | '2' then Enter for gpt4free | Ctrl+C to Quit"
     colored_instructions = (
