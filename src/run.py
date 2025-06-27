@@ -76,9 +76,7 @@ def start_g4f_server(host, port):
 
 # --- Standard Input Listener ---
 def input_listener(shared_state: Dict):
-    """
-    Listens for user input in a separate thread to avoid blocking.
-    """
+    """Listens for user input in a separate thread to avoid blocking."""
     while True:
         try:
             choice = input()
@@ -179,9 +177,24 @@ if __name__ == "__main__":
     else:
         print(f"WARN:     ⚠️ {Colors.YELLOW}gpt4free mode is not available{Colors.RESET} ('g4f' library not found).")
     
-    # Set the initial mode
-    initial_mode = "webai" if webai_is_available else "g4f"
-    if not webai_is_available and not G4F_AVAILABLE:
+    #--- Set initial mode based on OS ---
+    initial_mode = None
+    is_windows = sys.platform == "win32"
+
+    if is_windows:
+        print("INFO:     Windows OS detected. Prioritizing G4F mode as default.")
+        if G4F_AVAILABLE:
+            initial_mode = "g4f"
+        elif webai_is_available:
+            initial_mode = "webai"
+    else:  # For Linux, macOS, etc.
+        print("INFO:     Non-Windows OS detected. Prioritizing WebAI mode as default.")
+        if webai_is_available:
+            initial_mode = "webai"
+        elif G4F_AVAILABLE:
+            initial_mode = "g4f"
+
+    if not initial_mode:
         print("\nERROR:    No server modes are available to run. Exiting.")
         sys.exit(1)
 
