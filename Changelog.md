@@ -1,5 +1,14 @@
 ### Changelog – WebAI to API
 
+#### v0.x.x – Draft
+
+##### Fixed
+
+- Added missing `nodriver` and `platformdirs` dependencies to `pyproject.toml` for `g4f` server compatibility.
+- Unified server runner functions to implement a consistent and graceful shutdown mechanism.
+
+---
+
 #### v0.4.0 – 2025-06-27
 
 ##### Added
