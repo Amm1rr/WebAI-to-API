@@ -55,3 +55,12 @@ class OpenAIChatRequest(BaseModel):
     messages: List[dict]
     model: Optional[GeminiModels] = None
     stream: Optional[bool] = False
+
+class Part(BaseModel):
+    text: str
+
+class Content(BaseModel):
+    parts: List[Part]
+
+class GoogleGenerativeRequest(BaseModel):
+    contents: List[Content]
