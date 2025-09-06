@@ -2,13 +2,14 @@
 from typing import Optional, List, Union
 from pathlib import Path
 from gemini_webapi import GeminiClient as WebGeminiClient
+from app.config import CONFIG
 
 class MyGeminiClient:
     """
     Wrapper for the Gemini Web API client.
     """
-    def __init__(self, secure_1psid: str, secure_1psidts: str) -> None:
-        self.client = WebGeminiClient(secure_1psid, secure_1psidts)
+    def __init__(self, secure_1psid: str, secure_1psidts: str, proxy: str | None = None) -> None:
+        self.client = WebGeminiClient(secure_1psid, secure_1psidts, proxy)
 
     async def init(self) -> None:
         """Initialize the Gemini client."""
