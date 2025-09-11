@@ -37,3 +37,10 @@ gemini_cookie_1psidts =
 # Use "true" to enable and "false" to disable.
 [EnabledAI]
 gemini = true
+
+# --- Proxy Configuration ---
+# The app, use this proxy to connect gemini servers.
+# Its usefull to fix errors like 403 or restricted connections
+# Example: http_proxy = http://127.0.0.1:2334
+[Proxy]
+http_proxy =

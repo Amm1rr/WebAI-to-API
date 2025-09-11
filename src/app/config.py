@@ -25,6 +25,8 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["Cookies"] = {}
     if "AI" not in config:
         config["AI"] = {"default_model_gemini": "gemini-2.0-flash"}
+    if "Proxy" not in config:
+        config["Proxy"] = {"http_proxy": ""}
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:

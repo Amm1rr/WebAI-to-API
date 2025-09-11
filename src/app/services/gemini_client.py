@@ -20,13 +20,17 @@ async def init_gemini_client() -> bool:
         try:
             gemini_cookie_1PSID = CONFIG["Cookies"].get("gemini_cookie_1PSID")
             gemini_cookie_1PSIDTS = CONFIG["Cookies"].get("gemini_cookie_1PSIDTS")
+            gemini_proxy = CONFIG["Proxy"].get("http_proxy")
             if not gemini_cookie_1PSID or not gemini_cookie_1PSIDTS:
                 cookies = get_cookie_from_browser("gemini")
                 if cookies:
                     gemini_cookie_1PSID, gemini_cookie_1PSIDTS = cookies
             
+            if gemini_proxy == "":
+                gemini_proxy = None
+            
             if gemini_cookie_1PSID and gemini_cookie_1PSIDTS:
-                _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS)
+                _gemini_client = MyGeminiClient(secure_1psid=gemini_cookie_1PSID, secure_1psidts=gemini_cookie_1PSIDTS, proxy=gemini_proxy)
                 await _gemini_client.init()
                 # logger.info("Gemini client initialized successfully.")
                 return True
