@@ -52,6 +52,7 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
     - `/gemini`
     - `/gemini-chat`
     - `/translate`
+    - `/v1beta/models/{model}` (Google Generative AI v1beta API)
 
   - **gpt4free Server**:
     - `/v1`
@@ -143,7 +144,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ### WebAI-to-API Endpoints
 
-> `GET /gemini`
+> `POST /gemini`
 
 Initiates a new conversation with the LLM. Each request creates a **fresh session**, making it suitable for stateless interactions.
 
@@ -153,13 +154,18 @@ Continues a persistent conversation with the LLM without starting a new session.
 
 > `POST /translate`
 
-Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.  
+Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
 Functionally identical to `/gemini-chat`, meaning it **maintains session context** across requests.
 
 > `POST /v1/chat/completions`
 
-A **minimalistic implementation** of the OpenAI-compatible endpoint.  
+A **minimalistic implementation** of the OpenAI-compatible endpoint.
 Built for simplicity and ease of integration with clients that expect the OpenAI API format.
+
+> `POST /v1beta/models/{model}`
+
+**Google Generative AI v1beta API** compatible endpoint.
+Provides access to the latest Google Generative AI models with standard Google API format including safety ratings and structured responses.
 
 ---
 
@@ -232,11 +238,12 @@ GET  /images/{filename}             # Retrieve images
 
 ### Key Configuration Options
 
-| Section     | Option     | Description                                | Example Value |
-| ----------- | ---------- | ------------------------------------------ | ------------- |
-| [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`      |
-| [Browser]   | name       | Browser for cookie-based authentication    | `firefox`     |
-| [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`        |
+| Section     | Option           | Description                                | Example Value |
+| ----------- | ---------------- | ------------------------------------------ | ------------- |
+| [AI]        | default_ai       | Default service for `/v1/chat/completions` | `gemini`      |
+| [Browser]   | name             | Browser for cookie-based authentication    | `firefox`     |
+| [EnabledAI] | gemini           | Enable/disable Gemini service              | `true`        |
+| [Proxy]     | http_proxy       | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
 
 The complete configuration template is available in [`WebAI-to-API/config.conf.example`](WebAI-to-API/config.conf.example).  
 If the cookies are left empty, the application will automatically retrieve them using the default browser specified.
@@ -264,6 +271,12 @@ gemini = true
 [Browser]
 # Default browser options: firefox, brave, chrome, edge, safari.
 name = firefox
+
+# --- Proxy Configuration ---
+# Optional proxy for connecting to Gemini servers.
+# Useful for fixing 403 errors or restricted connections.
+[Proxy]
+http_proxy =
 ```
 
 </details>
@@ -284,7 +297,8 @@ src/
 │   ├── endpoints/             # API endpoint routers.
 │   │   ├── __init__.py
 │   │   ├── gemini.py          # Endpoints for Gemini (e.g., /gemini, /gemini-chat).
-│   │   └── chat.py            # Endpoints for translation and OpenAI-compatible requests.
+│   │   ├── chat.py            # Endpoints for translation and OpenAI-compatible requests.
+│   │   └── google_generative.py  # Google Generative AI v1beta API endpoints.
 │   ├── services/              # Business logic and service wrappers.
 │   │   ├── __init__.py
 │   │   ├── gemini_client.py   # Gemini client initialization, content generation, and cleanup.
