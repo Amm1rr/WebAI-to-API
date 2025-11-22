@@ -24,7 +24,7 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     if "Cookies" not in config:
         config["Cookies"] = {}
     if "AI" not in config:
-        config["AI"] = {"default_model_gemini": "gemini-2.0-flash"}
+        config["AI"] = {"default_model_gemini": "gemini-3.0-pro"}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
 

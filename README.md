@@ -107,7 +107,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ```json
 {
-  "model": "gemini-2.0-flash",
+  "model": "gemini-3.0-pro",
   "messages": [{ "role": "user", "content": "Hello!" }]
 }
 ```
@@ -119,7 +119,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
   "id": "chatcmpl-12345",
   "object": "chat.completion",
   "created": 1693417200,
-  "model": "gemini-2.0-flash",
+  "model": "gemini-3.0-pro",
   "choices": [
     {
       "message": {
@@ -238,12 +238,12 @@ GET  /images/{filename}             # Retrieve images
 
 ### Key Configuration Options
 
-| Section     | Option           | Description                                | Example Value |
-| ----------- | ---------------- | ------------------------------------------ | ------------- |
-| [AI]        | default_ai       | Default service for `/v1/chat/completions` | `gemini`      |
-| [Browser]   | name             | Browser for cookie-based authentication    | `firefox`     |
-| [EnabledAI] | gemini           | Enable/disable Gemini service              | `true`        |
-| [Proxy]     | http_proxy       | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
+| Section     | Option     | Description                                | Example Value           |
+| ----------- | ---------- | ------------------------------------------ | ----------------------- |
+| [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`                |
+| [Browser]   | name       | Browser for cookie-based authentication    | `firefox`               |
+| [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`                  |
+| [Proxy]     | http_proxy | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
 
 The complete configuration template is available in [`WebAI-to-API/config.conf.example`](WebAI-to-API/config.conf.example).  
 If the cookies are left empty, the application will automatically retrieve them using the default browser specified.
@@ -258,7 +258,7 @@ If the cookies are left empty, the application will automatically retrieve them 
 default_ai = gemini
 
 # Default model for Gemini.
-default_model_gemini = gemini-2.0-flash
+default_model_gemini = gemini-3.0-pro
 
 # Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
 gemini_cookie_1psid =

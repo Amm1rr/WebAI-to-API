@@ -23,7 +23,10 @@ default_ai = gemini
 # - gemini-2.0-flash
 # - gemini-2.0-flash-thinking
 # - gemini-2.0-flash-thinking-with-apps
-default_model_gemini = gemini-2.0-flash
+# - gemini-2.5-pro
+# - gemini-2.5-flash
+# - gemini-3.0-pro
+default_model_gemini = gemini-3.0-pro
 
 # --- Gemini Cookies ---
 # Provide your authentication cookies for Gemini here.
