@@ -16,22 +16,22 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-fastapi = ">=0.115.7,<0.116.0"
+fastapi = ">=0.115.7,<0.130.0"
 browser-cookie3 = ">=0.20.1,<0.21.0"
 httpx = ">=0.28.1,<0.29.0"
-curl-cffi = ">=0.7.4,<0.8.0"
+curl-cffi = ">=0.7.4,<0.15.0"
 gemini-webapi = ">=1.8.3,<2.0.0"
-uvicorn = {extras = ["standard"], version = ">=0.34.0,<0.35.0"}
+uvicorn = {extras = ["standard"], version = ">=0.34.0,<0.41.0"}
 
 # Windows-specific dependencies for cookie decryption
 # These will only be installed on Windows systems
 pywin32 = { version = "==308", platform = "win32" }
-pycryptodomex = { version = "==3.21.0", platform = "win32" }
+pycryptodomex = { version = ">=3.21.0,<4.0.0", platform = "win32" }
 tomli = "^2.2.1"
-g4f = "^0.5.5.6"
-python-multipart = "^0.0.20"
-aiohttp-socks = "^0.10.1"
-nodriver = "^0.46.1"
+g4f = "^6.8.2"
+python-multipart = "^0.0.21"
+aiohttp-socks = "^0.11.0"
+nodriver = "^0.48.1"
 platformdirs = "^4.3.8"
 
 
