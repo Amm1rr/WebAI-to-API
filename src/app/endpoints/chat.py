@@ -3,17 +3,21 @@ import time
 from fastapi import APIRouter, HTTPException
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
-from app.services.gemini_client import get_gemini_client
+from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.session_manager import get_translate_session_manager
 
 router = APIRouter()
 
 @router.post("/translate")
 async def translate_chat(request: GeminiRequest):
-    gemini_client = get_gemini_client()
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     session_manager = get_translate_session_manager()
-    if not gemini_client or not session_manager:
-        raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
+    if not session_manager:
+        raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
         # This call now correctly uses the fixed session manager
         response = await session_manager.get_response(request.model, request.message, request.files)
@@ -47,10 +51,12 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     is_stream = request.stream if request.stream is not None else False
-    gemini_client = get_gemini_client()
-    if not gemini_client:
-        raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
 
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")

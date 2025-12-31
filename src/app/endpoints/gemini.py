@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from app.logger import logger
 from schemas.request import GeminiRequest
-from app.services.gemini_client import get_gemini_client
+from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.session_manager import get_gemini_chat_manager
 
 from pathlib import Path
@@ -12,9 +12,11 @@ router = APIRouter()
 
 @router.post("/gemini")
 async def gemini_generate(request: GeminiRequest):
-    gemini_client = get_gemini_client()
-    if not gemini_client:
-        raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     try:
         # Use the value attribute for the model (since GeminiRequest.model is an Enum)
         files: Optional[List[Union[str, Path]]] = [Path(f) for f in request.files] if request.files else None
@@ -26,10 +28,14 @@ async def gemini_generate(request: GeminiRequest):
 
 @router.post("/gemini-chat")
 async def gemini_chat(request: GeminiRequest):
-    gemini_client = get_gemini_client()
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     session_manager = get_gemini_chat_manager()
-    if not gemini_client or not session_manager:
-        raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
+    if not session_manager:
+        raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
         response = await session_manager.get_response(request.model, request.message, request.files)
         return {"response": response.text}

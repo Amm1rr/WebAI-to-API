@@ -1,7 +1,7 @@
 # src/app/services/session_manager.py
 import asyncio
 from app.logger import logger
-from app.services.gemini_client import get_gemini_client
+from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 
 class SessionManager:
     def __init__(self, client):
@@ -38,10 +38,12 @@ def init_session_managers():
     Initialize session managers for translation and chat
     """
     global _translate_session_manager, _gemini_chat_manager
-    client = get_gemini_client()
-    if client:
+    try:
+        client = get_gemini_client()
         _translate_session_manager = SessionManager(client)
         _gemini_chat_manager = SessionManager(client)
+    except GeminiClientNotInitializedError:
+        logger.warning("Session managers not initialized: Gemini client not available.")
 
 def get_translate_session_manager():
     return _translate_session_manager
