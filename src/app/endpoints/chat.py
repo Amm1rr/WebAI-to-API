@@ -51,18 +51,35 @@ async def chat_completions(request: OpenAIChatRequest):
     gemini_client = get_gemini_client()
     if not gemini_client:
         raise HTTPException(status_code=503, detail="Gemini client is not initialized.")
-    
-    # Extract the user message from the list of messages
-    user_message = next((msg.get("content") for msg in request.messages if msg.get("role") == "user"), None)
-    if not user_message:
-        raise HTTPException(status_code=400, detail="No user message found.")
-    
+
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="No messages provided.")
+
+    # Build conversation prompt with system prompt and full history
+    conversation_parts = []
+
+    for msg in request.messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if not content:
+            continue
+
+        if role == "system":
+            conversation_parts.append(f"System: {content}")
+        elif role == "user":
+            conversation_parts.append(f"User: {content}")
+        elif role == "assistant":
+            conversation_parts.append(f"Assistant: {content}")
+
+    if not conversation_parts:
+        raise HTTPException(status_code=400, detail="No valid messages found.")
+
+    # Join all parts with newlines
+    final_prompt = "\n\n".join(conversation_parts)
+
     if request.model:
         try:
-            # FIX: The underlying `generate_content` call needs to be adapted.
-            # This assumes `MyGeminiClient.generate_content` is also updated to use `prompt`.
-            # We pass `files=None` as this endpoint doesn't handle files.
-            response = await gemini_client.generate_content(message=user_message, model=request.model.value, files=None)
+            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
             return convert_to_openai_format(response.text, request.model.value, is_stream)
         except Exception as e:
             logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
