@@ -103,12 +103,34 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
 Send a POST request to `/v1/chat/completions` (or any other available endpoint) with the required payload.
 
-### Example Request
+### Supported Models
+
+| Model | Description |
+|-------|-------------|
+| `gemini-3.0-pro` | Latest and most powerful model |
+| `gemini-2.5-pro` | Advanced reasoning model |
+| `gemini-2.5-flash` | Fast and efficient model (default) |
+
+### Example Request (Basic)
 
 ```json
 {
   "model": "gemini-3.0-pro",
   "messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
+
+### Example Request (With System Prompt & Conversation History)
+
+```json
+{
+  "model": "gemini-2.5-pro",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is Python?" },
+    { "role": "assistant", "content": "Python is a programming language." },
+    { "role": "user", "content": "Is it easy to learn?" }
+  ]
 }
 ```
 
@@ -159,8 +181,12 @@ Functionally identical to `/gemini-chat`, meaning it **maintains session context
 
 > `POST /v1/chat/completions`
 
-A **minimalistic implementation** of the OpenAI-compatible endpoint.
-Built for simplicity and ease of integration with clients that expect the OpenAI API format.
+**OpenAI-compatible endpoint** with full support for:
+- **System prompts**: Set behavior and context for the assistant
+- **Conversation history**: Maintain context across multiple turns (user/assistant messages)
+- **Streaming**: Optional streaming response support
+
+Built for seamless integration with clients that expect the OpenAI API format.
 
 > `POST /v1beta/models/{model}`
 
@@ -257,8 +283,8 @@ If the cookies are left empty, the application will automatically retrieve them 
 # Default AI service.
 default_ai = gemini
 
-# Default model for Gemini.
-default_model_gemini = gemini-3.0-pro
+# Default model for Gemini (options: gemini-3.0-pro, gemini-2.5-pro, gemini-2.5-flash)
+default_model_gemini = gemini-2.5-flash
 
 # Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
 gemini_cookie_1psid =
