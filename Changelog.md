@@ -2,10 +2,18 @@
 
 #### v0.x.x – Draft
 
+##### Added
+
+- Added Anthropic-compatible `/v1/messages` endpoint for Claude Code CLI integration.
+- Implemented full tool use support via prompt engineering (file operations, command execution).
+- Added streaming SSE responses with tool call parsing.
+- Created `start_claude.sh` startup script for easy Claude Code configuration.
+
 ##### Fixed
 
 - Added missing `nodriver` and `platformdirs` dependencies to `pyproject.toml` for `g4f` server compatibility.
 - Unified server runner functions to implement a consistent and graceful shutdown mechanism.
+- Fixed JSON escaping in tool injection prompts for proper `.format()` handling.
 
 ---
 

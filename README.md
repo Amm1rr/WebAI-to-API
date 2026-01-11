@@ -48,11 +48,12 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
   - **WebAI Server**:
 
-    - `/v1/chat/completions`
-    - `/gemini`
-    - `/gemini-chat`
-    - `/translate`
-    - `/v1beta/models/{model}` (Google Generative AI v1beta API)
+    - `/v1/chat/completions` - OpenAI-compatible chat endpoint
+    - `/v1/messages` - Anthropic-compatible messages endpoint (for Claude Code CLI)
+    - `/gemini` - Native Gemini endpoint
+    - `/gemini-chat` - Gemini chat endpoint
+    - `/translate` - Translation endpoint
+    - `/v1beta/models/{model}` - Google Generative AI v1beta API
 
   - **gpt4free Server**:
     - `/v1`
@@ -159,6 +160,41 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
   }
 }
 ```
+
+---
+
+## Claude Code Integration
+
+WebAI-to-API now supports Claude Code CLI with full tool use capabilities! This allows you to use Claude Code's excellent terminal interface while powered by Gemini models.
+
+### Quick Start
+
+Use the provided startup script:
+
+```bash
+./start_claude.sh
+```
+
+This automatically:
+- Configures environment variables to point Claude Code to your local server
+- Maps Claude model names to Gemini models
+- Launches Claude Code with optimal settings
+
+### Model Mapping
+
+| Claude Model | Gemini Model |
+|-------------|--------------|
+| claude-3-5-sonnet (default) | gemini-3.0-pro |
+| claude-3-5-haiku (fast) | gemini-3.0-pro |
+
+### Features
+
+- ✅ Full tool use support (file editing, command execution, etc.)
+- ✅ Streaming responses
+- ✅ Multi-turn conversations
+- ✅ Complete Claude Code compatibility
+
+**Note:** Each request creates a new chat in Gemini's web UI. This is expected behavior for stateless API operation and ensures perfect context synchronization.
 
 ---
 

@@ -8,7 +8,7 @@ from app.services.session_manager import init_session_managers
 from app.logger import logger
 
 # Import endpoint routers
-from app.endpoints import gemini, chat, google_generative
+from app.endpoints import gemini, chat, google_generative, anthropic
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,3 +64,4 @@ app.add_middleware(
 app.include_router(gemini.router)
 app.include_router(chat.router)
 app.include_router(google_generative.router)
+app.include_router(anthropic.router)
