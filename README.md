@@ -105,11 +105,11 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ### Supported Models
 
-| Model | Description |
-|-------|-------------|
-| `gemini-3.0-pro` | Latest and most powerful model |
-| `gemini-2.5-pro` | Advanced reasoning model |
-| `gemini-2.5-flash` | Fast and efficient model (default) |
+| Model                       | Description                        |
+| --------------------------- | ---------------------------------- |
+| `gemini-3.0-pro`            | Most powerful model                |
+| `gemini-3.0-flash`          | Fast and efficient model (default) |
+| `gemini-3.0-flash-thinking` | Enhanced reasoning model           |
 
 ### Example Request (Basic)
 
@@ -124,7 +124,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ```json
 {
-  "model": "gemini-2.5-pro",
+  "model": "gemini-3.0-flash-thinking",
   "messages": [
     { "role": "system", "content": "You are a helpful assistant." },
     { "role": "user", "content": "What is Python?" },
@@ -283,8 +283,8 @@ If the cookies are left empty, the application will automatically retrieve them 
 # Default AI service.
 default_ai = gemini
 
-# Default model for Gemini (options: gemini-3.0-pro, gemini-2.5-pro, gemini-2.5-flash)
-default_model_gemini = gemini-2.5-flash
+# Default model for Gemini (options: gemini-3.0-pro, gemini-3.0-flash, gemini-3.0-flash-thinking)
+default_model_gemini = gemini-3.0-flash
 
 # Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
 gemini_cookie_1psid =
