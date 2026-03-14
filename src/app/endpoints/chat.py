@@ -1,5 +1,8 @@
 # src/app/endpoints/chat.py
+import json
+import re
 import time
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
@@ -19,35 +22,101 @@ async def translate_chat(request: GeminiRequest):
     if not session_manager:
         raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
-        # This call now correctly uses the fixed session manager
         response = await session_manager.get_response(request.model, request.message, request.files)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
 
-def convert_to_openai_format(response_text: str, model: str, stream: bool = False):
-    return {
-        "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion.chunk" if stream else "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
+
+def _build_tools_prompt(tools: list) -> str:
+    """Convert OpenAI tool definitions to a system prompt for Gemini."""
+    declarations = []
+    for t in tools:
+        if t.get("type") == "function" and "function" in t:
+            declarations.append(t["function"])
+    if not declarations:
+        return ""
+    lines = [
+        "You have access to the following tools. When you want to call a tool, respond with "
+        "ONLY a JSON object in this exact format, with no other text before or after:\n"
+        '{"tool_call": {"name": "<tool_name>", "arguments": {<arguments>}}}\n',
+        "Available tools:",
+    ]
+    for fn in declarations:
+        lines.append(f"- {fn['name']}: {fn.get('description', '')}")
+        if fn.get("parameters"):
+            lines.append(f"  Parameters: {json.dumps(fn['parameters'])}")
+    return "\n".join(lines)
+
+
+def _parse_tool_call(text: str) -> Optional[dict]:
+    """Extract a tool_call JSON object from model response text."""
+    try:
+        data = json.loads(text.strip())
+        if "tool_call" in data:
+            return data["tool_call"]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Look for JSON in code fences or inline
+    for pattern in [
+        r'```(?:json)?\s*(\{.*?"tool_call".*?\})\s*```',
+        r'(\{[^{}]*"tool_call"[^{}]*\{[^{}]*\}[^{}]*\})',
+    ]:
+        m = re.search(pattern, text, re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group(1))
+                if "tool_call" in data:
+                    return data["tool_call"]
+            except (json.JSONDecodeError, ValueError):
+                pass
+    return None
+
+
+def convert_to_openai_format(response_text: str, model: str, stream: bool = False, tool_call: Optional[dict] = None):
+    ts = int(time.time())
+    if tool_call:
+        args = tool_call.get("arguments", {})
+        return {
+            "id": f"chatcmpl-{ts}",
+            "object": "chat.completion.chunk" if stream else "chat.completion",
+            "created": ts,
+            "model": model,
+            "choices": [{
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": response_text,
+                    "content": None,
+                    "tool_calls": [{
+                        "id": f"call_{ts}",
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.get("name", ""),
+                            "arguments": json.dumps(args) if isinstance(args, dict) else args,
+                        },
+                    }],
                 },
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+    return {
+        "id": f"chatcmpl-{ts}",
+        "object": "chat.completion.chunk" if stream else "chat.completion",
+        "created": ts,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": response_text,
+            },
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
+
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
@@ -61,34 +130,48 @@ async def chat_completions(request: OpenAIChatRequest):
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
 
-    # Build conversation prompt with system prompt and full history
     conversation_parts = []
+
+    # Inject tool definitions as a system prompt section
+    if request.tools:
+        tools_prompt = _build_tools_prompt(request.tools)
+        if tools_prompt:
+            conversation_parts.append(tools_prompt)
 
     for msg in request.messages:
         role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if not content:
-            continue
+        content = msg.get("content") or ""
 
         if role == "system":
             conversation_parts.append(f"System: {content}")
         elif role == "user":
             conversation_parts.append(f"User: {content}")
         elif role == "assistant":
-            conversation_parts.append(f"Assistant: {content}")
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    conversation_parts.append(
+                        f"Assistant called tool {fn.get('name')}: {fn.get('arguments', '')}"
+                    )
+            elif content:
+                conversation_parts.append(f"Assistant: {content}")
+        elif role == "tool":
+            tool_call_id = msg.get("tool_call_id", "")
+            conversation_parts.append(f"Tool result [{tool_call_id}]: {content}")
 
     if not conversation_parts:
         raise HTTPException(status_code=400, detail="No valid messages found.")
 
-    # Join all parts with newlines
     final_prompt = "\n\n".join(conversation_parts)
 
-    if request.model:
-        try:
-            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
-            return convert_to_openai_format(response.text, request.model.value, is_stream)
-        except Exception as e:
-            logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")
-    else:
+    if not request.model:
         raise HTTPException(status_code=400, detail="Model not specified in the request.")
+
+    try:
+        response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
+        tool_call = _parse_tool_call(response.text) if request.tools else None
+        return convert_to_openai_format(response.text, request.model.value, is_stream, tool_call)
+    except Exception as e:
+        logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")

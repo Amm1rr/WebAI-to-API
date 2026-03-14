@@ -1,6 +1,6 @@
 # src/schemas/request.py
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class GeminiModels(str, Enum):
@@ -25,12 +25,28 @@ class OpenAIChatRequest(BaseModel):
     messages: List[dict]
     model: Optional[GeminiModels] = None
     stream: Optional[bool] = False
+    tools: Optional[List[dict]] = None
+    tool_choice: Optional[Any] = None
 
 class Part(BaseModel):
-    text: str
+    text: Optional[str] = None
+    functionCall: Optional[Dict[str, Any]] = None
+    functionResponse: Optional[Dict[str, Any]] = None
 
 class Content(BaseModel):
     parts: List[Part]
+    role: Optional[str] = None
+
+class FunctionDeclaration(BaseModel):
+    name: str
+    description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+class Tool(BaseModel):
+    functionDeclarations: Optional[List[FunctionDeclaration]] = None
 
 class GoogleGenerativeRequest(BaseModel):
     contents: List[Content]
+    tools: Optional[List[Tool]] = None
+    systemInstruction: Optional[Any] = None
+    generationConfig: Optional[Dict[str, Any]] = None
