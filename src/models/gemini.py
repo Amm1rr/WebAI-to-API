@@ -6,15 +6,12 @@ from app.config import CONFIG
 
 
 # Maps user-facing short names to the internal model identifiers accepted by gemini-webapi.
-# The Gemini web UI displays marketing names (e.g. "Gemini 3.1 Flash") which differ from
-# the internal names the library uses. Verified available models:
-#   gemini-2.0-flash-exp      (web UI: Gemini 3.1 Flash)
-#   gemini-2.0-exp-advanced   (web UI: Gemini 3.1 Flash Thinking)
-#   gemini-1.5-pro            (web UI: Gemini 3.1 Pro)
+# The Gemini web UI shows marketing names (e.g. "Gemini 3.1 Flash") which differ from
+# the internal API names used by the library.
 MODEL_ALIASES = {
-    "flash":    "gemini-2.0-flash-exp",
-    "thinking": "gemini-2.0-exp-advanced",
-    "pro":      "gemini-1.5-pro",
+    "flash":    "gemini-3.0-flash",
+    "thinking": "gemini-3.0-flash-thinking",
+    "pro":      "gemini-3.1-pro",
 }
 
 
@@ -34,9 +31,7 @@ class MyGeminiClient:
         await self.client.init()
 
     async def generate_content(self, message: str, model: str, files: Optional[List[Union[str, Path]]] = None):
-        """
-        Generate content using the Gemini client.
-        """
+        """Generate content using the Gemini client."""
         resolved_model = resolve_model_name(model)
         return await self.client.generate_content(message, model=resolved_model, files=files)
 
@@ -45,8 +40,6 @@ class MyGeminiClient:
         await self.client.close()
 
     def start_chat(self, model: str):
-        """
-        Start a chat session with the given model.
-        """
+        """Start a chat session with the given model."""
         resolved_model = resolve_model_name(model)
         return self.client.start_chat(model=resolved_model)
