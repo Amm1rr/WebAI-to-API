@@ -1,6 +1,8 @@
 # src/app/endpoints/chat.py
+import json
 import time
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
@@ -26,10 +28,10 @@ async def translate_chat(request: GeminiRequest):
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
 
-def convert_to_openai_format(response_text: str, model: str, stream: bool = False):
+def convert_to_openai_format(response_text: str, model: str):
     return {
         "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion.chunk" if stream else "chat.completion",
+        "object": "chat.completion",
         "created": int(time.time()),
         "model": model,
         "choices": [
@@ -48,6 +50,37 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
             "total_tokens": 0,
         },
     }
+
+
+def stream_openai_format(response_text: str, model: str):
+    """Simulate SSE streaming from a complete response, compatible with OpenAI streaming format."""
+    chunk_id = f"chatcmpl-{int(time.time())}"
+    created = int(time.time())
+
+    # 1. Opening role delta
+    first = {
+        "id": chunk_id, "object": "chat.completion.chunk", "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]
+    }
+    yield f"data: {json.dumps(first)}\n\n"
+
+    # 2. Content delta (sent as one chunk; gemini-webapi does not support token-level streaming)
+    content = {
+        "id": chunk_id, "object": "chat.completion.chunk", "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {"content": response_text}, "finish_reason": None}]
+    }
+    yield f"data: {json.dumps(content)}\n\n"
+
+    # 3. Stop delta
+    end = {
+        "id": chunk_id, "object": "chat.completion.chunk", "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+    }
+    yield f"data: {json.dumps(end)}\n\n"
+    yield "data: [DONE]\n\n"
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
@@ -85,8 +118,13 @@ async def chat_completions(request: OpenAIChatRequest):
 
     if request.model:
         try:
-            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
-            return convert_to_openai_format(response.text, request.model.value, is_stream)
+            response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None)
+            if is_stream:
+                return StreamingResponse(
+                    stream_openai_format(response.text, request.model),
+                    media_type="text/event-stream"
+                )
+            return convert_to_openai_format(response.text, request.model)
         except Exception as e:
             logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")
