@@ -1,6 +1,5 @@
 # src/app/endpoints/chat.py
 import json
-import re
 import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -52,23 +51,13 @@ def _build_tools_prompt(tools: list) -> str:
 
 def _parse_tool_call(text: str) -> Optional[dict]:
     """Extract a tool_call JSON object from model response text."""
-    try:
-        data = json.loads(text.strip())
-        if "tool_call" in data:
-            return data["tool_call"]
-    except (json.JSONDecodeError, ValueError):
-        pass
-    # Look for JSON in code fences or inline
-    for pattern in [
-        r'```(?:json)?\s*(\{.*?"tool_call".*?\})\s*```',
-        r'(\{[^{}]*"tool_call"[^{}]*\{[^{}]*\}[^{}]*\})',
-    ]:
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch == '{':
             try:
-                data = json.loads(m.group(1))
-                if "tool_call" in data:
-                    return data["tool_call"]
+                obj, _ = decoder.raw_decode(text, i)
+                if isinstance(obj, dict) and "tool_call" in obj:
+                    return obj["tool_call"]
             except (json.JSONDecodeError, ValueError):
                 pass
     return None
@@ -115,6 +104,25 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
             "finish_reason": "stop",
         }],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+
+@router.get("/v1/models")
+async def list_models():
+    from gemini_webapi.constants import Model
+    ts = int(time.time())
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": model.model_name,
+                "object": "model",
+                "created": ts,
+                "owned_by": "google",
+            }
+            for model in Model
+            if model != Model.UNSPECIFIED
+        ],
     }
 
 
@@ -169,9 +177,9 @@ async def chat_completions(request: OpenAIChatRequest):
         raise HTTPException(status_code=400, detail="Model not specified in the request.")
 
     try:
-        response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
+        response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None)
         tool_call = _parse_tool_call(response.text) if request.tools else None
-        return convert_to_openai_format(response.text, request.model.value, is_stream, tool_call)
+        return convert_to_openai_format(response.text, request.model, is_stream, tool_call)
     except Exception as e:
         logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")

@@ -1,6 +1,5 @@
 # src/app/endpoints/google_generative.py
 import json
-import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -34,24 +33,13 @@ def _build_tools_prompt(tools) -> str:
 
 def _parse_function_call(text: str) -> Optional[dict]:
     """Extract a functionCall JSON object from model response text."""
-    try:
-        # Try full response as JSON first
-        data = json.loads(text.strip())
-        if "functionCall" in data:
-            return data["functionCall"]
-    except (json.JSONDecodeError, ValueError):
-        pass
-    # Look for JSON block (code-fenced or inline)
-    for pattern in [
-        r'```(?:json)?\s*(\{.*?"functionCall".*?\})\s*```',
-        r'(\{[^{}]*"functionCall"[^{}]*\{[^{}]*\}[^{}]*\})',
-    ]:
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch == '{':
             try:
-                data = json.loads(m.group(1))
-                if "functionCall" in data:
-                    return data["functionCall"]
+                obj, _ = decoder.raw_decode(text, i)
+                if isinstance(obj, dict) and "functionCall" in obj:
+                    return obj["functionCall"]
             except (json.JSONDecodeError, ValueError):
                 pass
     return None

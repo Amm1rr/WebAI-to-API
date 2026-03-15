@@ -18,12 +18,12 @@ class GeminiModels(str, Enum):
 
 class GeminiRequest(BaseModel):
     message: str
-    model: GeminiModels = Field(default=GeminiModels.FLASH_2_5, description="Model to use for Gemini.")
+    model: str = Field(default="gemini-2.5-flash", description="Model to use for Gemini.")
     files: Optional[List[str]] = []
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
-    model: Optional[GeminiModels] = None
+    model: Optional[str] = None
     stream: Optional[bool] = False
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Any] = None
