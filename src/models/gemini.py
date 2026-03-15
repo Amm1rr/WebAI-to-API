@@ -5,18 +5,16 @@ from gemini_webapi import GeminiClient as WebGeminiClient
 from app.config import CONFIG
 
 
+# Maps user-facing short names to the internal model identifiers accepted by gemini-webapi.
+# The Gemini web UI displays marketing names (e.g. "Gemini 3.1 Flash") which differ from
+# the internal names the library uses. Verified available models:
+#   gemini-2.0-flash-exp      (web UI: Gemini 3.1 Flash)
+#   gemini-2.0-exp-advanced   (web UI: Gemini 3.1 Flash Thinking)
+#   gemini-1.5-pro            (web UI: Gemini 3.1 Pro)
 MODEL_ALIASES = {
-    # short names for CCR model selection
-    "flash": "gemini-2.0-flash-exp",
-    "fast": "gemini-2.0-flash-exp",
+    "flash":    "gemini-2.0-flash-exp",
     "thinking": "gemini-2.0-exp-advanced",
-    "pro": "gemini-1.5-pro",
-    # compatibility aliases
-    "gemini-2.5-flash": "gemini-2.0-flash-exp",
-    "gemini-2.5-pro": "gemini-1.5-pro",
-    "gemini-3.0-pro": "gemini-1.5-pro",
-    "gemini-2.0-flash-thinking": "gemini-2.0-exp-advanced",
-    "gemini-2.0-flash-thinking-with-apps": "gemini-2.0-exp-advanced",
+    "pro":      "gemini-1.5-pro",
 }
 
 
