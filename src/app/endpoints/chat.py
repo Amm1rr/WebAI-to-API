@@ -178,7 +178,9 @@ async def chat_completions(request: OpenAIChatRequest):
 
     try:
         response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None)
+        logger.debug(f"Gemini raw response: {response.text!r}")
         tool_call = _parse_tool_call(response.text) if request.tools else None
+        logger.debug(f"Parsed tool_call: {tool_call}")
         return convert_to_openai_format(response.text, request.model, is_stream, tool_call)
     except Exception as e:
         logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
