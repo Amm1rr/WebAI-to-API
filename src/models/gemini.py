@@ -20,6 +20,13 @@ class MyGeminiClient:
         """
         return await self.client.generate_content(message, model=model, files=files)
 
+    async def generate_content_stream(self, message: str, model: str, files: Optional[List[Union[str, Path]]] = None):
+        """
+        Generate content in streaming mode, yielding ModelOutput chunks.
+        """
+        async for chunk in self.client.generate_content_stream(message, model=model, files=files):
+            yield chunk
+
     async def close(self) -> None:
         """Close the Gemini client."""
         await self.client.close()

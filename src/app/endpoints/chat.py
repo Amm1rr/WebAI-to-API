@@ -1,6 +1,8 @@
 # src/app/endpoints/chat.py
+import json
 import time
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
@@ -26,10 +28,27 @@ async def translate_chat(request: GeminiRequest):
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
 
-def convert_to_openai_format(response_text: str, model: str, stream: bool = False):
+def _make_chunk(chat_id: str, model: str, delta_content: str, finish_reason=None) -> str:
+    """Format a single SSE data line in OpenAI chat.completion.chunk format."""
+    chunk = {
+        "id": chat_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": delta_content} if delta_content else {},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+    return f"data: {json.dumps(chunk)}\n\n"
+
+def convert_to_openai_format(response_text: str, model: str):
     return {
         "id": f"chatcmpl-{int(time.time())}",
-        "object": "chat.completion.chunk" if stream else "chat.completion",
+        "object": "chat.completion",
         "created": int(time.time()),
         "model": model,
         "choices": [
@@ -49,6 +68,21 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
         },
     }
 
+def _build_prompt(messages: list[dict]) -> str:
+    parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if not content:
+            continue
+        if role == "system":
+            parts.append(f"System: {content}")
+        elif role == "user":
+            parts.append(f"User: {content}")
+        elif role == "assistant":
+            parts.append(f"Assistant: {content}")
+    return "\n\n".join(parts)
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
     try:
@@ -56,39 +90,65 @@ async def chat_completions(request: OpenAIChatRequest):
     except GeminiClientNotInitializedError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    is_stream = request.stream if request.stream is not None else False
-
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
 
-    # Build conversation prompt with system prompt and full history
-    conversation_parts = []
+    if not request.model:
+        raise HTTPException(status_code=400, detail="Model not specified in the request.")
 
-    for msg in request.messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if not content:
-            continue
-
-        if role == "system":
-            conversation_parts.append(f"System: {content}")
-        elif role == "user":
-            conversation_parts.append(f"User: {content}")
-        elif role == "assistant":
-            conversation_parts.append(f"Assistant: {content}")
-
-    if not conversation_parts:
+    final_prompt = _build_prompt(request.messages)
+    if not final_prompt:
         raise HTTPException(status_code=400, detail="No valid messages found.")
 
-    # Join all parts with newlines
-    final_prompt = "\n\n".join(conversation_parts)
+    model_value = request.model.value
+    is_stream = request.stream if request.stream is not None else False
 
-    if request.model:
+    if is_stream:
+        chat_id = f"chatcmpl-{int(time.time())}"
+
+        async def event_generator():
+            try:
+                # Send role delta first (matches OpenAI behaviour)
+                role_chunk = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model_value,
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(role_chunk)}\n\n"
+
+                async for chunk in gemini_client.generate_content_stream(
+                    message=final_prompt, model=model_value, files=None
+                ):
+                    delta = chunk.text_delta
+                    if delta:
+                        yield _make_chunk(chat_id, model_value, delta, finish_reason=None)
+
+                # Final chunk signals end of stream
+                yield _make_chunk(chat_id, model_value, "", finish_reason="stop")
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.error(f"Streaming error in /v1/chat/completions: {e}", exc_info=True)
+                # Yield an error chunk so the client isn't left hanging
+                err = {"error": {"message": str(e), "type": "proxy_error"}}
+                yield f"data: {json.dumps(err)}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    else:
         try:
-            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
-            return convert_to_openai_format(response.text, request.model.value, is_stream)
+            response = await gemini_client.generate_content(
+                message=final_prompt, model=model_value, files=None
+            )
+            return convert_to_openai_format(response.text, model_value)
         except Exception as e:
             logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")
-    else:
-        raise HTTPException(status_code=400, detail="Model not specified in the request.")
