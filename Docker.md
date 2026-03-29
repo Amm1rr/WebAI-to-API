@@ -1,86 +1,111 @@
-## 🐳 Docker Deployment Guide
+# 🐳 Docker Deployment Guide
 
-### Prerequisites
-
-Ensure you have the following installed on your system:
+## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)
-- [Docker Compose v2.24+](https://docs.docker.com/compose/)
-- GNU Make (optional but recommended)
+- [Docker Compose v2](https://docs.docker.com/compose/) (included with Docker Desktop)
 
 ---
 
-### 🛠️ Docker Environment Configuration
+## Quick Start
 
-This project uses a `.env` file for environment-specific settings like development or production mode on docker.
-
-#### Example `.env`
-
-```env
-# Set the environment mode
-ENVIRONMENT=development
-```
-
-- `ENVIRONMENT=development`: Runs the server in **development** mode with auto-reload and debug logs.
-- Change to `ENVIRONMENT=production` to enable **multi-worker production** mode with detached execution (`make up`).
-
-> **Tip:** If this variable is not set, the default is automatically assumed to be `development`.
-
----
-
-### 🚀 Build & Run
-
-> Use `make` commands for simplified usage.
-
-#### 🔧 Build the Docker image
+### 1. Clone the repository
 
 ```bash
-make build         # Regular build
-make build-fresh   # Force clean build (no cache)
+git clone https://github.com/leolionart/WebAI-to-API.git
+cd WebAI-to-API
 ```
 
-#### ▶️ Run the server
+### 2. Create your config file
 
 ```bash
-make up
+cp config.conf.example config.conf
 ```
 
-Depending on the environment:
+Open `config.conf` and fill in your Gemini cookies:
 
-- In **development**, the server runs in the foreground with hot-reloading.
-- In **production**, the server runs in **detached mode** (`-d`) with multiple workers.
+```ini
+[Cookies]
+gemini_cookie_1psid     = YOUR___Secure-1PSID_HERE
+gemini_cookie_1psidts   = YOUR___Secure-1PSIDTS_HERE
+```
 
-#### ⏹ Stop the server
+> **Where to get cookies:**
+> 1. Log in to [gemini.google.com](https://gemini.google.com) in your browser
+> 2. Open DevTools (`F12`) → **Application** → **Cookies** → `https://gemini.google.com`
+> 3. Copy the values of `__Secure-1PSID` and `__Secure-1PSIDTS`
+
+### 3. Start the server
 
 ```bash
-make stop
+docker compose up -d
+```
+
+The API is now available at **`http://localhost:6969`**.
+
+---
+
+## Cookie Persistence
+
+Config is stored in a Docker named volume (`webai_data`) mapped to `/app/data/config.conf` inside the container. This means:
+
+- Cookies survive container restarts and image updates
+- The server automatically rotates `__Secure-1PSIDTS` every ~10 minutes and writes the updated value back to `config.conf` — so your session stays valid without manual intervention
+
+---
+
+## Useful Commands
+
+| Command | Description |
+|---------|-------------|
+| `docker compose up -d` | Start in background |
+| `docker compose down` | Stop and remove containers |
+| `docker compose logs -f` | Stream live logs |
+| `docker compose pull && docker compose up -d` | Update to latest image |
+| `docker compose restart` | Restart without recreating |
+
+Or use the provided `Makefile` shortcuts:
+
+```bash
+make up         # docker compose up -d
+make down       # docker compose down
+make logs       # docker compose logs -f
+make pull       # docker compose pull
+make restart    # down + up
 ```
 
 ---
 
-### 🧠 Development Notes
+## Building Locally
 
-- **Reloading**: In development, the server uses `uvicorn --reload` for live updates.
-- **Logging**: On container start, it prints the current environment with colors (🟡 dev / ⚪ production).
-- **Watch Mode (optional)**: Docker Compose v2.24+ supports file watching via the `compose watch` feature. If enabled, press `w` to toggle.
+If you want to build the image from source instead of pulling from GHCR:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+Or edit `docker-compose.yml` directly: comment out the `image:` line and uncomment `build: .`.
 
 ---
 
-### 📦 File Structure for Docker
+## Changing the Port
 
-Key files:
+Edit `docker-compose.yml` and update the port mapping:
 
-```plaintext
+```yaml
+ports:
+  - "8080:6969"   # expose on host port 8080 instead of 6969
+```
+
+---
+
+## File Overview
+
+```
 .
-├── Dockerfile              # Base image and command logic
-├── docker-compose.yml      # Shared config (network, ports, env)
-├── .env                    # Defines ENVIRONMENT (development/production)
-├── Makefile                # Simplifies Docker CLI usage
+├── Dockerfile              # Image build instructions
+├── docker-compose.yml      # Main compose config (production)
+├── docker-compose.dev.yml  # Local build override
+├── config.conf             # Your config — cookies, model, proxy (gitignored)
+└── config.conf.example     # Template to copy from
 ```
-
----
-
-### ✅ Best Practices
-
-- Don't use `ENVIRONMENT=development` in **production**.
-- Avoid bind mounts (`volumes`) in production to ensure image consistency.

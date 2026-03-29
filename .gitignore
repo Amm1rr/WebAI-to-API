@@ -7,3 +7,5 @@ __pycache__
 config.conf
 generated_media
 har_and_cookies
+# Playwright MCP
+.playwright-mcp/

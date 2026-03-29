@@ -1,21 +1,13 @@
-# docker-compose.yml
-
-# This file is for production mode only.
-
 services:
   web_ai:
-    build: .
-    image: cornatul/webai.ai
+    image: ghcr.io/leolionart/webai-to-api:latest
     container_name: web_ai_server
     restart: always
     ports:
       - "6969:6969"
-    env_file:
-      - .env
     environment:
       - PYTHONPATH=/app/src
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-    command: >
-      sh -c "
-        uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 4 --log-level info;
-      "
+      - CONFIG_PATH=/app/data/config.conf
+    volumes:
+      - ./data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 1 --log-level info

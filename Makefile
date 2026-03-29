@@ -1,29 +1,25 @@
-# Makefile
-
-# Load .env file if it exists
-include .env
-export $(shell sed 's/=.*//' .env)
+# Makefile — convenience shortcuts for Docker operations
 
 build:
-	docker build -t cornatul/webai.ai:latest .
+	docker compose build
 
 build-fresh:
-	docker build --no-cache -t cornatul/webai.ai:latest .
+	docker compose build --no-cache
 
 up:
-	@if [ "$(ENVIRONMENT)" = "development" ]; then \
-		printf "\033[1;33m🧪 Running in DEVELOPMENT mode...\033[0m\n"; \
-		docker-compose up; \
-	else \
-		printf "\033[0;37m🚀 Running in PRODUCTION mode...\033[0m\n"; \
-		docker-compose up -d; \
-	fi
+	docker compose up -d
 
-stop:
-	docker-compose down
+up-dev:
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 down:
-	docker-compose down
+	docker compose down
 
-push:
-	docker push cornatul/webai.ai:latest
+logs:
+	docker compose logs -f
+
+pull:
+	docker compose pull
+
+restart:
+	docker compose down && docker compose up -d

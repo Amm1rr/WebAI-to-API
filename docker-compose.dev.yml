@@ -1,0 +1,9 @@
+# docker-compose.dev.yml
+
+# Development override - builds image locally instead of pulling from GHCR.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  web_ai:
+    build: .
+    image: webai-to-api:dev

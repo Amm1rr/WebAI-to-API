@@ -19,14 +19,10 @@ default_ai = gemini
 # --- Gemini Model Configuration ---
 # Choose the model to be used when Gemini is selected as the AI.
 # Available models:
-# - gemini-1.5-flash
-# - gemini-2.0-flash
-# - gemini-2.0-flash-thinking
-# - gemini-2.0-flash-thinking-with-apps
-# - gemini-2.5-pro
-# - gemini-2.5-flash
-# - gemini-3.0-pro
-default_model_gemini = gemini-3.0-pro
+# - gemini-3.0-pro            (most capable, requires Gemini Advanced)
+# - gemini-3.0-flash          (fast, default)
+# - gemini-3.0-flash-thinking (with extended thinking)
+default_model_gemini = gemini-3.0-flash
 
 # --- Gemini Cookies ---
 # Provide your authentication cookies for Gemini here.
@@ -47,3 +43,17 @@ gemini = true
 # Example: http_proxy = http://127.0.0.1:2334
 [Proxy]
 http_proxy =
+
+# --- Telegram Notifications ---
+# Send alerts to a Telegram chat when API errors occur (auth failures, 5xx errors).
+# How to set up:
+#   1. Message @BotFather on Telegram → /newbot → copy the token
+#   2. Add the bot to your group/channel, or use a personal chat
+#   3. Get your chat_id: message the bot, then visit
+#      https://api.telegram.org/bot<TOKEN>/getUpdates
+# cooldown_seconds: minimum gap (seconds) between alerts of the same type (default 60)
+[Telegram]
+enabled = false
+bot_token =
+chat_id =
+cooldown_seconds = 60

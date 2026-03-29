@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Install build dependencies for native extensions (lz4, cffi, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ && rm -rf /var/lib/apt/lists/*
+
 # Install Requirements
 WORKDIR /app
 COPY requirements.txt .

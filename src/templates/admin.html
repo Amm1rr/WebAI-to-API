@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAI-to-API Admin</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%234285F4'/%3E%3Cstop offset='100%25' stop-color='%239368F0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M8 12h16M8 16h16M8 20h10' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='22' r='4' fill='%2381C995'/%3E%3C/svg%3E">
+    <!-- Material Symbols -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
+    <!-- Plus Jakarta Sans + JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/admin.css') }}?v=12">
+</head>
+<body>
+    <header class="admin-header">
+        <div class="header-left">
+            <span class="header-wordmark">WebAI-to-API</span>
+            <div class="header-divider"></div>
+            <span class="header-subtitle">Admin</span>
+            <span id="app-version" class="header-version"></span>
+        </div>
+        <span id="connection-status" class="status-badge checking">Checking...</span>
+    </header>
+
+    <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="dashboard">
+            <span class="material-symbols-outlined">dashboard</span>
+            <span class="tab-label">Dashboard</span>
+        </button>
+        <button class="tab-btn" data-tab="config">
+            <span class="material-symbols-outlined">settings</span>
+            <span class="tab-label">Configuration</span>
+        </button>
+        <button class="tab-btn" data-tab="logs">
+            <span class="material-symbols-outlined">terminal</span>
+            <span class="tab-label">Logs</span>
+        </button>
+    </nav>
+
+    <main>
+        <!-- ── Dashboard Tab ────────────────────────────────────── -->
+        <section id="tab-dashboard" class="tab-panel active">
+            <div class="stats-grid">
+                <div class="stat-card" id="card-status">
+                    <div class="stat-icon-wrap">
+                        <span class="material-symbols-outlined">wifi</span>
+                    </div>
+                    <div class="stat-label">Gemini Status</div>
+                    <div class="stat-value" id="val-status">--</div>
+                </div>
+                <div class="stat-card" id="card-model">
+                    <div class="stat-icon-wrap">
+                        <span class="material-symbols-outlined">smart_toy</span>
+                    </div>
+                    <div class="stat-label">Current Model</div>
+                    <div class="stat-value" id="val-model">--</div>
+                </div>
+                <div class="stat-card" id="card-requests">
+                    <div class="stat-icon-wrap">
+                        <span class="material-symbols-outlined">bar_chart</span>
+                    </div>
+                    <div class="stat-label">Total Requests</div>
+                    <div class="stat-value" id="val-requests">--</div>
+                    <div class="stat-detail">
+                        <span class="success" id="val-success">0 OK</span>
+                        <span class="error" id="val-errors">0 ERR</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="card-uptime">
+                    <div class="stat-icon-wrap">
+                        <span class="material-symbols-outlined">schedule</span>
+                    </div>
+                    <div class="stat-label">Uptime</div>
+                    <div class="stat-value" id="val-uptime">--</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">show_chart</span>
+                    Endpoint Activity
+                </h3>
+                <table class="data-table" id="endpoint-table">
+                    <thead>
+                        <tr>
+                            <th>Endpoint</th>
+                            <th class="col-num">Requests</th>
+                            <th class="col-num">OK</th>
+                            <th class="col-num">ERR</th>
+                            <th class="col-num">% Traffic</th>
+                            <th>Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="endpoint-tbody"></tbody>
+                </table>
+                <p class="empty-state" id="no-endpoints">No requests yet</p>
+            </div>
+
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">api</span>
+                    API Reference
+                </h3>
+                <p class="help-text">Connect from Home Assistant, n8n, or any OpenAI-compatible client using these endpoints.</p>
+                <div class="api-ref-baseurl">
+                    <span class="config-label">Base URL</span>
+                    <code id="api-base-url" class="api-url">--</code>
+                    <button class="btn btn-small btn-copy" data-copy-target="api-base-url" title="Copy base URL">Copy</button>
+                </div>
+                <table class="data-table api-ref-table" id="api-ref-table">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="api-ref-tbody"></tbody>
+                </table>
+            </div>
+
+            <!-- ── cURL Examples ──────────────────────────────────── -->
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">code</span>
+                    Usage Examples
+                </h3>
+                <p class="help-text">Ready-to-use cURL commands. Click a tab to switch example, use Copy to clipboard.</p>
+                <div class="curl-tabs" id="curl-tabs">
+                    <!-- rendered by dashboard.js -->
+                </div>
+            </div>
+
+            <div class="section">
+                <button id="btn-reinit" class="btn btn-warning">Reinitialize Gemini Client</button>
+                <span id="reinit-result" class="inline-result"></span>
+            </div>
+        </section>
+
+        <!-- ── Configuration Tab ─────────────────────────────────── -->
+        <section id="tab-config" class="tab-panel">
+
+            <!-- cURL Import -->
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">cookie</span>
+                    Import Cookies from cURL
+                </h3>
+                <p class="help-text">
+                    Open Chrome DevTools (F12) &rarr; Network tab &rarr; navigate to
+                    <a href="https://gemini.google.com" target="_blank">gemini.google.com</a> &rarr;
+                    right-click any request &rarr; <strong>Copy as cURL</strong> &rarr; paste below.
+                    <br>You can also paste just the raw Cookie header value.
+                </p>
+                <textarea id="curl-input" class="code-input" rows="6"
+                    placeholder="curl 'https://gemini.google.com/...' -H 'cookie: __Secure-1PSID=...; __Secure-1PSIDTS=...'"></textarea>
+                <button id="btn-curl-import" class="btn btn-primary">Import Cookies</button>
+                <div id="curl-result" class="result-box hidden"></div>
+            </div>
+
+            <!-- Cookie Status -->
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">verified_user</span>
+                    Cookie Status
+                </h3>
+                <div class="config-row">
+                    <span class="config-label">Status</span>
+                    <span id="cookie-status-badge" class="status-badge">--</span>
+                </div>
+                <div class="config-row">
+                    <span class="config-label">__Secure-1PSID</span>
+                    <code id="cookie-1psid-preview">--</code>
+                </div>
+                <div class="config-row">
+                    <span class="config-label">__Secure-1PSIDTS</span>
+                    <code id="cookie-1psidts-preview">--</code>
+                </div>
+            </div>
+
+            <!-- Manual Cookie Entry -->
+            <details class="section collapsible">
+                <summary>
+                    <span class="material-symbols-outlined">edit</span>
+                    Manual Cookie Entry
+                </summary>
+                <div class="form-group">
+                    <label for="manual-1psid">__Secure-1PSID</label>
+                    <input type="text" id="manual-1psid" class="text-input" placeholder="Paste cookie value...">
+                </div>
+                <div class="form-group">
+                    <label for="manual-1psidts">__Secure-1PSIDTS</label>
+                    <input type="text" id="manual-1psidts" class="text-input" placeholder="Paste cookie value...">
+                </div>
+                <button id="btn-manual-cookies" class="btn btn-primary">Update Cookies</button>
+                <div id="manual-result" class="result-box hidden"></div>
+            </details>
+
+            <!-- Model Selection -->
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">model_training</span>
+                    Model
+                </h3>
+                <div class="config-row">
+                    <select id="model-select" class="select-input"></select>
+                    <button id="btn-save-model" class="btn btn-tonal btn-small">Save</button>
+                    <span id="model-result" class="inline-result"></span>
+                </div>
+            </div>
+
+            <!-- Proxy -->
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">public</span>
+                    Proxy
+                </h3>
+                <div class="config-row">
+                    <input type="text" id="proxy-input" class="text-input" placeholder="http://127.0.0.1:2334">
+                    <button id="btn-save-proxy" class="btn btn-tonal btn-small">Save</button>
+                    <span id="proxy-result" class="inline-result"></span>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>
+                    <span class="material-symbols-outlined">send</span>
+                    Telegram Notifications
+                </h3>
+                <p class="help-text">Send alerts to Telegram when selected API errors occur.</p>
+                <div class="config-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="telegram-enabled">
+                        Enable notifications
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="telegram-token">Bot Token</label>
+                    <input type="text" id="telegram-token" class="text-input" placeholder="Paste token from @BotFather...">
+                    <code id="telegram-token-preview"></code>
+                </div>
+                <div class="form-group">
+                    <label for="telegram-chatid">Chat ID</label>
+                    <input type="text" id="telegram-chatid" class="text-input" placeholder="-100123456789">
+                </div>
+                <div class="form-group">
+                    <label>Notify on error types</label>
+                    <div class="config-row" style="gap:16px; flex-wrap:wrap;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-auth" value="auth" checked>
+                            Auth / Cookie expired
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-503" value="503">
+                            Stream error (503)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-500" value="500">
+                            Server error (500)
+                        </label>
+                    </div>
+                </div>
+                <div class="config-row">
+                    <span class="config-label">Cooldown (seconds)</span>
+                    <input type="number" id="telegram-cooldown" class="text-input" style="width:72px;" min="10" max="3600" value="60">
+                </div>
+                <div class="config-row">
+                    <button id="btn-save-telegram" class="btn btn-tonal btn-small">Save</button>
+                    <button id="btn-test-telegram" class="btn btn-tonal btn-small">Send Test</button>
+                    <span id="telegram-result" class="inline-result"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Logs Tab ──────────────────────────────────────────── -->
+        <section id="tab-logs" class="tab-panel">
+            <div class="logs-toolbar">
+                <select id="log-level-filter" class="select-input">
+                    <option value="ALL">All Levels</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="INFO">INFO</option>
+                    <option value="DEBUG">DEBUG</option>
+                </select>
+                <input type="text" id="log-search" class="text-input" placeholder="Search logs...">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="log-autoscroll" checked> Auto-scroll
+                </label>
+                <button id="btn-clear-logs" class="btn btn-small btn-tonal">Clear</button>
+            </div>
+            <div id="log-container" class="log-container">
+                <p class="empty-state">Waiting for logs...</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', path='js/utils.js') }}?v=12"></script>
+    <script src="{{ url_for('static', path='js/dashboard.js') }}?v=12"></script>
+    <script src="{{ url_for('static', path='js/config.js') }}?v=12"></script>
+    <script src="{{ url_for('static', path='js/logs.js') }}?v=12"></script>
+    <script src="{{ url_for('static', path='js/app.js') }}?v=12"></script>
+</body>
+</html>
