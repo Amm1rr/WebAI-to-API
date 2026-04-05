@@ -212,8 +212,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a managed server with hot-switching capability."
     )
-    parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
-    parser.add_argument("--port", type=int, default=6969, help="Port number")
+    parser.add_argument("--host", type=str, default=os.getenv("HOST", "localhost"), help="Host IP address")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "6969")), help="Port number")
     parser.add_argument(
         "--reload", action="store_true", help="Enable auto-reloading for WebAI mode"
     )

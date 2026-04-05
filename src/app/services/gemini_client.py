@@ -27,14 +27,19 @@ async def init_gemini_client() -> bool:
 
     if CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
         try:
-            gemini_cookie_1PSID = CONFIG["Cookies"].get("gemini_cookie_1PSID")
-            gemini_cookie_1PSIDTS = CONFIG["Cookies"].get("gemini_cookie_1PSIDTS")
-            gemini_proxy = CONFIG["Proxy"].get("http_proxy")
+            import os
+            gemini_cookie_1PSID = os.getenv("GEMINI_COOKIE_1PSID") or CONFIG["Cookies"].get("gemini_cookie_1PSID")
+            gemini_cookie_1PSIDTS = os.getenv("GEMINI_COOKIE_1PSIDTS") or CONFIG["Cookies"].get("gemini_cookie_1PSIDTS")
+            gemini_proxy = os.getenv("GEMINI_PROXY") or CONFIG["Proxy"].get("http_proxy")
 
             if not gemini_cookie_1PSID or not gemini_cookie_1PSIDTS:
                 cookies = get_cookie_from_browser("gemini")
                 if cookies:
-                    gemini_cookie_1PSID, gemini_cookie_1PSIDTS = cookies
+                    # Update variables if they were not already set by env or config
+                    if not gemini_cookie_1PSID:
+                        gemini_cookie_1PSID = cookies[0]
+                    if not gemini_cookie_1PSIDTS:
+                        gemini_cookie_1PSIDTS = cookies[1]
 
             if gemini_proxy == "":
                 gemini_proxy = None
