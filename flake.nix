@@ -59,7 +59,6 @@
           platformdirs
           tomli
           click
-          python-dotenv
         ] ++ [ g4f gemini-webapi ]);
 
       webai-to-api = pkgs.stdenv.mkDerivation {

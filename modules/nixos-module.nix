@@ -25,6 +25,11 @@ in {
       default = pkgs.webai-to-api;
       description = "The WebAI-to-API package to use.";
     };
+    browser = mkOption {
+      type = types.str;
+      default = "chrome";
+      description = "The browser to extract cookies from (e.g. chrome, firefox, brave, edge).";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -36,7 +41,11 @@ in {
       wantedBy = ["multi-user.target"];
       script = "${cfg.package}/bin/webai-server";
       serviceConfig = {
-        Environment = ["PORT=${toString cfg.port}"];
+        Environment = [
+          "PORT=${toString cfg.port}"
+          "WEBAI_BROWSER=${cfg.browser}"
+          "WEBAI_CONFIG_PATH=/var/lib/webai/config.conf"
+        ];
         EnvironmentFile = cfg.cookieFile;
         Restart = "on-failure";
         User = user;
