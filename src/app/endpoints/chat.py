@@ -8,6 +8,30 @@ from app.services.session_manager import get_translate_session_manager
 
 router = APIRouter()
 
+@router.get("/v1/gems")
+async def list_gems():
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        gems = await gemini_client.fetch_gems()
+        return {
+            "gems": [
+                {
+                    "id": gem.id,
+                    "name": gem.name,
+                    "description": gem.description,
+                    "predefined": gem.predefined,
+                }
+                for gem in gems
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching gems: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching gems: {str(e)}")
+
 @router.post("/translate")
 async def translate_chat(request: GeminiRequest):
     try:
@@ -85,7 +109,7 @@ async def chat_completions(request: OpenAIChatRequest):
 
     if request.model:
         try:
-            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None)
+            response = await gemini_client.generate_content(message=final_prompt, model=request.model.value, files=None, gem=request.gem)
             return convert_to_openai_format(response.text, request.model.value, is_stream)
         except Exception as e:
             logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)

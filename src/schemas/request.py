@@ -32,11 +32,13 @@ class GeminiRequest(BaseModel):
     message: str
     model: GeminiModels = Field(default=GeminiModels.FLASH_3, description="Model to use for Gemini.")
     files: Optional[List[str]] = []
+    gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
     model: Optional[GeminiModels] = None
     stream: Optional[bool] = False
+    gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class Part(BaseModel):
     text: str
