@@ -130,7 +130,8 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
                 system_instructions.append(tools_prompt)
         
         if system_instructions:
-            prompt_parts.append(f"System: {'\n\n'.join(system_instructions)}")
+            system_text = "\n\n".join(system_instructions)
+            prompt_parts.append(f"System: {system_text}")
 
         # Build conversation text
         prompt_parts.append(_build_prompt_from_contents(request.contents))
