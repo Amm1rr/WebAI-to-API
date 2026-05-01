@@ -1,0 +1,120 @@
+/home/amir/Works/WebAI-to-API/src/run.py:36: DeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+  from g4f.api import run_api as run_g4f_api
+2026-05-01 23:48:33,574 - asyncio - DEBUG - Using selector: EpollSelector
+2026-05-01 23:48:33,576 - app.utils.browser - INFO - Attempting to get cookies from browser: firefox for service: gemini
+2026-05-01 23:48:33,576 - app.utils.browser - INFO - Initialized cookie extractor for linux
+2026-05-01 23:48:33,577 - app.utils.browser - INFO - Attempting to get cookies from firefox with fallback methods
+2026-05-01 23:48:33,588 - app.utils.browser - INFO - Successfully retrieved cookies using browser_cookie3 for firefox
+2026-05-01 23:48:33,589 - app.utils.browser - INFO - Successfully retrieved cookies from firefox
+2026-05-01 23:48:33,589 - app.utils.browser - INFO - Looking for Gemini cookies (__Secure-1PSID and __Secure-1PSIDTS)...
+2026-05-01 23:48:33,590 - app.utils.browser - INFO - Found __Secure-1PSIDTS: sidts-CjEBWhotCfQL7V...
+2026-05-01 23:48:33,590 - app.utils.browser - INFO - Found __Secure-1PSID: g.a0009gg35_r_gRY0qg...
+2026-05-01 23:48:33,591 - app.utils.browser - INFO - Found __Secure-1PSID: g.a0009gg35_r_gRY0qg...
+2026-05-01 23:48:33,591 - app.utils.browser - INFO - Both Gemini cookies found and appear valid.
+2026-05-01 23:48:33,626 - httpcore.connection - DEBUG - connect_tcp.started host='www.google.com' port=443 local_address=None timeout=5.0 socket_options=None
+2026-05-01 23:48:38,632 - httpcore.connection - DEBUG - connect_tcp.failed exception=ConnectTimeout(TimeoutError())
+2026-05-01 23:48:38,635 - app - ERROR - Unexpected error initializing Gemini client: 
+Traceback (most recent call last):
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "/home/amir/.pyenv/versions/3.11.11/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectTimeout
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/amir/Works/WebAI-to-API/src/app/services/gemini_client.py", line 44, in init_gemini_client
+    await _gemini_client.init()
+  File "/home/amir/Works/WebAI-to-API/src/models/gemini.py", line 16, in init
+    await self.client.init()
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/gemini_webapi/client.py", line 140, in init
+    access_token, valid_cookies = await get_access_token(
+                                  ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/gemini_webapi/utils/get_access_token.py", line 69, in get_access_token
+    response = await client.get(Endpoint.GOOGLE.value)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1768, in get
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "/home/amir/.pyenv/versions/3.11.11/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/home/amir/.cache/pypoetry/virtualenvs/webai-to-api-oVC7rcnr-py3.11/lib/python3.11/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectTimeout
+INFO:     Checking availability of server modes...
+WARN:     ⚠️ [93mWebAI-to-API mode is not available[0m (Could not initialize Gemini client).
+INFO:     ✅ [96mgpt4free mode is available[0m ('g4f' library is installed).
+
+[Controller] Starting server in 'g4f' mode...
+INFO:     Started server process [548508]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://localhost:8001 (Press CTRL+C to quit)
+
+================================================================================
+[1m[93m                              Webai To Api v0.4.0                               [0m
+                         🚀 gpt4free Server is RUNNING 🚀                         
+================================================================================
+
+✨ gpt4free Service Info:
+  - Base URL: http://localhost:8001/v1
+  - Docs (Swagger): http://localhost:8001/docs
+
+🔍 API Discovery Endpoints:
+  - Models   : http://localhost:8001/v1/models
+  - Providers: http://localhost:8001/v1/providers
+
+🔗 Main API Endpoints:
+  - Chat Completions: http://localhost:8001/v1/chat/completions
+  - Image Generation: http://localhost:8001/v1/images/generate
+
+[1m[93mIMPORTANT USAGE NOTES FOR gpt4free MODE:[0m
+  - [93mTo avoid [1mProviderNotFoundError[0m[93m, your client must send a valid provider name (not a model name).[0m
+    [93mCheck the list of valid providers at the [96m/v1/providers[93m endpoint.[0m
+
+================================================================================
+[1m[93mPress '1' then Enter for WebAI (Faster) | '2' then Enter for gpt4free | Ctrl+C to Quit[0m
+================================================================================
+Starting server... [g4f v-6.8.2]
+INFO:     ::1:32836 - "GET /v1/models HTTP/1.1" 200 OK

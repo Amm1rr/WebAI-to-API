@@ -8,6 +8,16 @@ from app.config import CONFIG
 
 logger = logging.getLogger("app")
 
+# Maps user-facing short names to the internal model identifiers accepted by gemini-webapi.
+MODEL_ALIASES = {
+    "flash":    "gemini-3-flash",
+    "thinking": "gemini-3-flash-thinking",
+    "pro":      "gemini-3-pro",
+}
+
+def resolve_model_name(model: str) -> str:
+    """Resolve a model name alias to its internal identifier."""
+    return MODEL_ALIASES.get(model, model)
 
 class MyGeminiClient:
     """
@@ -18,7 +28,7 @@ class MyGeminiClient:
         self._gems_cache = None
 
     async def init(self) -> None:
-        """Initialise the Gemini client and persist any rotated cookies."""
+        """Initialize the Gemini client and persist any rotated cookies."""
         await self.client.init()
         await self._persist_cookies()
 
@@ -56,8 +66,9 @@ class MyGeminiClient:
         """
         Generate content using the Gemini client.
         """
+        resolved_model = resolve_model_name(model)
         resolved_gem = await self._resolve_gem(gem) if gem else None
-        return await self.client.generate_content(message, model=model, files=files, gem=resolved_gem)
+        return await self.client.generate_content(message, model=resolved_model, files=files, gem=resolved_gem)
 
     async def fetch_gems(self):
         """Fetch available gems and cache them."""
@@ -81,4 +92,8 @@ class MyGeminiClient:
         """
         Start a chat session with the given model.
         """
-        return self.client.start_chat(model=model)
+        resolved_model = resolve_model_name(model)
+        # Note: Gem resolution might need to be async if we want to support name resolution here
+        # For now, we'll assume gem is passed as ID or already resolved if possible
+        # but the underlying library might expect a Gem object.
+        return self.client.start_chat(model=resolved_model, gem=gem)

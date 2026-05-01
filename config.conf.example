@@ -22,12 +22,6 @@ default_ai = gemini
 # - gemini-3-pro
 # - gemini-3-flash
 # - gemini-3-flash-thinking
-# - gemini-3-pro-plus         (Plus tier)
-# - gemini-3-flash-plus       (Plus tier)
-# - gemini-3-flash-thinking-plus (Plus tier)
-# - gemini-3-pro-advanced     (Advanced tier)
-# - gemini-3-flash-advanced   (Advanced tier)
-# - gemini-3-flash-thinking-advanced (Advanced tier)
 # - unspecified                (use account default)
 default_model_gemini = gemini-3-flash
 

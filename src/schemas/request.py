@@ -1,50 +1,56 @@
 # src/schemas/request.py
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class GeminiModels(str, Enum):
     """
     An enumeration of the available Gemini models.
-    Matches model names from gemini-webapi >= 2.0.0.
     """
 
-    # Gemini 3 Series
-    PRO_3 = "gemini-3-pro"
-    FLASH_3 = "gemini-3-flash"
-    FLASH_3_THINKING = "gemini-3-flash-thinking"
-
-    # Gemini 3 Plus Series
-    PRO_3_PLUS = "gemini-3-pro-plus"
-    FLASH_3_PLUS = "gemini-3-flash-plus"
-    FLASH_3_THINKING_PLUS = "gemini-3-flash-thinking-plus"
-
-    # Gemini 3 Advanced Series
-    PRO_3_ADVANCED = "gemini-3-pro-advanced"
-    FLASH_3_ADVANCED = "gemini-3-flash-advanced"
-    FLASH_3_THINKING_ADVANCED = "gemini-3-flash-thinking-advanced"
-
-    # Unspecified (use server default)
-    UNSPECIFIED = "unspecified"
+    # Gemini 3.0 Series
+    PRO_3_0 = "gemini-3.0-pro"
+    FLASH_3_0 = "gemini-3.0-flash"
+    FLASH_3_0_THINKING = "gemini-3.0-flash-thinking"
+    
+    # Default model
+    DEFAULT = "unspecified"
+    
 
 
 class GeminiRequest(BaseModel):
     message: str
-    model: GeminiModels = Field(default=GeminiModels.FLASH_3, description="Model to use for Gemini.")
+    model: str = Field(default="gemini-3-flash", description="Model to use for Gemini.")
     files: Optional[List[str]] = []
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
-    model: Optional[GeminiModels] = None
+    model: Optional[str] = None
     stream: Optional[bool] = False
+    tools: Optional[List[dict]] = None
+    tool_choice: Optional[Any] = None
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class Part(BaseModel):
-    text: str
+    text: Optional[str] = None
+    functionCall: Optional[Dict[str, Any]] = None
+    functionResponse: Optional[Dict[str, Any]] = None
 
 class Content(BaseModel):
     parts: List[Part]
+    role: Optional[str] = None
+
+class FunctionDeclaration(BaseModel):
+    name: str
+    description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+class Tool(BaseModel):
+    functionDeclarations: Optional[List[FunctionDeclaration]] = None
 
 class GoogleGenerativeRequest(BaseModel):
     contents: List[Content]
+    tools: Optional[List[Tool]] = None
+    systemInstruction: Optional[Any] = None
+    generationConfig: Optional[Dict[str, Any]] = None

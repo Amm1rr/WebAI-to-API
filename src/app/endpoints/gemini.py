@@ -18,9 +18,8 @@ async def gemini_generate(request: GeminiRequest):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        # Use the value attribute for the model (since GeminiRequest.model is an Enum)
         files: Optional[List[Union[str, Path]]] = [Path(f) for f in request.files] if request.files else None
-        response = await gemini_client.generate_content(request.message, request.model.value, files=files, gem=request.gem)
+        response = await gemini_client.generate_content(request.message, request.model, files=files, gem=request.gem)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /gemini endpoint: {e}", exc_info=True)
@@ -37,7 +36,7 @@ async def gemini_chat(request: GeminiRequest):
     if not session_manager:
         raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
-        response = await session_manager.get_response(request.model, request.message, request.files)
+        response = await session_manager.get_response(request.model, request.message, request.files, request.gem)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /gemini-chat endpoint: {e}", exc_info=True)
