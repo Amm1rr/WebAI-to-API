@@ -112,21 +112,25 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
 
     try:
         prompt_parts = []
-
+        
+        system_instructions = []
         # Inject system instruction if present
         if request.systemInstruction:
             if isinstance(request.systemInstruction, str):
-                prompt_parts.append(f"System: {request.systemInstruction}")
+                system_instructions.append(request.systemInstruction)
             elif isinstance(request.systemInstruction, dict):
                 for p in request.systemInstruction.get("parts", []):
                     if isinstance(p, dict) and p.get("text"):
-                        prompt_parts.append(f"System: {p['text']}")
+                        system_instructions.append(p['text'])
 
         # Inject tool definitions as system prompt
         if request.tools:
             tools_prompt = _build_tools_prompt(request.tools)
             if tools_prompt:
-                prompt_parts.append(tools_prompt)
+                system_instructions.append(tools_prompt)
+        
+        if system_instructions:
+            prompt_parts.append(f"System: {'\n\n'.join(system_instructions)}")
 
         # Build conversation text
         prompt_parts.append(_build_prompt_from_contents(request.contents))

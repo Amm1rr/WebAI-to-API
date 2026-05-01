@@ -65,8 +65,22 @@ def _parse_tool_call(text: str) -> Optional[dict]:
 
 def convert_to_openai_format(response_text: str, model: str, stream: bool = False, tool_call: Optional[dict] = None):
     ts = int(time.time())
+    choice_key = "delta" if stream else "message"
+    
     if tool_call:
         args = tool_call.get("arguments", {})
+        content = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": f"call_{ts}",
+                "type": "function",
+                "function": {
+                    "name": tool_call.get("name", ""),
+                    "arguments": json.dumps(args) if isinstance(args, dict) else args,
+                },
+            }],
+        }
         return {
             "id": f"chatcmpl-{ts}",
             "object": "chat.completion.chunk" if stream else "chat.completion",
@@ -74,22 +88,12 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
             "model": model,
             "choices": [{
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{
-                        "id": f"call_{ts}",
-                        "type": "function",
-                        "function": {
-                            "name": tool_call.get("name", ""),
-                            "arguments": json.dumps(args) if isinstance(args, dict) else args,
-                        },
-                    }],
-                },
+                choice_key: content,
                 "finish_reason": "tool_calls",
             }],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
+
     return {
         "id": f"chatcmpl-{ts}",
         "object": "chat.completion.chunk" if stream else "chat.completion",
@@ -97,7 +101,7 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
         "model": model,
         "choices": [{
             "index": 0,
-            "message": {
+            choice_key: {
                 "role": "assistant",
                 "content": response_text,
             },
@@ -139,11 +143,24 @@ async def chat_completions(request: OpenAIChatRequest):
         raise HTTPException(status_code=400, detail="No messages provided.")
 
     conversation_parts = []
+    
+    # Extract tools prompt
+    tools_prompt = _build_tools_prompt(request.tools) if request.tools else ""
 
-    # Inject tool definitions as a system prompt section
-    if request.tools:
-        tools_prompt = _build_tools_prompt(request.tools)
-        if tools_prompt:
+    # Merge tools prompt with system message if possible, otherwise prepend it
+    system_msg_index = -1
+    for i, msg in enumerate(request.messages):
+        if msg.get("role") == "system":
+            system_msg_index = i
+            break
+
+    if tools_prompt:
+        if system_msg_index != -1:
+            # Append to existing system message
+            orig_content = request.messages[system_msg_index].get("content") or ""
+            request.messages[system_msg_index]["content"] = f"{orig_content}\n\n{tools_prompt}".strip()
+        else:
+            # No system message, add one at the beginning
             conversation_parts.append(tools_prompt)
 
     for msg in request.messages:
@@ -181,7 +198,17 @@ async def chat_completions(request: OpenAIChatRequest):
         logger.debug(f"Gemini raw response: {response.text!r}")
         tool_call = _parse_tool_call(response.text) if request.tools else None
         logger.debug(f"Parsed tool_call: {tool_call}")
-        return convert_to_openai_format(response.text, request.model, is_stream, tool_call)
+        
+        openai_response = convert_to_openai_format(response.text, request.model, is_stream, tool_call)
+        
+        if is_stream:
+            from fastapi.responses import StreamingResponse
+            async def sse_stream():
+                yield f"data: {json.dumps(openai_response)}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(sse_stream(), media_type="text/event-stream")
+            
+        return openai_response
     except Exception as e:
         logger.error(f"Error in /v1/chat/completions endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing chat completion: {str(e)}")
