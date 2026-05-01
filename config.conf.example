@@ -18,11 +18,12 @@ default_ai = gemini
 
 # --- Gemini Model Configuration ---
 # Choose the model to be used when Gemini is selected as the AI.
-# Available models:
-# - gemini-3.0-pro
-# - gemini-3.0-flash
-# - gemini-3.0-flash-thinking
-default_model_gemini = gemini-3.0-flash
+# Available models (gemini-webapi >= 2.0.0):
+# - gemini-3-pro
+# - gemini-3-flash
+# - gemini-3-flash-thinking
+# - unspecified                (use account default)
+default_model_gemini = gemini-3-flash
 
 # --- Gemini Cookies ---
 # Provide your authentication cookies for Gemini here.

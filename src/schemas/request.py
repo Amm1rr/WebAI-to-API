@@ -20,8 +20,9 @@ class GeminiModels(str, Enum):
 
 class GeminiRequest(BaseModel):
     message: str
-    model: str = Field(default="gemini-3.0-flash", description="Model to use for Gemini.")
+    model: str = Field(default="gemini-3-flash", description="Model to use for Gemini.")
     files: Optional[List[str]] = []
+    gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
@@ -29,6 +30,7 @@ class OpenAIChatRequest(BaseModel):
     stream: Optional[bool] = False
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Any] = None
+    gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
 
 class Part(BaseModel):
     text: Optional[str] = None

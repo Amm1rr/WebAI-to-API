@@ -10,6 +10,31 @@ from app.services.session_manager import get_translate_session_manager
 
 router = APIRouter()
 
+@router.get("/v1/gems")
+async def list_gems():
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        gems = await gemini_client.fetch_gems()
+        return {
+            "gems": [
+                {
+                    "id": gem.id,
+                    "name": gem.name,
+                    "description": gem.description,
+                    "predefined": gem.predefined,
+                }
+                for gem in gems
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching gems: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching gems: {str(e)}")
+
+
 @router.post("/translate")
 async def translate_chat(request: GeminiRequest):
     try:
@@ -21,7 +46,7 @@ async def translate_chat(request: GeminiRequest):
     if not session_manager:
         raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
-        response = await session_manager.get_response(request.model, request.message, request.files)
+        response = await session_manager.get_response(request.model, request.message, request.files, request.gem)
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
@@ -194,7 +219,7 @@ async def chat_completions(request: OpenAIChatRequest):
         raise HTTPException(status_code=400, detail="Model not specified in the request.")
 
     try:
-        response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None)
+        response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None, gem=request.gem)
         logger.debug(f"Gemini raw response: {response.text!r}")
         tool_call = _parse_tool_call(response.text) if request.tools else None
         logger.debug(f"Parsed tool_call: {tool_call}")

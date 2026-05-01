@@ -5,10 +5,10 @@ certifi==2024.12.14 ; python_version >= "3.10" and python_version < "4.0"
 cffi==1.17.1 ; python_version >= "3.10" and python_version < "4.0"
 click==8.1.8 ; python_version >= "3.10" and python_version < "4.0"
 colorama==0.4.6 ; python_version >= "3.10" and python_version < "4.0" and sys_platform == "win32" or python_version >= "3.10" and python_version < "4.0" and platform_system == "Windows"
-curl-cffi==0.7.4 ; python_version >= "3.10" and python_version < "4.0"
+curl-cffi>=0.7.4
 exceptiongroup==1.2.2 ; python_version >= "3.10" and python_version < "3.11"
 fastapi==0.115.7 ; python_version >= "3.10" and python_version < "4.0"
-gemini-webapi==1.19.2 ; python_version >= "3.10" and python_version < "4.0"
+gemini-webapi>=2.0.0
 h11==0.14.0 ; python_version >= "3.10" and python_version < "4.0"
 h2==4.1.0 ; python_version >= "3.10" and python_version < "4.0"
 hpack==4.1.0 ; python_version >= "3.10" and python_version < "4.0"

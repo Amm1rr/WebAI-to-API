@@ -8,19 +8,21 @@ class SessionManager:
         self.client = client
         self.session = None
         self.model = None
+        self.gem = None
         self.lock = asyncio.Lock()
 
-    async def get_response(self, model, message, images):
+    async def get_response(self, model, message, images, gem=None):
         async with self.lock:
-            # Start a new session if none exists or the model has changed
-            if self.session is None or self.model != model:
+            # Start a new session if none exists or the model or gem has changed
+            if self.session is None or self.model != model or self.gem != gem:
                 if self.session is not None:
                     # Closing the session is handled by the library's internal logic
                     pass
                 # If model is an Enum, use its value
                 model_value = model.value if hasattr(model, "value") else model
-                self.session = self.client.start_chat(model=model_value)
+                self.session = self.client.start_chat(model=model_value, gem=gem)
                 self.model = model
+                self.gem = gem
 
             try:
                 # FIX: The underlying library `gemini-webapi` has changed its keyword arguments
