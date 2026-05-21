@@ -27,6 +27,13 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["AI"] = {"default_model_gemini": "gemini-3-flash"}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
+    if "Astraflow" not in config:
+        config["Astraflow"] = {
+            "api_key": "",
+            "cn_api_key": "",
+            "use_cn_endpoint": "false",
+            "default_model": "gpt-4o",
+        }
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:
