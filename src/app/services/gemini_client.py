@@ -18,14 +18,13 @@ class GeminiClientNotInitializedError(Exception):
 # Global variables to store the Gemini client instance and state
 _gemini_client = None
 _initialization_error = None
-_client_pid = None
 
 async def init_gemini_client() -> bool:
     """
     Initialize and set up the Gemini client based on the configuration.
     Returns True on success, False on failure.
     """
-    global _gemini_client, _initialization_error, _client_pid
+    global _gemini_client, _initialization_error
     _initialization_error = None
 
     if CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
@@ -41,9 +40,9 @@ async def init_gemini_client() -> bool:
             
             if config_cookies:
                 # Strip potential double quotes from cookie values added manually by the user
-                cleaned_cookies = {k: v.strip('"') for k, v in config_cookies.items()}
-                
-                logger.info(f"Attempting to initialize Gemini client with {len(cleaned_cookies)} cookies from config...")
+                cleaned_cookies = {k: v.strip('"') for k, v in config_cookies.items() if k in ["__Secure-1PSID", "__Secure-1PSIDTS"]}
+
+                logger.info(f"Attempting to initialize Gemini client with {len(cleaned_cookies)} essential cookies from config...")
                 
                 # IMPORTANT: Disable the library's internal file-based caching to avoid "downgrading" 
                 # our session from 24 cookies to 7-8 cookies.
@@ -88,14 +87,12 @@ async def init_gemini_client() -> bool:
                     return False
 
             _gemini_client = client
-            _client_pid = os.getpid()
             return True
 
         except AuthError as e:
             error_msg = f"Gemini authentication failed: {e}. This usually means cookies are expired or invalid."
             logger.error(error_msg)
             _gemini_client = None
-            _client_pid = None
             _initialization_error = error_msg
             return False
 
@@ -103,7 +100,6 @@ async def init_gemini_client() -> bool:
             error_msg = f"Unexpected error initializing Gemini client: {e}"
             logger.error(error_msg, exc_info=True)
             _gemini_client = None
-            _client_pid = None
             _initialization_error = error_msg
             return False
     else:
@@ -118,15 +114,11 @@ def get_gemini_client():
     Returns the initialized Gemini client instance.
 
     Raises:
-        GeminiClientNotInitializedError: If the client is not initialized or from a different process.
+        GeminiClientNotInitializedError: If the client is not initialized.
     """
     if _gemini_client is None:
         error_detail = _initialization_error or "Gemini client was not initialized. Check logs for details."
         raise GeminiClientNotInitializedError(error_detail)
-    
-    # Check if the client was initialized in the current process
-    if _client_pid != os.getpid():
-        raise GeminiClientNotInitializedError("Gemini client belongs to a different process (forked). Reinitialization required.")
-        
+
     return _gemini_client
 

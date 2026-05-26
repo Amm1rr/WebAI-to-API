@@ -27,9 +27,8 @@ except ImportError:
         tomli = None
 
 # --- App and Service Imports ---
-from app.config import load_config
+from app.config import load_config, CONFIG
 from app.main import app as webai_app
-from app.services.gemini_client import init_gemini_client
 
 # Conditionally import g4f runner function
 try:
@@ -72,7 +71,7 @@ def get_app_info() -> Tuple[str, str]:
 
 
 def start_webai_server(
-    host: str, port: int, reload: bool, stop_event: "MultiprocessingEvent"
+    host: str, port: int, stop_event: "MultiprocessingEvent"
 ):
     """Starts the WebAI Uvicorn server with a graceful shutdown mechanism."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -80,7 +79,7 @@ def start_webai_server(
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     config = uvicorn.Config(
-        webai_app, host=host, port=port, reload=reload, log_config=None
+        webai_app, host=host, port=port, reload=False, log_config=None, workers=1
     )
     server = uvicorn.Server(config)
 
@@ -214,20 +213,18 @@ if __name__ == "__main__":
     )
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=6969, help="Port number")
-    parser.add_argument(
-        "--reload", action="store_true", help="Enable auto-reloading for WebAI mode"
-    )
     args = parser.parse_args()
 
     print("INFO:     Checking availability of server modes...")
-    webai_is_available = asyncio.run(init_gemini_client())
+    # Simple check: assume WebAI is available if Gemini is enabled in config
+    webai_is_available = CONFIG.getboolean("EnabledAI", "gemini", fallback=True)
     if webai_is_available:
         print(
-            f"INFO:     ✅ {Colors.CYAN}WebAI-to-API mode is available{Colors.RESET} (Gemini client initialized)."
+            f"INFO:     ✅ {Colors.CYAN}WebAI-to-API mode is available{Colors.RESET} (Gemini client will be initialized on startup)."
         )
     else:
         print(
-            f"WARN:     ⚠️ {Colors.YELLOW}WebAI-to-API mode is not available{Colors.RESET} (Could not initialize Gemini client)."
+            f"WARN:     ⚠️ {Colors.YELLOW}WebAI-to-API mode is not available{Colors.RESET} (Gemini is disabled in config)."
         )
     if G4F_AVAILABLE:
         print(
@@ -280,7 +277,7 @@ if __name__ == "__main__":
                 stop_event = multiprocessing.Event()
 
                 if current_mode == "webai":
-                    process_args = (args.host, args.port, args.reload, stop_event)
+                    process_args = (args.host, args.port, stop_event)
                     target_func = start_webai_server
                 else:
                     process_args = (args.host, args.port, stop_event)

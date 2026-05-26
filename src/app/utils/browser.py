@@ -383,17 +383,18 @@ def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[dict]:
     # Process cookies for the requested service
     if service == "gemini":
         logger.info("Filtering cookies for Google domains...")
-        # Check if we have any google-related cookies and convert to dict
+        # Only use the two essential cookies for Gemini authentication
         google_cookies = {}
         for cookie in cookies:
             if hasattr(cookie, 'domain') and "google" in cookie.domain:
-                google_cookies[cookie.name] = cookie.value
+                if cookie.name in ["__Secure-1PSID", "__Secure-1PSIDTS"]:
+                    google_cookies[cookie.name] = cookie.value
 
         if google_cookies:
-            logger.info(f"Found {len(google_cookies)} Google cookies in browser jar.")
+            logger.info(f"Found {len(google_cookies)} essential Gemini cookies ({list(google_cookies.keys())})")
             return google_cookies
         else:
-            logger.warning("No Google cookies found in browser jar.")
+            logger.warning("No essential Gemini cookies found in browser jar.")
             return None
     else:
         logger.warning(f"Unsupported service: {service}")
