@@ -61,7 +61,7 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
    > Atlas Cloud
 
-   Route OpenAI-compatible chat requests to Atlas Cloud by sending `provider: "atlas"` or by using a model name prefixed with `atlas/`, such as `atlas/deepseek-v3`.
+   Route OpenAI-compatible chat requests to Atlas Cloud by sending `provider: "atlas"` or by using a model name prefixed with `atlas/`, such as `atlas/MiniMaxAI/MiniMax-M2`.
 
 ---
 
@@ -143,7 +143,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | `gemini-3.0-pro`            | Most powerful model                |
 | `gemini-3.0-flash`          | Fast and efficient model (default) |
 | `gemini-3.0-flash-thinking` | Enhanced reasoning model           |
-| `atlas/deepseek-ai/DeepSeek-V3-0324` | Atlas Cloud via OpenAI-compatible API |
+| `atlas/MiniMaxAI/MiniMax-M2` | Atlas Cloud via OpenAI-compatible API |
 
 ### Example Request (Basic)
 
@@ -159,7 +159,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 ```json
 {
   "provider": "atlas",
-  "model": "deepseek-ai/DeepSeek-V3-0324",
+  "model": "MiniMaxAI/MiniMax-M2",
   "messages": [{ "role": "user", "content": "Say hello from Atlas Cloud." }]
 }
 ```
@@ -168,7 +168,7 @@ You can also route using a provider-prefixed model:
 
 ```json
 {
-  "model": "atlas/deepseek-ai/DeepSeek-V3-0324",
+  "model": "atlas/MiniMaxAI/MiniMax-M2",
   "messages": [{ "role": "user", "content": "Write a one-line release note." }]
 }
 ```

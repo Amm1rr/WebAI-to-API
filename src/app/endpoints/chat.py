@@ -176,7 +176,7 @@ async def list_models():
         ]
         + [
             {
-                "id": "atlas/deepseek-ai/DeepSeek-V3-0324",
+                "id": "atlas/MiniMaxAI/MiniMax-M2",
                 "object": "model",
                 "created": ts,
                 "owned_by": "atlascloud",

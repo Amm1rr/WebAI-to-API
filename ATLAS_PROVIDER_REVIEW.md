@@ -49,13 +49,13 @@
 - Project API validation
   - Non-streaming Atlas request via local `/v1/chat/completions`: passed
   - Streaming Atlas request via local `/v1/chat/completions`: passed
-  - `/v1/models` includes `atlas/deepseek-ai/DeepSeek-V3-0324`: passed
+  - `/v1/models` includes `atlas/MiniMaxAI/MiniMax-M2`: passed
 
 - Direct upstream Atlas validation
-  - `https://api.atlascloud.ai/v1/chat/completions` with model `deepseek-ai/DeepSeek-V3-0324`: passed
+  - `https://api.atlascloud.ai/v1/chat/completions` with model `MiniMaxAI/MiniMax-M2`: passed
 
 ## Notes
 
-- Atlas Cloud worked with the real model name `deepseek-ai/DeepSeek-V3-0324`.
-- The generic sample model `deepseek-v3` returned `400 {"code":400,"msg":"not found"}` for this key/environment, so docs and examples were updated to the verified model.
+- Atlas Cloud worked with the real model name `MiniMaxAI/MiniMax-M2`.
+- The Atlas integration now uses the same OpenAI-compatible calling pattern validated in `/Users/zby/listPrice`, and the local examples were updated to the verified MiniMax model.
 - Gemini startup currently times out in this environment during upstream initialization. This is an existing runtime issue outside the Atlas code path; Atlas routing still works because it does not depend on Gemini initialization success.
