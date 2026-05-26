@@ -38,6 +38,12 @@ gemini_cookie_1psidts =
 [EnabledAI]
 gemini = true
 
+# --- Atlas Cloud Settings ---
+# Atlas Cloud LLM requests use the OpenAI-compatible endpoint and are configured
+# through environment variables loaded from .env or .env.local.
+# ATLASCLOUD_API_KEY=your-api-key
+# ATLASCLOUD_BASE_URL=https://api.atlascloud.ai/v1
+
 # --- Proxy Configuration ---
 # The app, use this proxy to connect gemini servers.
 # Its usefull to fix errors like 403 or restricted connections

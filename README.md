@@ -12,7 +12,24 @@
   <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
 </p>
 
+<p align="center">
+  <img src="./assets/atlas-cloud.png" alt="Atlas Cloud" height="72" />
+</p>
+
 **WebAI-to-API** is a modular web server built with FastAPI that allows you to expose your preferred browser-based LLM (such as Gemini) as a local API endpoint.
+
+> Atlas Cloud integration is available through the OpenAI-compatible `/v1/chat/completions` endpoint, allowing this project to route compatible requests to Atlas Cloud with minimal setup.
+
+<table>
+  <tr>
+    <td>
+      <strong>Atlas Cloud</strong> is a full-model AI inference platform that gives developers a single AI API to access video generation, image generation, and LLM APIs. Instead of managing multiple vendor integrations, you connect once and get unified access to 300+ curated models across all modalities.
+      <br /><br />
+      Check out Atlas Cloud here:
+      <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API</a>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -40,6 +57,12 @@ This project supports **two operational modes**:
 
 This design provides both **speed and redundancy**, ensuring flexibility depending on your use case and available resources.
 
+3. **OpenAI-Compatible Provider Routing**
+
+   > Atlas Cloud
+
+   Route OpenAI-compatible chat requests to Atlas Cloud by sending `provider: "atlas"` or by using a model name prefixed with `atlas/`, such as `atlas/deepseek-v3`.
+
 ---
 
 ## Features
@@ -61,6 +84,8 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 - 🔄 **Server Switching**: Easily switch between servers in terminal.
 
 - 🛠️ **Modular Architecture**: Organized into clearly defined modules for API routes, services, configurations, and utilities, making development and maintenance straightforward.
+
+- ☁️ **Atlas Cloud Provider**: OpenAI-compatible routing for Atlas Cloud models, including standard and streaming chat completions.
 
 <p align="center">
   <img src="./assets/Endpoints-Docs.png" alt="Endpoints" height="280" />
@@ -91,7 +116,15 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
    Then, edit `config.conf` to adjust service settings and other options.
 
-4. **Run the server:**
+4. **Configure local environment variables for Atlas Cloud (optional but recommended):**
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   Then set `ATLASCLOUD_API_KEY` in `.env.local`. The app automatically loads `.env.local` and `.env` at startup.
+
+5. **Run the server:**
 
    ```bash
    poetry run python src/run.py
@@ -110,6 +143,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | `gemini-3.0-pro`            | Most powerful model                |
 | `gemini-3.0-flash`          | Fast and efficient model (default) |
 | `gemini-3.0-flash-thinking` | Enhanced reasoning model           |
+| `atlas/deepseek-ai/DeepSeek-V3-0324` | Atlas Cloud via OpenAI-compatible API |
 
 ### Example Request (Basic)
 
@@ -117,6 +151,25 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 {
   "model": "gemini-3.0-pro",
   "messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
+
+### Example Request (Atlas Cloud)
+
+```json
+{
+  "provider": "atlas",
+  "model": "deepseek-ai/DeepSeek-V3-0324",
+  "messages": [{ "role": "user", "content": "Say hello from Atlas Cloud." }]
+}
+```
+
+You can also route using a provider-prefixed model:
+
+```json
+{
+  "model": "atlas/deepseek-ai/DeepSeek-V3-0324",
+  "messages": [{ "role": "user", "content": "Write a one-line release note." }]
 }
 ```
 
@@ -185,6 +238,7 @@ Functionally identical to `/gemini-chat`, meaning it **maintains session context
 - **System prompts**: Set behavior and context for the assistant
 - **Conversation history**: Maintain context across multiple turns (user/assistant messages)
 - **Streaming**: Optional streaming response support
+- **Provider routing**: Route to Gemini or Atlas Cloud with the same request shape
 
 Built for seamless integration with clients that expect the OpenAI API format.
 
