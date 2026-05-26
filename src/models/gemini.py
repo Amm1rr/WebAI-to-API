@@ -75,11 +75,9 @@ class MyGeminiClient:
                     changed = True
 
             if changed:
-                with open(config_path, "w", encoding="utf-8") as f:
-                    cfg.write(f)
-                logger.info("Cookies rotated and persisted to config.conf while preserving all entries.")
-        except Exception as e:
-            logger.warning(f"Failed to persist cookies: {e}")
+                from app.utils.config_utils import save_config_atomic
+                if await save_config_atomic(cfg, config_path):
+                    logger.info("Cookies rotated and persisted to config.conf atomically.")
         except Exception as e:
             logger.warning(f"Failed to persist cookies: {e}")
 
