@@ -8,11 +8,11 @@ class GeminiModels(str, Enum):
     An enumeration of the available Gemini models.
     """
 
-    # Gemini 3.0 Series
-    PRO_3_0 = "gemini-3.0-pro"
-    FLASH_3_0 = "gemini-3.0-flash"
-    FLASH_3_0_THINKING = "gemini-3.0-flash-thinking"
-    
+    # Gemini 3 Series
+    PRO = "gemini-3-pro"
+    FLASH = "gemini-3-flash"
+    FLASH_THINKING = "gemini-3-flash-thinking"
+
     # Default model
     DEFAULT = "unspecified"
     
@@ -22,7 +22,7 @@ class GeminiRequest(BaseModel):
     message: str
     model: str = Field(default="gemini-3-flash", description="Model to use for Gemini.")
     files: Optional[List[str]] = []
-    gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
+    gem: Optional[str] = Field(default=None, examples=[None], description="Gem ID or name to use as system prompt.")
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
