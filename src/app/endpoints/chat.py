@@ -3,12 +3,35 @@ import json
 import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.atlas_client import (
+    AtlasClientError,
+    AtlasClientNotConfiguredError,
+    get_atlas_client,
+)
 from app.services.session_manager import get_translate_session_manager
 
 router = APIRouter()
+
+
+def _resolve_provider(request: OpenAIChatRequest) -> tuple[str, str]:
+    if not request.model:
+        raise HTTPException(status_code=400, detail="Model not specified in the request.")
+
+    if request.provider:
+        return request.provider.lower(), request.model
+
+    if "/" in request.model:
+        provider, model = request.model.split("/", 1)
+        provider = provider.lower().strip()
+        if provider in {"gemini", "atlas"} and model:
+            return provider, model.strip()
+
+    return "gemini", request.model
+
 
 @router.get("/v1/gems")
 async def list_gems():
@@ -151,18 +174,74 @@ async def list_models():
             }
             for model in Model
             if model != Model.UNSPECIFIED
+        ]
+        + [
+            {
+                "id": "atlas/MiniMaxAI/MiniMax-M2",
+                "object": "model",
+                "created": ts,
+                "owned_by": "atlascloud",
+            }
         ],
     }
 
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: OpenAIChatRequest):
+    provider, resolved_model = _resolve_provider(request)
+    is_stream = request.stream if request.stream is not None else False
+
+    if provider == "atlas":
+        if not request.messages:
+            raise HTTPException(status_code=400, detail="No messages provided.")
+        try:
+            atlas_client = get_atlas_client()
+            response = await atlas_client.chat_completions(
+                messages=request.messages,
+                model=resolved_model,
+                stream=is_stream,
+                tools=request.tools,
+                tool_choice=request.tool_choice,
+            )
+
+            if is_stream:
+                async def stream_response():
+                    try:
+                        async for chunk in response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+                    finally:
+                        await response.aclose()
+                        await response._atlas_client.aclose()  # type: ignore[attr-defined]
+
+                return StreamingResponse(
+                    stream_response(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                    },
+                )
+
+            data = response.json()
+            await response.aclose()
+            await response._atlas_client.aclose()  # type: ignore[attr-defined]
+            return data
+        except AtlasClientNotConfiguredError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except AtlasClientError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error in Atlas /v1/chat/completions endpoint: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing Atlas chat completion: {str(e)}",
+            )
+
     try:
         gemini_client = get_gemini_client()
     except GeminiClientNotInitializedError as e:
         raise HTTPException(status_code=503, detail=str(e))
-
-    is_stream = request.stream if request.stream is not None else False
 
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
@@ -215,19 +294,15 @@ async def chat_completions(request: OpenAIChatRequest):
 
     final_prompt = "\n\n".join(conversation_parts)
 
-    if not request.model:
-        raise HTTPException(status_code=400, detail="Model not specified in the request.")
-
     try:
-        response = await gemini_client.generate_content(message=final_prompt, model=request.model, files=None, gem=request.gem)
+        response = await gemini_client.generate_content(message=final_prompt, model=resolved_model, files=None, gem=request.gem)
         logger.debug(f"Gemini raw response: {response.text!r}")
         tool_call = _parse_tool_call(response.text) if request.tools else None
         logger.debug(f"Parsed tool_call: {tool_call}")
         
-        openai_response = convert_to_openai_format(response.text, request.model, is_stream, tool_call)
+        openai_response = convert_to_openai_format(response.text, resolved_model, is_stream, tool_call)
         
         if is_stream:
-            from fastapi.responses import StreamingResponse
             async def sse_stream():
                 yield f"data: {json.dumps(openai_response)}\n\n"
                 yield "data: [DONE]\n\n"

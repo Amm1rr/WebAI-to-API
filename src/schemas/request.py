@@ -27,6 +27,7 @@ class GeminiRequest(BaseModel):
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
     model: Optional[str] = None
+    provider: Optional[str] = None
     stream: Optional[bool] = False
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Any] = None

@@ -2,7 +2,11 @@
 import configparser
 import logging
 
+from app.env import load_local_env
+
 logger = logging.getLogger(__name__)
+
+load_local_env()
 
 
 def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:

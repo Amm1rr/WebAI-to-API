@@ -5,5 +5,8 @@
 __pycache__
 .idea
 config.conf
+.env.local
+.venv
+.env
 generated_media
 har_and_cookies

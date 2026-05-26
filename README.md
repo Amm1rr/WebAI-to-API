@@ -10,13 +10,16 @@
 <p align="center">
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
   <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
+  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
+    <img src="https://raw.githubusercontent.com/lucaszhu-hue/lucaszhu-hue/main/atlas-cloud-logo.png" alt="Atlas Cloud" height="160" />
+  </a>
 </p>
 
 **WebAI-to-API** is a modular web server built with FastAPI that allows you to expose your preferred browser-based LLM (such as Gemini) as a local API endpoint.
 
 ---
 
-This project supports **two operational modes**:
+This project supports **three operational modes**:
 
 1. **Primary Web Server**
 
@@ -24,7 +27,13 @@ This project supports **two operational modes**:
 
    Connects to the Gemini web interface using your browser cookies and exposes it as an API endpoint. This method is lightweight, fast, and efficient for personal use.
 
-2. **Fallback Web Server (gpt4free)**
+2. **Atlas Cloud Provider**
+
+   > [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API)
+
+   A direct API provider offering high-performance access to advanced models like MiniMax-M2. Ideal for developers seeking a reliable, low-latency cloud alternative with native OpenAI compatibility.
+
+3. **Fallback Web Server (gpt4free)**
 
    > [gpt4free](https://github.com/xtekky/gpt4free)
 
@@ -267,7 +276,7 @@ GET  /images/{filename}             # Retrieve images
 | Section     | Option     | Description                                | Example Value           |
 | ----------- | ---------- | ------------------------------------------ | ----------------------- |
 | [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`                |
-| [Browser]   | name       | Browser for cookie-based authentication    | `firefox`               |
+| [Browser]   | name       | Browser for cookie-based authentication    | `chrome`               |
 | [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`                  |
 | [Proxy]     | http_proxy | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
 

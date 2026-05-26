@@ -12,7 +12,7 @@ name = chrome
 
 # --- AI Provider Settings ---
 # Select the default AI service.
-# Currently supported: gemini
+# Currently supported: gemini, atlas
 [AI]
 default_ai = gemini
 
