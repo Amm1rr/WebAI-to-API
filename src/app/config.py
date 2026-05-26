@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     config = configparser.ConfigParser()
+    config.optionxform = str  # Preserve case for cookie names
     try:
         # FIX: Explicitly specify UTF-8 encoding to prevent UnicodeDecodeError on Windows.
         # This is the standard and most compatible way to handle text files across platforms.

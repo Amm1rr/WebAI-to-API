@@ -360,55 +360,40 @@ class CrossPlatformCookieExtractor:
         return None
 
 
-def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[tuple]:
+def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[dict]:
     """Enhanced cookie extraction with cross-platform support"""
     browser_name = CONFIG["Browser"].get("name", "firefox").lower()
     logger.info(f"Attempting to get cookies from browser: {browser_name} for service: {service}")
-    
+
     extractor = CrossPlatformCookieExtractor()
-    
+
     try:
         cookies = extractor.get_cookies_with_fallback(browser_name)
-        
+
         if not cookies:
             logger.error(f"Failed to retrieve cookies from {browser_name}")
             return None
-        
+
         logger.info(f"Successfully retrieved cookies from {browser_name}")
-        
+
     except Exception as e:
         logger.error(f"An unexpected error occurred while retrieving cookies from {browser_name}: {e}", exc_info=True)
         return None
-    
+
     # Process cookies for the requested service
     if service == "gemini":
-        logger.info("Looking for Gemini cookies (__Secure-1PSID and __Secure-1PSIDTS)...")
-        secure_1psid = None
-        secure_1psidts = None
-        
-        try:
-            for cookie in cookies:
-                if hasattr(cookie, 'name') and hasattr(cookie, 'value') and hasattr(cookie, 'domain'):
-                    if cookie.name == "__Secure-1PSID" and "google" in cookie.domain:
-                        secure_1psid = cookie.value
-                        logger.info(f"Found __Secure-1PSID: {secure_1psid[:20]}..." if secure_1psid else "Found __Secure-1PSID (empty value)")
-                    elif cookie.name == "__Secure-1PSIDTS" and "google" in cookie.domain:
-                        secure_1psidts = cookie.value
-                        logger.info(f"Found __Secure-1PSIDTS: {secure_1psidts[:20]}..." if secure_1psidts else "Found __Secure-1PSIDTS (empty value)")
-        except Exception as e:
-            logger.error(f"Error processing cookies: {e}")
-            return None
-        
-        if secure_1psid and secure_1psidts:
-            # Check if values are not empty (they might be encrypted on Windows)
-            if len(secure_1psid.strip()) == 0 or len(secure_1psidts.strip()) == 0:
-                logger.warning("Gemini cookies found but appear to be empty (possibly encrypted). Manual cookie extraction may be required on Windows.")
-                return None
-            
-            logger.info("Both Gemini cookies found and appear valid.")
-            return secure_1psid, secure_1psidts
+        logger.info("Filtering cookies for Google domains...")
+        # Check if we have any google-related cookies and convert to dict
+        google_cookies = {}
+        for cookie in cookies:
+            if hasattr(cookie, 'domain') and "google" in cookie.domain:
+                google_cookies[cookie.name] = cookie.value
+
+        if google_cookies:
+            logger.info(f"Found {len(google_cookies)} Google cookies in browser jar.")
+            return google_cookies
         else:
-            logger.warning("Gemini cookies not found or incomplete.")
+            logger.warning("No Google cookies found in browser jar.")
             return None
     else:
         logger.warning(f"Unsupported service: {service}")
