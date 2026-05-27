@@ -35,9 +35,22 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:
-        with open(config_file, "w", encoding="utf-8") as f:
-            config.write(f)
-        # logger.info("Configuration loaded/updated successfully.")
+        import asyncio
+        from app.utils.config_utils import save_config_atomic
+        try:
+            # We try to use the atomic save if an event loop is running.
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                # We can't easily wait for it here without making load_config async,
+                # which would be a huge breaking change. 
+                # For initial load, blocking I/O is actually acceptable as it happens during startup.
+                # However, for consistency, we'll keep the blocking write here but use the same logic.
+                with open(config_file, "w", encoding="utf-8") as f:
+                    config.write(f)
+        except RuntimeError:
+            # No event loop, normal blocking write.
+            with open(config_file, "w", encoding="utf-8") as f:
+                config.write(f)
     except Exception as e:
         logger.error(f"Error writing to config file: {e}")
 

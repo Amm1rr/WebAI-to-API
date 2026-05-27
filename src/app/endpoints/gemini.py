@@ -1,7 +1,7 @@
 # src/app/endpoints/gemini.py
 from fastapi import APIRouter, HTTPException
 from app.logger import logger
-from schemas.request import GeminiRequest
+from app.schemas.request import GeminiRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.session_manager import get_gemini_chat_manager
 

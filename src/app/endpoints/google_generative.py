@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from app.logger import logger
-from schemas.request import GoogleGenerativeRequest
+from app.schemas.request import GoogleGenerativeRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 
 router = APIRouter()
