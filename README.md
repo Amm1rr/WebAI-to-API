@@ -11,7 +11,7 @@
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
   <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
   <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
-    <img src="https://raw.githubusercontent.com/lucaszhu-hue/lucaszhu-hue/main/atlas-cloud-logo.png" alt="Atlas Cloud" height="160" />
+    <img src="./assets/ATLAS_CLOUD_LOGO_BLACK.png" alt="Atlas Cloud" height="160" />
   </a>
 </p>
 
