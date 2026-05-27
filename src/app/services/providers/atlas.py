@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.services.base import BaseProvider
 from app.services.atlas_client import get_atlas_client, AtlasClientNotConfiguredError, AtlasClientError
 from app.logger import logger
-from schemas.request import OpenAIChatRequest
+from app.schemas.request import OpenAIChatRequest
 
 class AtlasProvider(BaseProvider):
     """

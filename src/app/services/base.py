@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
-from schemas.request import OpenAIChatRequest
+from app.schemas.request import OpenAIChatRequest
 
 class BaseProvider(ABC):
     """

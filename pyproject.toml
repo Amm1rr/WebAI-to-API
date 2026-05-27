@@ -11,7 +11,6 @@ readme = "README.md"
 packages = [
     { include = "app", from = "src" },
     { include = "models", from = "src" },
-    { include = "schemas", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -34,6 +33,19 @@ aiohttp-socks = "^0.11.0"
 nodriver = "^0.48.1"
 platformdirs = "^4.3.8"
 
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4"
+pytest-asyncio = "^0.26"
+pytest-mock = "^3.15"
+pytest-cov = "^6.0.0"
+pytest-timeout = "^2.3.1"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+asyncio_default_test_loop_scope = "function"
+timeout = 30
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

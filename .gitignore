@@ -10,3 +10,8 @@ config.conf
 .env
 generated_media
 har_and_cookies
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+dist/

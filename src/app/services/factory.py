@@ -2,7 +2,7 @@ from typing import Optional
 from app.services.base import BaseProvider
 from app.services.providers.gemini import GeminiProvider
 from app.services.providers.atlas import AtlasProvider
-from schemas.request import OpenAIChatRequest
+from app.schemas.request import OpenAIChatRequest
 
 class ProviderFactory:
     """

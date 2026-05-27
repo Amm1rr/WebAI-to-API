@@ -8,7 +8,7 @@ from app.services.gemini_client import get_gemini_client, GeminiClientNotInitial
 from app.services.session_manager import get_translate_session_manager
 from app.utils.streaming import simulate_streaming_generator
 from app.logger import logger
-from schemas.request import OpenAIChatRequest
+from app.schemas.request import OpenAIChatRequest
 
 class GeminiProvider(BaseProvider):
     """
