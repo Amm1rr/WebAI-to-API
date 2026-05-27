@@ -56,20 +56,17 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 - 🌐 **Available Endpoints**:
 
   - **WebAI Server**:
-
-    - `/v1/chat/completions`
+    - `/v1/chat/completions` (OpenAI-compatible)
+    - `/v1/models` (List all providers and models)
     - `/gemini`
     - `/gemini-chat`
     - `/translate`
     - `/v1beta/models/{model}` (Google Generative AI v1beta API)
 
-  - **gpt4free Server**:
-    - `/v1`
-    - `/v1/chat/completions`
-
-- 🔄 **Server Switching**: Easily switch between servers in terminal.
-
-- 🛠️ **Modular Architecture**: Organized into clearly defined modules for API routes, services, configurations, and utilities, making development and maintenance straightforward.
+- 🛠️ **Refactored Architecture**: Decoupled gateway logic with a lightweight provider contract.
+  - **Thin Gateway**: `chat.py` acts as a clean orchestrator.
+  - **Provider-Owned Complexity**: Each backend (Gemini, Atlas) manages its own transformation and streaming quirks.
+  - **Atomic Persistence**: Concurrency-safe cookie rotation and configuration updates.
 
 <p align="center">
   <img src="./assets/Endpoints-Docs.png" alt="Endpoints" height="280" />
@@ -206,13 +203,16 @@ Provides access to the latest Google Generative AI models with standard Google A
 
 ### gpt4free Endpoints
 
+<details>
+  <summary>
+    <b>Available Endpoints (gpt4free API Layer)</b>
+  </summary>
+
 These endpoints follow the **OpenAI-compatible structure** and are powered by the `gpt4free` library.  
 For detailed usage and advanced customization, refer to the official documentation:
 
 - 📄 [Provider Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/selecting_a_provider.md)
 - 📄 [Model Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/providers-and-models.md)
-
-#### Available Endpoints (gpt4free API Layer)
 
 ```
 GET  /                              # Health check
@@ -257,6 +257,8 @@ POST /json/{filename}               # Submit structured JSON data
 GET  /media/{filename}              # Retrieve media
 GET  /images/{filename}             # Retrieve images
 ```
+
+</details>
 
 ---
 
@@ -325,28 +327,25 @@ The project now follows a modular layout that separates configuration, business 
 ```plaintext
 src/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                # FastAPI app creation, configuration, and lifespan management.
-│   ├── config.py              # Global configuration loader/updater.
-│   ├── logger.py              # Centralized logging configuration.
+│   ├── main.py                # FastAPI app creation and lifespan management.
+│   ├── config.py              # Global configuration loader.
 │   ├── endpoints/             # API endpoint routers.
-│   │   ├── __init__.py
-│   │   ├── gemini.py          # Endpoints for Gemini (e.g., /gemini, /gemini-chat).
-│   │   ├── chat.py            # Endpoints for translation and OpenAI-compatible requests.
-│   │   └── google_generative.py  # Google Generative AI v1beta API endpoints.
-│   ├── services/              # Business logic and service wrappers.
-│   │   ├── __init__.py
-│   │   ├── gemini_client.py   # Gemini client initialization, content generation, and cleanup.
-│   │   └── session_manager.py # Session management for chat and translation.
-│   └── utils/                 # Helper functions.
-│       ├── __init__.py
+│   │   ├── chat.py            # Clean orchestrator for /v1/chat/completions.
+│   │   └── ...
+│   ├── services/              # Business logic and provider systems.
+│   │   ├── base.py            # Lightweight provider interface contract.
+│   │   ├── factory.py         # Static provider registry (lazy initialization).
+│   │   ├── providers/         # Encapsulated backend implementations.
+│   │   │   ├── gemini.py      # Browser-based session & prompt emulation.
+│   │   │   └── atlas.py       # Stateless HTTP-native integration.
+│   │   ├── gemini_client.py   # Gemini low-level client initialization.
+│   │   └── ...
+│   └── utils/
+│       ├── config_utils.py    # Atomic, non-blocking config persistence.
+│       ├── streaming.py       # Shared SSE normalization utility.
 │       └── browser.py         # Browser-based cookie retrieval.
-├── models/                    # Models and wrappers (e.g., MyGeminiClient).
-│   └── gemini.py
-├── schemas/                   # Pydantic schemas for request/response validation.
-│   └── request.py
-├── config.conf                # Application configuration file.
-└── run.py                     # Entry point to run the server.
+├── models/                    # Model wrappers.
+└── schemas/                   # Pydantic validation schemas.
 ```
 
 ---
@@ -357,28 +356,24 @@ src/
 
 The project is built on a modular architecture designed for scalability and ease of maintenance. Its primary components are:
 
-- **app/main.py:** Initializes the FastAPI application, configures middleware, and manages application lifespan (startup and shutdown routines).
-- **app/config.py:** Handles the loading and updating of configuration settings from `config.conf`.
-- **app/logger.py:** Sets up a centralized logging system.
-- **app/endpoints/:** Contains separate modules for handling API endpoints. Each module (e.g., `gemini.py` and `chat.py`) manages routes specific to their functionality.
-- **app/services/:** Encapsulates business logic, including the Gemini client wrapper (`gemini_client.py`) and session management (`session_manager.py`).
-- **app/utils/browser.py:** Provides helper functions, such as retrieving cookies from the browser for authentication.
-- **models/:** Holds model definitions like `MyGeminiClient` for interfacing with the Gemini Web API.
-- **schemas/:** Defines Pydantic models for validating API requests.
+- **app/endpoints/chat.py**: Acts as a thin orchestrator that resolves the correct provider via the `ProviderFactory` and delegates the completion request.
+- **app/services/factory.py**: A static registry that lazily initializes provider instances based on model prefixes or explicit provider flags.
+- **app/services/providers/**: Encapsulates provider-specific logic. Each provider (e.g., `GeminiProvider`) is responsible for its own request mapping, response normalization, and streaming mechanics.
+- **app/utils/config_utils.py**: Ensures operational safety by providing atomic, non-blocking configuration persistence for volatile state like rotated cookies.
 
 ### How It Works
 
 1. **Application Initialization:**  
    On startup, the application loads configurations and initializes the Gemini client and session managers. This is managed via the `lifespan` context in `app/main.py`.
 
-2. **Routing:**  
-   The API endpoints are organized into dedicated routers under `app/endpoints/`, which are then included in the main FastAPI application.
+2. **Routing & Resolution:**  
+   The `chat.py` endpoint uses the `ProviderFactory` to resolve the appropriate provider based on the request model or provider field.
 
-3. **Service Layer:**  
-   The `app/services/` directory contains the logic for interacting with the Gemini API and managing user sessions, ensuring that the API routes remain clean and focused on request handling.
+3. **Delegated Implementation:**  
+   Each provider implements a lightweight contract. The orchestrator remains clean, while the providers handle implementation-heavy work like prompt transformation, tool-call parsing, and internal streaming states.
 
-4. **Utilities and Configurations:**  
-   Helper functions and configuration logic are kept separate to maintain clarity and ease of updates.
+4. **Normalization & Persistence:**  
+   Responses are normalized to OpenAI format at the provider/SSE boundary. Any state changes (like cookie rotation) are persisted atomically to prevent configuration corruption.
 
 ---
 
