@@ -2,6 +2,7 @@ from typing import Optional
 from app.services.base import BaseProvider
 from app.services.providers.gemini import GeminiProvider
 from app.services.providers.atlas import AtlasProvider
+from app.services.providers.gemini_playwright import GeminiPlaywrightProvider
 from app.schemas.request import OpenAIChatRequest
 
 class ProviderFactory:
@@ -14,6 +15,7 @@ class ProviderFactory:
     _registry = {
         "gemini": GeminiProvider,
         "atlas": AtlasProvider,
+        "playwright": GeminiPlaywrightProvider,
     }
 
     @classmethod

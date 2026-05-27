@@ -32,6 +32,7 @@ python-multipart = "^0.0.21"
 aiohttp-socks = "^0.11.0"
 nodriver = "^0.48.1"
 platformdirs = "^4.3.8"
+playwright = "^1.60.0"
 
 
 [tool.poetry.group.dev.dependencies]

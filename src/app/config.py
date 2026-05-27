@@ -32,6 +32,15 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["AI"] = {"default_model_gemini": "gemini-3-flash"}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
+    if "Playwright" not in config:
+        config["Playwright"] = {
+            "headless": "false",
+            "max_concurrent_pages": "5",
+            "navigation_timeout": "30000",
+            "ui_wait_timeout": "15000",
+            "chunk_timeout": "90",
+            "total_request_timeout": "120"
+        }
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:
