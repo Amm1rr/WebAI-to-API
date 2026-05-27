@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, List, Optional
@@ -55,9 +56,13 @@ class GeminiProvider(BaseProvider):
                                     stream=True
                                 )
                                 yield await format_sse_chunk(openai_chunk)
+                    except (asyncio.CancelledError, GeneratorExit):
+                        # Client disconnected or generator closed, propagate to stop upstream
+                        raise
                     except Exception as e:
                         logger.error(f"Error in Gemini progressive streaming: {e}", exc_info=True)
-                    finally:
+                    else:
+                        # Only send [DONE] if the stream finished successfully
                         yield await get_done_chunk()
 
                 return StreamingResponse(

@@ -153,6 +153,8 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
                                 }],
                             }
                             yield f"data: {json.dumps(partial_response)}\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    raise
                 except Exception as e:
                     logger.error(f"Error in Google Generative progressive streaming: {e}", exc_info=True)
 
