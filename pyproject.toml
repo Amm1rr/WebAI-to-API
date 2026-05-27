@@ -14,7 +14,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<4.0"
+python = ">=3.10,<3.13"
 fastapi = ">=0.115.7,<0.130.0"
 browser-cookie3 = ">=0.20.1,<0.21.0"
 httpx = ">=0.28.1,<0.29.0"
