@@ -28,19 +28,15 @@ async def gemini_generate(request: GeminiRequest):
                 try:
                     async for chunk in await gemini_client.generate_content_stream(request.message, request.model, files=files, gem=request.gem):
                         if chunk.text_delta:
-                            yield f"data: {json.dumps({'response': chunk.text_delta})}\n\n"
+                            yield f"data: {json.dumps({'response': chunk.text_delta}, ensure_ascii=False)}\n\n"
                 except (asyncio.CancelledError, GeneratorExit):
                     # Client disconnected or generator closed, propagate to stop upstream
                     raise
                 except Exception as e:
                     logger.error(f"Error in /gemini progressive streaming: {e}", exc_info=True)
-                finally:
-                    # Unlike OpenAI, we don't necessarily need [DONE] here as it's a custom endpoint,
-                    # but we keep it simple and just close the connection.
-
-                    # Note: We don't yield a final message here to stay minimal and clean, 
-                    # standard EventSource will just close.
-                    pass
+                else:
+                    # Explicit completion marker for successful streams
+                    yield "data: [DONE]\n\n"
 
             return StreamingResponse(
                 sse_generator(),
