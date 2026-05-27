@@ -95,6 +95,20 @@ class MyGeminiClient:
         resolved_gem = await self._resolve_gem(gem) if gem else None
         return await self.client.generate_content(message, model=resolved_model, files=files, gem=resolved_gem)
 
+    async def generate_content_stream(
+        self,
+        message: str,
+        model: str,
+        files: Optional[List[Union[str, Path]]] = None,
+        gem: Optional[str] = None,
+    ):
+        """
+        Generate content streaming using the Gemini client.
+        """
+        resolved_model = resolve_model_name(model)
+        resolved_gem = await self._resolve_gem(gem) if gem else None
+        return self.client.generate_content_stream(message, model=resolved_model, files=files, gem=resolved_gem)
+
     async def fetch_gems(self):
         """Fetch available gems and cache them."""
         # Only attempt to fetch gems if authenticated, as it usually fails in guest mode

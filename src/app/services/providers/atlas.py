@@ -45,6 +45,7 @@ class AtlasProvider(BaseProvider):
                     headers={
                         "Cache-Control": "no-cache",
                         "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
                     },
                 )
 

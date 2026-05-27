@@ -34,8 +34,43 @@ class GeminiProvider(BaseProvider):
             raise HTTPException(status_code=400, detail="No valid messages found.")
 
         final_prompt = "\n\n".join(conversation_parts)
+        is_stream = request.stream if request.stream is not None else False
 
         try:
+            # 3. Progressive Streaming Path (only if no tools are used)
+            if is_stream and not request.tools:
+                async def sse_generator():
+                    from app.utils.streaming import format_sse_chunk, get_done_chunk
+                    try:
+                        async for chunk in await gemini_client.generate_content_stream(
+                            message=final_prompt,
+                            model=request.model,
+                            files=None,
+                            gem=request.gem
+                        ):
+                            if chunk.text_delta:
+                                openai_chunk = self._convert_to_openai_format(
+                                    chunk.text_delta,
+                                    request.model or "unknown",
+                                    stream=True
+                                )
+                                yield await format_sse_chunk(openai_chunk)
+                    except Exception as e:
+                        logger.error(f"Error in Gemini progressive streaming: {e}", exc_info=True)
+                    finally:
+                        yield await get_done_chunk()
+
+                return StreamingResponse(
+                    sse_generator(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                    }
+                )
+
+            # 4. Buffered Path (for non-streaming or tool-calling)
             response = await gemini_client.generate_content(
                 message=final_prompt, 
                 model=request.model, 
@@ -43,11 +78,10 @@ class GeminiProvider(BaseProvider):
                 gem=request.gem
             )
             
-            # 3. Parse tool calls if necessary
+            # 5. Parse tool calls if necessary
             tool_call = self._parse_tool_call(response.text) if request.tools else None
             
-            # 4. Normalize response to OpenAI format
-            is_stream = request.stream if request.stream is not None else False
+            # 6. Normalize response to OpenAI format
             openai_response = self._convert_to_openai_format(
                 response.text, 
                 request.model or "unknown", 
@@ -58,7 +92,12 @@ class GeminiProvider(BaseProvider):
             if is_stream:
                 return StreamingResponse(
                     simulate_streaming_generator(openai_response), 
-                    media_type="text/event-stream"
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                    }
                 )
                 
             return openai_response
