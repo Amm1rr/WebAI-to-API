@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.session_manager import get_gemini_chat_manager
+from app.services.session_manager import get_gemini_chat_registry, generate_opaque_token
 
 from pathlib import Path
 from typing import Union, List, Optional
@@ -62,12 +62,59 @@ async def gemini_chat(request: GeminiRequest):
     except GeminiClientNotInitializedError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    session_manager = get_gemini_chat_manager()
-    if not session_manager:
-        raise HTTPException(status_code=503, detail="Session manager is not initialized.")
+    registry = get_gemini_chat_registry()
+    if not registry:
+        raise HTTPException(status_code=503, detail="Session registry is not initialized.")
+
+    # 1. Resolve or generate conversation_id
+    cid = request.conversation_id
+    if cid:
+        # Safeguard: Validate ID length
+        if len(cid) > 64:
+            raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
+    else:
+        cid = generate_opaque_token()
+
+    session_manager = await registry.get_session(cid)
+    
     try:
-        response = await session_manager.get_response(request.model, request.message, request.files, request.gem)
-        return {"response": response.text}
+        files: Optional[List[Union[str, Path]]] = [Path(f) for f in request.files] if request.files else None
+        
+        # 2. Progressive Streaming Path
+        if request.stream:
+            async def sse_generator():
+                try:
+                    async for payload in session_manager.get_streaming_response(request.model, request.message, files, request.gem):
+                        # Add conversation_id to every chunk for consistency
+                        payload["conversation_id"] = cid
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    # Final safety check: if we were cancelled but manager didn't send interrupt yet
+                    # we don't try to yield here to avoid Starlette/FastAPI RuntimeErrors
+                    raise
+                except Exception as e:
+                    logger.error(f"Error in /gemini-chat endpoint streaming: {e}", exc_info=True)
+                else:
+                    yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                sse_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                }
+            )
+
+        # 3. Buffered Path
+        response = await session_manager.get_response(request.model, request.message, files, request.gem)
+        return {
+            "response": response.text,
+            "conversation_id": cid
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /gemini-chat endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error in chat: {str(e)}")
