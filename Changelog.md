@@ -1,11 +1,20 @@
 ### Changelog – WebAI to API
 
-#### v0.x.x – Draft
+#### v0.5.0 – Draft
+
+##### Added
+
+- Added AtlasCloud provider support
+- Added unit tests
 
 ##### Fixed
 
 - Added missing `nodriver` and `platformdirs` dependencies to `pyproject.toml` for `g4f` server compatibility.
 - Unified server runner functions to implement a consistent and graceful shutdown mechanism.
+
+##### Changed
+
+- Updated project structure and package organization
 
 ---
 
