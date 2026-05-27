@@ -137,7 +137,7 @@ def print_server_info(host: str, port: int, mode: str):
     print("\n" + "=" * 80)
     print(f"{Colors.BOLD}{Colors.YELLOW}{app_info_line}{Colors.RESET}")
     if mode == "webai":
-        print("🚀 WebAI-to-API Server is RUNNING (Primary Mode) 🚀".center(80))
+        print("WebAI-to-API Server is RUNNING (Primary Mode)".center(80))
         print("=" * 80)
         print("\n✨ Available Services:")
         print(f"  - Docs (Swagger): {base_url}/docs")
@@ -166,7 +166,7 @@ def print_server_info(host: str, port: int, mode: str):
             ]:
                 print(f"  - {base_url}{path}")
     elif mode == "g4f":
-        print("🚀 gpt4free Server is RUNNING 🚀".center(80))
+        print("gpt4free Server is RUNNING".center(80))
         print("=" * 80)
         g4f_base_url = f"{base_url}/v1"
         print("\n✨ gpt4free Service Info:")
