@@ -10,11 +10,13 @@ from fastapi.responses import StreamingResponse
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
 from app.services.base import BaseProvider
-from app.services.browser.engine import get_browser_engine, ManagedPage, PersistentTab
+from app.services.browser.engine import get_browser_engine
+from app.services.browser.tab import ManagedPage, PersistentTab
+from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
 from app.schemas.request import OpenAIChatRequest
 from app.logger import logger
 from app.config import CONFIG
-from .gemini_playwright_scripts import STREAM_EXTRACTOR_SCRIPT, STOP_OBSERVER_SCRIPT, SELECTORS
+from app.services.browser.adapters.scripts.gemini_scripts import STREAM_EXTRACTOR_SCRIPT, STOP_OBSERVER_SCRIPT, SELECTORS
 
 @dataclass
 class RequestState:
@@ -53,6 +55,7 @@ class GeminiPlaywrightProvider(BaseProvider):
         engine = await get_browser_engine()
         state = RequestState(request_id=str(uuid.uuid4()).replace("-", "_"), start_time=time.monotonic())
         session = await engine.get_session("gemini")
+        adapter = GeminiProviderAdapter()
         
         page_lease = None
         observer_task = None
@@ -90,7 +93,7 @@ class GeminiPlaywrightProvider(BaseProvider):
                 state.reused_conversation = True
                 state.conversation_id = request.conversation_id
             
-            callback_name = f"emit_{state.request_id}"
+            callback_name = "__gemini_bridge"
             queue = asyncio.Queue(maxsize=100)
 
             async def bridge_callback(source, payload):
@@ -117,7 +120,9 @@ class GeminiPlaywrightProvider(BaseProvider):
                     logger.warning(f"Bridge emit failure: {e}")
                     state.page_poisoned = True
 
-            await page.expose_binding(callback_name, bridge_callback)
+            # Ensure permanent bridge is exposed on this page and register callback
+            await session._setup_page_bridge(page)
+            page.__gemini_callbacks[state.request_id] = bridge_callback
             
             nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
             
@@ -144,7 +149,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             
             # 3. Auth Validation
             if state.active_tab: state.active_tab.heartbeat("auth_check")
-            if not await engine.is_authenticated(page):
+            if not await adapter.check_authentication(page):
                 if os.path.exists(session.state_path):
                     try: os.remove(session.state_path)
                     except: pass
@@ -171,46 +176,7 @@ class GeminiPlaywrightProvider(BaseProvider):
 
             async with session.submit_lock:
                 logger.debug("Submit lock acquired", extra={"request_id": state.request_id})
-                
-                # 5a. Historical Marking (Response Ownership)
-                await page.evaluate(f"() => document.querySelectorAll('{SELECTORS['RESPONSE_CONTAINER']}').forEach(el => el.setAttribute('data-gemini-historical', 'true'))")
-                
-                if state.active_tab: state.active_tab.heartbeat("prompt_fill")
-                await input_locator.click()
-                await input_locator.focus()
-                await input_locator.fill(prompt)
-                await page.keyboard.press("End")
-                await asyncio.sleep(0.1)
-                
-                submit_button = page.get_by_role("button", name=re.compile("Send", re.I)).first
-                if await submit_button.count() == 0:
-                    submit_button = page.locator(SELECTORS["SEND_BUTTON"]).first
-
-                await submit_button.wait_for(state="visible", timeout=5000)
-                
-                if not await submit_button.is_enabled():
-                    await page.keyboard.press("Space")
-                    await page.keyboard.press("Backspace")
-                    await asyncio.sleep(0.1)
-                
-                for attempt in range(2):
-                    state.submission_confirmed.clear()
-                    if await submit_button.is_enabled():
-                        await submit_button.click()
-                    else:
-                        await page.keyboard.press("Enter")
-                    
-                    try:
-                        # Short-lived wait while holding submit_lock
-                        async with asyncio.timeout(3.5):
-                            await state.submission_confirmed.wait()
-                            confirmed = True
-                            break
-                    except asyncio.TimeoutError:
-                        if attempt == 0:
-                            logger.warning("Submission not confirmed, retrying...", extra={"request_id": state.request_id})
-                            continue
-                
+                confirmed = await adapter.submit_prompt(page, prompt, state)
                 logger.debug("Submit lock released", extra={"request_id": state.request_id})
 
             if not confirmed:
@@ -334,6 +300,10 @@ class GeminiPlaywrightProvider(BaseProvider):
                     observer_task.cancel()
                     try: await observer_task
                     except: pass
+                
+                # Clean up our request callback from page registry
+                if lease and hasattr(lease.page, "__gemini_callbacks"):
+                    lease.page.__gemini_callbacks.pop(state.request_id, None)
                 
                 # 2. Force JS observer destruction (Request-scoped)
                 if lease and not state.page_closed:
