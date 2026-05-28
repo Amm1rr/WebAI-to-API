@@ -587,21 +587,31 @@ class ProviderSession:
 
     async def _setup_page_bridge(self, page: Page):
         """Exposes a single permanent binding on the page to prevent memory leaks."""
-        if getattr(page, "__gemini_bridge_exposed", False):
+        if getattr(page, "_gemini_bridge_exposed", False):
             return
         
-        page.__gemini_callbacks = {}
-        
-        async def page_bridge(source, payload):
-            req_id = payload.get("requestId")
-            if not req_id:
+        # Lock to serialize bridge setup on the same page
+        lock = getattr(page, "_gemini_bridge_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            page._gemini_bridge_lock = lock
+
+        async with lock:
+            if getattr(page, "_gemini_bridge_exposed", False):
                 return
-            callback = getattr(page, "__gemini_callbacks", {}).get(req_id)
-            if callback:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(source, payload)
-                else:
-                    callback(source, payload)
-                
-        await page.expose_binding("__gemini_bridge", page_bridge)
-        page.__gemini_bridge_exposed = True
+            
+            page._gemini_callbacks = {}
+            
+            async def page_bridge(source, payload):
+                req_id = payload.get("requestId")
+                if not req_id:
+                    return
+                callback = getattr(page, "_gemini_callbacks", {}).get(req_id)
+                if callback:
+                    if asyncio.iscoroutinefunction(callback):
+                        await callback(source, payload)
+                    else:
+                        callback(source, payload)
+                    
+            await page.expose_binding("__gemini_bridge", page_bridge)
+            page._gemini_bridge_exposed = True

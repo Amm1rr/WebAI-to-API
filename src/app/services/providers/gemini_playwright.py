@@ -122,7 +122,7 @@ class GeminiPlaywrightProvider(BaseProvider):
 
             # Ensure permanent bridge is exposed on this page and register callback
             await session._setup_page_bridge(page)
-            page.__gemini_callbacks[state.request_id] = bridge_callback
+            page._gemini_callbacks[state.request_id] = bridge_callback
             
             nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
             
@@ -302,8 +302,8 @@ class GeminiPlaywrightProvider(BaseProvider):
                     except: pass
                 
                 # Clean up our request callback from page registry
-                if lease and hasattr(lease.page, "__gemini_callbacks"):
-                    lease.page.__gemini_callbacks.pop(state.request_id, None)
+                if lease and hasattr(lease.page, "_gemini_callbacks"):
+                    lease.page._gemini_callbacks.pop(state.request_id, None)
                 
                 # 2. Force JS observer destruction (Request-scoped)
                 if lease and not state.page_closed:
