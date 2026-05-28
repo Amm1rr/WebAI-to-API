@@ -1,6 +1,7 @@
 import asyncio
 import time
 import uuid
+import re
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 from fastapi import HTTPException
@@ -30,6 +31,7 @@ class RequestState:
 class GeminiPlaywrightProvider(BaseProvider):
     """
     Production-grade Browser-native provider for Gemini Web.
+    
     Features: 
     - Generation-based context rotation (self-healing without active stream drops)
     - Strict semaphore ownership via RequestState
@@ -48,6 +50,7 @@ class GeminiPlaywrightProvider(BaseProvider):
         
         page = None
         observer_task = None
+        cleanup_started = False
 
         try:
             # 2. Page Acquisition (Supports Self-Healing)
@@ -80,34 +83,53 @@ class GeminiPlaywrightProvider(BaseProvider):
             })
             
             await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
+            await asyncio.sleep(2) # Wait for potential redirects and history load
             
-            # Verify UI interactivity
+            if "accounts.google.com" in page.url and "/signin" in page.url:
+                logger.warning("Auth redirect detected.", extra={"request_id": state.request_id})
+                raise HTTPException(status_code=401, detail="Authentication expired. Please run verify_login.py.")
+            
+            # Check for guest mode
             try:
-                await page.wait_for_selector(SELECTORS["INPUT"], state="attached", timeout=ui_timeout)
-            except PlaywrightTimeoutError:
-                if "accounts.google.com" in page.url:
-                    raise HTTPException(status_code=401, detail="Authentication required. Run verify_login.py.")
-                raise HTTPException(status_code=503, detail="Gemini UI failed to load interactive state.")
+                signin_button = page.get_by_role("button", name=re.compile("Sign in", re.IGNORECASE))
+                if await signin_button.is_visible(timeout=2000):
+                    logger.warning("Gemini loaded in Guest Mode.", extra={"request_id": state.request_id})
+            except: pass
 
-            # 3. Pre-submit Observer Injection
+            # 2. Pre-submit Observer Injection
             observer_task = asyncio.create_task(
                 page.evaluate(f"({STREAM_EXTRACTOR_SCRIPT})('{callback_name}')"),
                 name=f"observer_{state.request_id}"
             )
 
-            # 4. Resilient Submission
-            input_locator = page.locator(SELECTORS["INPUT"]).first
-            await input_locator.wait_for(state="visible", timeout=5000)
+            # 3. Resilient Submission
+            input_locator = page.locator('div[contenteditable="true"]').filter(has_text=re.compile("Prompt|Gemini|Ask", re.I)).first
+            
+            if await input_locator.count() == 0:
+                input_locator = page.locator(SELECTORS["INPUT"]).first
+
+            await input_locator.wait_for(state="visible", timeout=15000)
             
             prompt = request.messages[-1].get("content", "")
+            logger.info(f"Filling prompt (len={len(prompt)})")
+            
+            await input_locator.click()
             await input_locator.fill(prompt)
+            await asyncio.sleep(0.5)
             
             submit_button = page.locator(SELECTORS["SEND_BUTTON"]).first
             await submit_button.wait_for(state="visible", timeout=5000)
-            await submit_button.click()
             
-            logger.info("Prompt submitted", extra={
-                "request_id": state.request_id, 
+            logger.info("Clicking Send button...")
+            await submit_button.click(force=True)
+            
+            try:
+                if await submit_button.is_enabled(timeout=1000):
+                    await page.keyboard.press("Enter")
+            except: pass
+            
+            logger.info("Prompt submitted successfully", extra={
+                "request_id": state.request_id,
                 "latency_to_submit": time.time() - state.start_time
             })
 
@@ -116,12 +138,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             if is_stream:
                 return StreamingResponse(
                     self._sse_generator(queue, request.model or "playwright/gemini", page, state, observer_task, engine),
-                    media_type="text/event-stream",
-                    headers={
-                        "Cache-Control": "no-cache",
-                        "Connection": "keep-alive",
-                        "X-Accel-Buffering": "no",
-                    }
+                    media_type="text/event-stream"
                 )
             else:
                 return await self._get_buffered_response(queue, request.model or "playwright/gemini", page, state, observer_task, engine)
@@ -143,17 +160,11 @@ class GeminiPlaywrightProvider(BaseProvider):
             while True:
                 try:
                     payload = await asyncio.wait_for(queue.get(), timeout=chunk_timeout)
-                    
-                    if payload.get("type") == "done":
-                        break
-                    
+                    if payload.get("type") == "done": break
                     if payload.get("type") == "rewrite":
-                        # For now, we emit the full text as a new delta or skip. 
-                        # In production, we'd emit a 'rewrite' event if clients supported it.
                         # Gemini often 'polishes' output, causing a rewrite event.
                         logger.info("Handling Gemini UI Rewrite", extra={"request_id": state.request_id})
                         continue
-
                     if payload.get("type") == "chunk":
                         if not first_token_time:
                             first_token_time = time.time()
@@ -161,14 +172,11 @@ class GeminiPlaywrightProvider(BaseProvider):
                                 "request_id": state.request_id, 
                                 "ttft": first_token_time - state.start_time
                             })
-                        
                         chunk = self._convert_to_openai_format(payload["delta"], model, stream=True)
                         yield await format_sse_chunk(chunk)
-                        
                 except asyncio.TimeoutError:
                     logger.warning("Stream chunk timeout", extra={"request_id": state.request_id})
                     break
-            
             yield await get_done_chunk()
             logger.info("Stream finished successfully", extra={
                 "request_id": state.request_id, 
@@ -176,99 +184,57 @@ class GeminiPlaywrightProvider(BaseProvider):
                 "max_q_depth": state.max_queue_depth,
                 "dropped_chunks": state.dropped_chunks
             })
-            
         except (asyncio.CancelledError, GeneratorExit):
-            logger.info("Client disconnected, stopping generation", extra={"request_id": state.request_id})
             try:
                 stop_button = page.locator(SELECTORS["STOP_BUTTON"]).first
-                if await stop_button.is_visible():
-                    await stop_button.click()
+                if await stop_button.is_visible(): await stop_button.click()
             except: pass
             raise
         finally:
             await self._cleanup(page, observer_task, state, engine)
 
     async def _get_buffered_response(self, queue: asyncio.Queue, model: str, page: Page, state: RequestState, observer_task: Optional[asyncio.Task], engine: Any):
-        """Buffered collector with total timeout budget."""
         total_timeout = CONFIG["Playwright"].getint("total_request_timeout", 120)
         try:
             full_text = ""
             async with asyncio.timeout(total_timeout):
                 while True:
                     payload = await queue.get()
-                    if payload.get("type") == "done":
-                        break
-                    if payload.get("type") == "rewrite":
-                        full_text = payload["full_text"]
-                    if payload.get("type") == "chunk":
-                        full_text += payload["delta"]
-            
-            logger.info("Buffered response complete", extra={
-                "request_id": state.request_id, 
-                "duration": time.time() - state.start_time,
-                "max_q_depth": state.max_queue_depth,
-                "dropped_chunks": state.dropped_chunks
-            })
+                    if payload.get("type") == "done": break
+                    if payload.get("type") == "rewrite": full_text = payload["full_text"]
+                    if payload.get("type") == "chunk": full_text += payload["delta"]
             return self._convert_to_openai_format(full_text, model, stream=False)
         except asyncio.TimeoutError:
-            logger.warning("Buffered request timed out", extra={"request_id": state.request_id})
-            raise HTTPException(status_code=504, detail="Request timed out during generation.")
+            raise HTTPException(status_code=504, detail="Request timed out.")
         finally:
             await self._cleanup(page, observer_task, state, engine)
 
     async def _cleanup(self, page: Optional[Page], observer_task: Optional[asyncio.Task], state: RequestState, engine: Any):
-        """Standardized, idempotent cleanup."""
+        """Idempotent cleanup of request resources."""
         async with state.lock:
-            if state.cleanup_started and state.page_closed and state.semaphore_released:
-                return # Already cleaned up
-            
+            if state.cleanup_started and state.page_closed and state.semaphore_released: return
             state.cleanup_started = True
-            
             try:
-                # 1. Task Cancellation
                 if observer_task and not observer_task.done():
                     observer_task.cancel()
-                    try:
-                        await observer_task
-                    except (asyncio.CancelledError, PlaywrightError):
-                        pass
-
-                # 2. Page Closure
+                    try: await observer_task
+                    except: pass
                 if page and not state.page_closed:
-                    try:
-                        if not page.is_closed():
-                            await page.close()
-                    except PlaywrightError as e:
-                        if "closed" not in str(e).lower() and "destroyed" not in str(e).lower():
-                            logger.warning(f"Error closing page: {e}", extra={"request_id": state.request_id})
-                    
+                    try: 
+                        if not page.is_closed(): await page.close()
+                    except: pass
                     await engine.notify_page_closed(page)
                     state.page_closed = True
-
-            except Exception as e:
-                logger.warning(f"Cleanup error: {e}", extra={"request_id": state.request_id})
+                    logger.info("Resources released", extra={"request_id": state.request_id})
             finally:
-                # 3. STRICT Semaphore Ownership Release
                 if state.permit_acquired and not state.semaphore_released:
                     engine.semaphore.release()
                     state.semaphore_released = True
-                    logger.info("Resources released", extra={
-                        "request_id": state.request_id,
-                        "remaining_active": engine.active_pages
-                    })
 
     async def list_models(self) -> List[dict]:
-        return [
-            {
-                "id": "playwright/gemini",
-                "object": "model",
-                "created": int(time.time()),
-                "owned_by": "google-playwright",
-            }
-        ]
+        return [{"id": "playwright/gemini", "object": "model", "created": int(time.time()), "owned_by": "google-playwright"}]
 
-    async def close(self) -> None:
-        pass
+    async def close(self) -> None: pass
 
     def _convert_to_openai_format(self, text: str, model: str, stream: bool):
         ts = int(time.time())
@@ -279,10 +245,6 @@ class GeminiPlaywrightProvider(BaseProvider):
             "object": "chat.completion.chunk" if stream else "chat.completion",
             "created": ts,
             "model": model,
-            "choices": [{
-                "index": 0,
-                choice_key: content,
-                "finish_reason": "stop" if not stream else None,
-            }],
+            "choices": [{"index": 0, choice_key: content, "finish_reason": "stop" if not stream else None}],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
