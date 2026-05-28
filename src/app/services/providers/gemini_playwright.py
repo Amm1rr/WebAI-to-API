@@ -147,7 +147,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             if state.active_tab: state.active_tab.heartbeat("input_wait")
             try:
                 await input_locator.wait_for(state="visible", timeout=15000)
-            except Exception as e:
+            except (PlaywrightTimeoutError, PlaywrightError) as e:
                 state.page_poisoned = True
                 if state.active_tab:
                     state.active_tab.status = TabStatus.DEAD
