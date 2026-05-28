@@ -30,6 +30,7 @@ class RequestState:
     reused_conversation: bool = False
     active_tab: Optional[PersistentTab] = None
     js_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    submission_confirmed: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     has_sent_text: bool = False
 
@@ -73,6 +74,17 @@ class GeminiPlaywrightProvider(BaseProvider):
                 if payload.get("type") == "ready":
                     state.js_ready.set()
                     return
+                
+                # Authoritative submission confirmation: 
+                # only first transition from (not confirmed -> confirmed) matters.
+                if payload.get("type") in ("started", "chunk", "rewrite"):
+                    if not state.submission_confirmed.is_set():
+                        state.submission_confirmed.set()
+
+                # 'started' is a synchronization-only signal; skip queueing.
+                if payload.get("type") == "started":
+                    return 
+                    
                 try:
                     queue.put_nowait(payload)
                     state.max_queue_depth = max(state.max_queue_depth, queue.qsize())
@@ -143,15 +155,39 @@ class GeminiPlaywrightProvider(BaseProvider):
                 submit_button = page.locator(SELECTORS["SEND_BUTTON"]).first
 
             await submit_button.wait_for(state="visible", timeout=5000)
-            await submit_button.click(force=True)
             
-            # Submission fallback
-            await asyncio.sleep(0.5)
-            try:
-                if await submit_button.is_visible() and await submit_button.is_enabled():
-                    if state.active_tab: state.active_tab.heartbeat("retry_submission")
+            # Conditional input stimulation if button is still disabled
+            if not await submit_button.is_enabled():
+                await page.keyboard.press("Space")
+                await page.keyboard.press("Backspace")
+                await asyncio.sleep(0.1)
+            
+            # Submission Loop (Retry fallback Enter)
+            confirmed = False
+            
+            # Prevent stale confirmation from previous lifecycle
+            state.submission_confirmed.clear()
+
+            for attempt in range(2):
+                if await submit_button.is_enabled():
+                    await submit_button.click()
+                else:
                     await page.keyboard.press("Enter")
-            except: pass
+                
+                # Wait for authoritative confirmation from observer (Event-driven).
+                # Only the first transition matters; duplicate events are safely ignored.
+                try:
+                    async with asyncio.timeout(3.5):
+                        await state.submission_confirmed.wait()
+                        confirmed = True
+                        break
+                except asyncio.TimeoutError:
+                    if attempt == 0:
+                        logger.warning("Submission not confirmed via events, retrying with Enter...", extra={"request_id": state.request_id})
+                        continue
+
+            if not confirmed:
+                raise HTTPException(status_code=500, detail="Gemini failed to accept the prompt.")
             
             logger.info("Prompt submitted", extra={"request_id": state.request_id})
 

@@ -129,11 +129,13 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         const isStopVisible = !!stopButton;
         const isGenerating = (sendButton && sendButton.disabled) || isStopVisible;
 
-        if (isGenerating) {{
+        if (isGenerating && !hasStartedGenerating) {{
             hasStartedGenerating = true;
+            emit({{type: "started"}});
         }}
 
         // Robust completion condition:
+
         // 1. Must have evidence of starting (button disabled or stop visible)
         // 2. Must have found the container (prevents exiting before observer is attached)
         // 3. Generation must now be finished (button enabled and stop gone)
