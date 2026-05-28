@@ -38,7 +38,8 @@ async def verify_login():
         try:
             while True:
                 # Check if we are logged in by looking for the input box
-                input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible(timeout=500)
+                # Correct Playwright Async API usage: await is_visible() without timeout
+                input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                 if input_exists and not login_detected:
                     login_detected = True
                     await engine.save_state()
@@ -63,6 +64,10 @@ async def verify_login():
         pass
     finally:
         save_task.cancel()
+        try:
+            await save_task
+        except asyncio.CancelledError:
+            pass
         await engine.save_state()
         await engine.close()
         print("\nSession saved. BrowserEngine closed.")
