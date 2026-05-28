@@ -70,6 +70,15 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         return text.replace(/[\\u200B]*[\\u2580-\\u258F█▌▋]+$/, "");
     }};
 
+    /**
+     * Helper to verify if the raw DOM text has probable model-generated content
+     * or active generation indicators, excluding pure whitespaces and zero-width artifacts.
+     */
+    const hasMeaningfulContent = (text) => {{
+        if (!text) return false;
+        return text.replace(/[\\s\\u200B\\u200C\\u200D\\uFEFF]+/g, "").length > 0;
+    }};
+
     // Initialize Global Request Registry (Singleton for the window)
     try {{
         window.__gemini_observers = window.__gemini_observers || {{}};
@@ -173,8 +182,8 @@ STREAM_EXTRACTOR_SCRIPT = f"""
                 
                 let rawSnapshot = element.innerText || "";
                 
-                // If raw DOM has any text (even cursor artifacts), transition started to true
-                if (rawSnapshot.trim()) {{
+                // If raw DOM has meaningful content or active cursor, transition started to true
+                if (hasMeaningfulContent(rawSnapshot)) {{
                     state.started = true;
                 }}
                 
