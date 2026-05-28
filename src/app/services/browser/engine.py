@@ -25,6 +25,7 @@ class BrowserEngine:
         self.active_context: Optional[BrowserContext] = None
         self.retiring_contexts: Dict[BrowserContext, int] = {} # context -> active_page_count
         self.context_generation = 0
+        self.keepalive_page: Optional[Page] = None
         
         # Persistent data directory for cookie/auth extraction
         self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
@@ -157,6 +158,10 @@ class BrowserEngine:
             except Exception as e:
                 logger.warning(f"BrowserEngine: Error cancelling autosave task: {e}")
             self.state_autosave_task = None
+        
+        # 2. Store old keepalive reference to close AFTER the new one is ready
+        # This prevents the browser window from flickering or closing due to zero tabs.
+        old_keepalive = self.keepalive_page
 
         if self.active_context:
             self.retiring_contexts[self.active_context] = len(self.active_context.pages)
@@ -174,6 +179,21 @@ class BrowserEngine:
             logger.info(f"BrowserEngine: Loading state from {self.state_path}")
 
         self.active_context = await self.browser.new_context(**context_args)
+        
+        # Initialize the NEW keepalive page within the new active context
+        self.keepalive_page = await self.active_context.new_page()
+        await self.keepalive_page.goto("about:blank", wait_until="domcontentloaded")
+        logger.info("BrowserEngine: Keepalive page initialized.")
+
+        # 3. ONLY NOW close the old keepalive page
+        if old_keepalive:
+            try:
+                if not old_keepalive.is_closed():
+                    await old_keepalive.close()
+            except Exception:
+                pass
+            old_keepalive = None
+
         logger.info("context_rotated", extra={
             "context_generation": self.context_generation,
             "active_pages": self.active_pages
@@ -311,8 +331,15 @@ class BrowserEngine:
             # 2. final atomic save
             if self.active_context:
                 await self._atomic_save_state(self.active_context)
+
+            # 3. close keepalive page
+            if self.keepalive_page and not self.keepalive_page.is_closed():
+                try:
+                    await self.keepalive_page.close()
+                except Exception as e:
+                    logger.warning(f"BrowserEngine: Error closing keepalive page: {e}")
             
-            # 3. close active context
+            # 4. close active context
             if self.active_context:
                 try: 
                     await self.active_context.close()
