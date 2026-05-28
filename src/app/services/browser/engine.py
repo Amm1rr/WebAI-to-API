@@ -1,13 +1,6 @@
 import os
 import asyncio
-from typing import Optional
-from playwright.async_api import async_playwright, Playwright, BrowserContext, Page
-from app.logger import logger
-from app.config import CONFIG
-
-import os
-import asyncio
-from typing import Optional, Dict, Set
+from typing import Optional, Dict
 from playwright.async_api import async_playwright, Playwright, BrowserContext, Page, Browser
 from app.logger import logger
 from app.config import CONFIG
@@ -16,7 +9,7 @@ class BrowserEngine:
     """
     Production-grade Browser Engine.
     Manages a single Browser instance with generation-based Context Rotation.
-    Supports self-healing without interrupting active streams.
+    Supports state persistence (cookies/login) and self-healing.
     """
     _instance: Optional['BrowserEngine'] = None
     _lock = asyncio.Lock()
@@ -32,6 +25,8 @@ class BrowserEngine:
         
         # Persistent data directory for cookie/auth extraction
         self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
+        self.state_path = os.path.join(self.user_data_dir, "state.json")
+        os.makedirs(self.user_data_dir, exist_ok=True)
         
         # Load config
         self.headless = CONFIG["Playwright"].getboolean("headless", False)
@@ -50,9 +45,11 @@ class BrowserEngine:
         """Total active pages across all contexts (active + retiring)."""
         total = 0
         if self.active_context:
-            total += len(self.active_context.pages)
+            try: total += len(self.active_context.pages)
+            except: pass
         for ctx in self.retiring_contexts:
-            total += len(ctx.pages)
+            try: total += len(ctx.pages)
+            except: pass
         return total
 
     @classmethod
@@ -71,14 +68,12 @@ class BrowserEngine:
         async with self.management_lock:
             await self._ensure_healthy_browser()
             await self._ensure_healthy_context()
-            
-            page = await self.active_context.new_page()
-            return page
+            return await self.active_context.new_page()
 
     async def _ensure_healthy_browser(self):
         """Ensures the Playwright and Browser instances are alive."""
         if not self.playwright or not self.browser or not self.browser.is_connected():
-            logger.info("BrowserEngine: Initializing/Recovering Browser instance...")
+            logger.info("BrowserEngine: Initializing Browser instance...")
             if self.playwright: 
                 try: await self.playwright.stop()
                 except: pass
@@ -115,52 +110,69 @@ class BrowserEngine:
         """
         Rotates the active context. 
         Old context is moved to 'retiring' until its pages are closed.
+        Loads existing login state if available.
         """
         if self.active_context:
-            logger.info(f"BrowserEngine: Retiring context generation {self.context_generation}")
             self.retiring_contexts[self.active_context] = len(self.active_context.pages)
+            await self.save_state()
         
         self.context_generation += 1
         self.context_rotation_count += 1
         
-        # Create new context with persistent state injection if needed
-        # For now, we use a simple context, but could load storageState here
-        self.active_context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-        # Inject cookies from browser_data if they exist
-        # TODO: Implement robust storageState persistence/loading
+        context_args = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
         
-        logger.info(f"BrowserEngine: New context generation {self.context_generation} active.")
+        if os.path.exists(self.state_path):
+            context_args["storage_state"] = self.state_path
+            logger.info(f"BrowserEngine: Loading state from {self.state_path}")
+
+        self.active_context = await self.browser.new_context(**context_args)
+        logger.info(f"BrowserEngine: Context generation {self.context_generation} active.")
+
+    async def save_state(self):
+        """Manually trigger state saving to disk."""
+        if self.active_context:
+            try:
+                await self.active_context.storage_state(path=self.state_path)
+                logger.info(f"BrowserEngine: State saved to {self.state_path}")
+            except Exception as e:
+                logger.warning(f"BrowserEngine: Failed to save state: {e}")
 
     async def notify_page_closed(self, page: Page):
-        """Handles context cleanup after a page is closed."""
+        """Callback for pages to notify their closure, allowing for context cleanup."""
         async with self.management_lock:
             context = page.context
             if context in self.retiring_contexts:
-                # Check if this context can now be closed
                 if len(context.pages) == 0:
-                    logger.info(f"BrowserEngine: Closing retired context with 0 pages.")
-                    await context.close()
+                    try: await context.close()
+                    except: pass
                     del self.retiring_contexts[context]
 
     async def close(self) -> None:
-        """Graceful global shutdown."""
+        """Graceful shutdown of all browser resources."""
         async with self.management_lock:
             logger.info("BrowserEngine: Shutting down...")
+            await self.save_state()
+            
             if self.active_context:
-                await self.active_context.close()
+                try: await self.active_context.close()
+                except: pass
             for ctx in list(self.retiring_contexts.keys()):
-                await ctx.close()
+                try: await ctx.close()
+                except: pass
             if self.browser:
-                await self.browser.close()
+                try: await self.browser.close()
+                except: pass
             if self.playwright:
-                await self.playwright.stop()
+                try: await self.playwright.stop()
+                except: pass
+            
+            self.active_context = None
+            self.retiring_contexts = {}
+            self.browser = None
+            self.playwright = None
             logger.info("BrowserEngine: Shutdown complete.")
 
 async def get_browser_engine() -> BrowserEngine:
-    return await BrowserEngine.get_instance()
-
-async def get_browser_engine() -> BrowserEngine:
-    """Entry point to retrieve the singleton BrowserEngine instance."""
     return await BrowserEngine.get_instance()
