@@ -6,11 +6,8 @@ Hardened for high-speed synchronization and zero-loss streaming.
 Isolating these ensures the provider logic remains clean.
 """
 
-# Selectors optimized for high-precision targeting to avoid navigational elements
-# Centralized for easier maintenance across UI updates
+# Selectors optimized for high-precision targeting
 SELECTORS = {
-    # Target ONLY editable regions, avoiding buttons or links
-    # Prioritize semantic selectors: role textbox, then specific placeholders
     "INPUT": 'div[contenteditable="true"][role="textbox"], textarea.gds-body-l, textarea[placeholder*="Gemini"]',
     "SEND_BUTTON": 'button.send-button, button[aria-label*="Send message"], [data-test-id="send-button"]',
     "STOP_BUTTON": 'button[aria-label*="Stop"], .stop-button',
@@ -18,143 +15,169 @@ SELECTORS = {
 }
 
 # Configurable intervals for responsiveness vs CPU usage
-# Lower values (50/100) are used for production hardening against fast responses
 POLL_INTERVAL_MS = 50
 COMPLETION_CHECK_MS = 100
 
 # Script to inject MutationObserver and emit deltas back to Python
 # Features:
-# - Generation-based history filtering (initialMessageCount)
-# - Non-blocking browser-to-python bridge
-# - Rewrite-resilient DOM diffing
-# - Ready-signal synchronization for Python-side submission timing
+# - Request-scoped isolation (window.__gemini_observers)
+# - Deterministic cleanup (clearInterval per request)
+# - Invariant-based completion (no done without started)
+# - Safe-emit (exception isolation for Playwright bindings)
 STREAM_EXTRACTOR_SCRIPT = f"""
-(async (callbackName) => {{
-    const emit = window[callbackName];
-    if (!emit) {{
-        console.error("Bridge callback not found:", callbackName);
+(async (callbackName, requestId) => {{
+    const rawEmit = window[callbackName];
+    if (!rawEmit) {{
+        console.error(`[${{requestId}}] Bridge callback not found:`, callbackName);
         return;
     }}
 
-    const getAllResponses = () => document.querySelectorAll('{SELECTORS["RESPONSE_CONTAINER"]}');
-    
-    // Count existing messages to avoid picking up history from previous sessions
-    const initialMessageCount = getAllResponses().length;
-    console.log("Initial message count for filtering:", initialMessageCount);
-
-    let responseContainer = null;
-    let lastSnapshot = "";
-    let observer = null;
-    let cleanedUp = false;
-    let hasStartedGenerating = false;
-
     /**
-     * Computes the difference between current and previous text snapshots.
-     * Handles both incremental chunks and full UI rewrites.
+     * Safe-Emit Wrapper: Prevents JS execution from halting if the Playwright 
+     * binding throws (e.g., if the page is closing or navigation occurred).
      */
-    const computeDelta = (current) => {{
-        if (current.startsWith(lastSnapshot)) {{
-            return {{ type: "chunk", delta: current.substring(lastSnapshot.length) }};
+    const emit = (payload) => {{
+        try {{
+            rawEmit(payload);
+        }} catch (e) {{
+            console.warn(`[${{requestId}}] Emit failed (possibly page closing):`, e.message);
+        }}
+    }};
+
+    // Initialize Global Request Registry (Singleton for the window)
+    window.__gemini_observers = window.__gemini_observers || {{}};
+    
+    // Idempotent Cleanup Definition (Singleton for the window)
+    window.__gemini_stop_observer = window.__gemini_stop_observer || ((rId) => {{
+        const s = window.__gemini_observers && window.__gemini_observers[rId];
+        if (!s || s.cleanedUp) return;
+        
+        // INVARIANT: cleanup is one-way and terminal
+        s.cleanedUp = true;
+        
+        // 1. Stop all polling
+        s.intervals.forEach(clearInterval);
+        s.intervals = [];
+        
+        // 2. Disconnect DOM observer (synchronous)
+        if (s.observer) {{
+            s.observer.disconnect();
+            s.observer = null;
         }}
         
-        // Rewrite detected or non-append-only change
-        // Gemini often 'polishes' output, causing a rewrite event.
-        // We emit the full text to ensure the client has the most accurate state.
+        // 3. Clear from registry to prevent memory leak
+        delete window.__gemini_observers[rId];
+        console.log(`[${{rId}}] Observer destroyed.`);
+    }});
+
+    // Cleanup any existing observer for the same ID (Safety for rapid reuse)
+    window.__gemini_stop_observer(requestId);
+
+    // Request State Ownership
+    const state = {{
+        requestId: requestId,
+        initialMessageCount: document.querySelectorAll('{SELECTORS["RESPONSE_CONTAINER"]}').length,
+        responseContainer: null,
+        lastSnapshot: "",
+        observer: null,
+        started: false,
+        done: false,
+        cleanedUp: false,
+        intervals: []
+    }};
+    window.__gemini_observers[requestId] = state;
+
+    console.log(`[${{requestId}}] Initializing observer. Initial messages: ${{state.initialMessageCount}}`);
+
+    const computeDelta = (current) => {{
+        if (current.startsWith(state.lastSnapshot)) {{
+            return {{ type: "chunk", delta: current.substring(state.lastSnapshot.length) }};
+        }}
         return {{ type: "rewrite", full_text: current }};
     }};
 
-    /**
-     * Attaches a MutationObserver to the target element to capture live text deltas.
-     */
     const startObservation = (element) => {{
-        if (observer) observer.disconnect();
-        lastSnapshot = ""; // RESET snapshot for the new message to start fresh
+        if (state.observer) state.observer.disconnect();
+        state.lastSnapshot = "";
         
-        observer = new MutationObserver(() => {{
-            if (cleanedUp) return;
+        state.observer = new MutationObserver(() => {{
+            // INVARIANT: Mutation callbacks must respect terminal state
+            if (state.cleanedUp || state.done) return;
+            
             const currentSnapshot = element.innerText || element.textContent || "";
-            if (currentSnapshot === lastSnapshot) return;
+            if (currentSnapshot === state.lastSnapshot) return;
 
-            hasStartedGenerating = true;
+            state.started = true;
             const payload = computeDelta(currentSnapshot);
-            lastSnapshot = currentSnapshot;
+            state.lastSnapshot = currentSnapshot;
             emit(payload);
         }});
 
-        observer.observe(element, {{
+        state.observer.observe(element, {{
             childList: true,
             subtree: true,
             characterData: true
         }});
-        console.log("Observer attached to NEW message container.");
+        console.log(`[${{requestId}}] Observer attached to response container.`);
     }};
 
-    /**
-     * Stop all loops and observers.
-     */
-    const cleanup = () => {{
-        if (cleanedUp) return;
-        cleanedUp = true;
-        clearInterval(pollForContainer);
-        clearInterval(checkCompletion);
-        if (observer) observer.disconnect();
-        window.removeEventListener('unload', cleanup);
-        console.log("DOM Observer cleanup complete.");
-    }};
-
-    window.addEventListener('unload', cleanup);
-
-    // Watch for the appearance of the NEW message container
-    // This prevents picking up historical chat entries
+    // 1. Container Polling Loop
     const pollForContainer = setInterval(() => {{
-        if (cleanedUp) return;
-        const allResponses = getAllResponses();
-        if (allResponses.length > initialMessageCount) {{
+        if (state.cleanedUp || state.done) return;
+        
+        const allResponses = document.querySelectorAll('{SELECTORS["RESPONSE_CONTAINER"]}');
+        if (allResponses.length > state.initialMessageCount) {{
             const latest = allResponses[allResponses.length - 1];
-            if (latest !== responseContainer) {{
-                responseContainer = latest;
-                startObservation(responseContainer);
+            if (latest !== state.responseContainer) {{
+                state.responseContainer = latest;
+                startObservation(state.responseContainer);
             }}
         }}
     }}, {POLL_INTERVAL_MS});
+    state.intervals.push(pollForContainer);
 
-    /**
-     * Monitors the Send/Stop buttons to detect when Gemini finishes generating.
-     */
+    // 2. Completion Polling Loop
     const checkCompletion = setInterval(() => {{
-        if (cleanedUp) return;
+        if (state.cleanedUp || state.done) return;
         
         const sendButton = document.querySelector('{SELECTORS["SEND_BUTTON"]}');
         const stopButton = document.querySelector('{SELECTORS["STOP_BUTTON"]}');
         const isStopVisible = !!stopButton;
         const isGenerating = (sendButton && sendButton.disabled) || isStopVisible;
 
-        if (isGenerating && !hasStartedGenerating) {{
-            hasStartedGenerating = true;
+        // INVARIANT: Transition to 'started' is strictly one-way
+        if (isGenerating && !state.started) {{
+            state.started = true;
             emit({{type: "started"}});
         }}
 
-        // Robust completion condition:
-
-        // 1. Must have evidence of starting (button disabled or stop visible)
-        // 2. Must have found the container (prevents exiting before observer is attached)
-        // 3. Generation must now be finished (button enabled and stop gone)
-        if (hasStartedGenerating && responseContainer && sendButton && !sendButton.disabled && !isStopVisible) {{
-            // Final delta check to catch trailing text
-            const finalSnapshot = responseContainer.innerText || responseContainer.textContent || "";
-            if (finalSnapshot !== lastSnapshot) {{
+        // INVARIANT: Completion required a detected start and a stable idle state
+        if (state.started && state.responseContainer && sendButton && !sendButton.disabled && !isStopVisible) {{
+            // Terminal State Transition
+            state.done = true;
+            
+            const finalSnapshot = state.responseContainer.innerText || state.responseContainer.textContent || "";
+            if (finalSnapshot !== state.lastSnapshot) {{
                 emit(computeDelta(finalSnapshot));
             }}
             
-            console.log("Generation finished successfully.");
+            console.log(`[${{requestId}}] Generation finished.`);
             emit({{type: "done"}});
-            cleanup();
+            
+            // Self-Cleanup
+            window.__gemini_stop_observer(requestId);
         }}
     }}, {COMPLETION_CHECK_MS});
+    state.intervals.push(checkCompletion);
 
-    // Notify Python that the observer is READY to capture content
-    // Python waits for this signal before submitting the prompt
     emit({{type: "ready"}});
-    console.log("Stream extractor READY.");
 }})
+"""
+
+STOP_OBSERVER_SCRIPT = """
+(requestId) => {
+    if (window.__gemini_stop_observer) {
+        window.__gemini_stop_observer(requestId);
+    }
+}
 """

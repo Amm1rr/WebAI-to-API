@@ -223,6 +223,7 @@ class ProviderSession:
         self.init_lock = asyncio.Lock()   # For setup/re-init
         self.registry_lock = asyncio.Lock() # ONLY for trivial registry mutations
         self.state_lock = asyncio.Lock()  # For disk I/O
+        self.submit_lock = asyncio.Lock() # For serializing prompt submission
         
         # Conversation Registry (LRU-capable)
         self.conversation_registry: Dict[str, PersistentTab] = OrderedDict()
