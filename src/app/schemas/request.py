@@ -34,6 +34,7 @@ class OpenAIChatRequest(BaseModel):
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Any] = None
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
+    conversation_id: Optional[str] = Field(default=None, description="ID to continue an existing browser conversation.")
 
 class Part(BaseModel):
     text: Optional[str] = None

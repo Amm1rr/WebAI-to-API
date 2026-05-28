@@ -2,6 +2,7 @@
 
 """
 Javascript snippets for Playwright's page.evaluate to interact with Gemini Web.
+Hardened for high-speed synchronization and zero-loss streaming.
 Isolating these ensures the provider logic remains clean.
 """
 
@@ -17,14 +18,16 @@ SELECTORS = {
 }
 
 # Configurable intervals for responsiveness vs CPU usage
-POLL_INTERVAL_MS = 150
-COMPLETION_CHECK_MS = 500
+# Lower values (50/100) are used for production hardening against fast responses
+POLL_INTERVAL_MS = 50
+COMPLETION_CHECK_MS = 100
 
 # Script to inject MutationObserver and emit deltas back to Python
 # Features:
 # - Generation-based history filtering (initialMessageCount)
 # - Non-blocking browser-to-python bridge
 # - Rewrite-resilient DOM diffing
+# - Ready-signal synchronization for Python-side submission timing
 STREAM_EXTRACTOR_SCRIPT = f"""
 (async (callbackName) => {{
     const emit = window[callbackName];
@@ -43,26 +46,26 @@ STREAM_EXTRACTOR_SCRIPT = f"""
     let lastSnapshot = "";
     let observer = null;
     let cleanedUp = false;
-    let hasStarted = false;
+    let hasStartedGenerating = false;
 
+    /**
+     * Computes the difference between current and previous text snapshots.
+     * Handles both incremental chunks and full UI rewrites.
+     */
     const computeDelta = (current) => {{
         if (current.startsWith(lastSnapshot)) {{
             return {{ type: "chunk", delta: current.substring(lastSnapshot.length) }};
         }}
         
         // Rewrite detected or non-append-only change
-        // Find longest common prefix to potentially minimize payload in future
-        let commonLength = 0;
-        const minLen = Math.min(current.length, lastSnapshot.length);
-        while (commonLength < minLen && current[commonLength] === lastSnapshot[commonLength]) {{
-            commonLength++;
-        }}
-        
         // Gemini often 'polishes' output, causing a rewrite event.
         // We emit the full text to ensure the client has the most accurate state.
         return {{ type: "rewrite", full_text: current }};
     }};
 
+    /**
+     * Attaches a MutationObserver to the target element to capture live text deltas.
+     */
     const startObservation = (element) => {{
         if (observer) observer.disconnect();
         lastSnapshot = ""; // RESET snapshot for the new message to start fresh
@@ -72,7 +75,7 @@ STREAM_EXTRACTOR_SCRIPT = f"""
             const currentSnapshot = element.innerText || element.textContent || "";
             if (currentSnapshot === lastSnapshot) return;
 
-            hasStarted = true;
+            hasStartedGenerating = true;
             const payload = computeDelta(currentSnapshot);
             lastSnapshot = currentSnapshot;
             emit(payload);
@@ -86,6 +89,9 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         console.log("Observer attached to NEW message container.");
     }};
 
+    /**
+     * Stop all loops and observers.
+     */
     const cleanup = () => {{
         if (cleanedUp) return;
         cleanedUp = true;
@@ -98,7 +104,7 @@ STREAM_EXTRACTOR_SCRIPT = f"""
 
     window.addEventListener('unload', cleanup);
 
-    // Only start observing when a NEW message container appears
+    // Watch for the appearance of the NEW message container
     // This prevents picking up historical chat entries
     const pollForContainer = setInterval(() => {{
         if (cleanedUp) return;
@@ -112,6 +118,9 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         }}
     }}, {POLL_INTERVAL_MS});
 
+    /**
+     * Monitors the Send/Stop buttons to detect when Gemini finishes generating.
+     */
     const checkCompletion = setInterval(() => {{
         if (cleanedUp) return;
         
@@ -121,22 +130,29 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         const isGenerating = (sendButton && sendButton.disabled) || isStopVisible;
 
         if (isGenerating) {{
-            hasStarted = true;
+            hasStartedGenerating = true;
         }}
 
-        // Completion condition: We MUST have started, and now Send is enabled AND Stop is gone
-        if (hasStarted && sendButton && !sendButton.disabled && !isStopVisible) {{
+        // Robust completion condition:
+        // 1. Must have evidence of starting (button disabled or stop visible)
+        // 2. Must have found the container (prevents exiting before observer is attached)
+        // 3. Generation must now be finished (button enabled and stop gone)
+        if (hasStartedGenerating && responseContainer && sendButton && !sendButton.disabled && !isStopVisible) {{
             // Final delta check to catch trailing text
-            if (responseContainer) {{
-                const finalSnapshot = responseContainer.innerText || responseContainer.textContent || "";
-                if (finalSnapshot !== lastSnapshot) {{
-                    emit(computeDelta(finalSnapshot));
-                }}
+            const finalSnapshot = responseContainer.innerText || responseContainer.textContent || "";
+            if (finalSnapshot !== lastSnapshot) {{
+                emit(computeDelta(finalSnapshot));
             }}
             
-            cleanup();
+            console.log("Generation finished successfully.");
             emit({{type: "done"}});
+            cleanup();
         }}
     }}, {COMPLETION_CHECK_MS});
+
+    // Notify Python that the observer is READY to capture content
+    // Python waits for this signal before submitting the prompt
+    emit({{type: "ready"}});
+    console.log("Stream extractor READY.");
 }})
 """
