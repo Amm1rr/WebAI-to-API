@@ -104,6 +104,12 @@ class ProviderSession:
     async def ensure_healthy(self):
         """Self-healing logic to recover from crashes or discarded tabs."""
         async with self.init_lock:
+            # 1. Ensure the core browser process is healthy first
+            # This handles cases where the browser crashed or hasn't been initialized.
+            async with self.engine.management_lock:
+                await self.engine._ensure_healthy_browser()
+
+            # 2. Check if the session context is still valid
             needs_setup = not self.is_alive
             
             if not needs_setup:
@@ -289,24 +295,35 @@ class BrowserEngine:
             logger.info("BrowserEngine: Initializing Browser...")
             
             # Ensure full cleanup of stale resources
-            if self.playwright:
-                try: await self.playwright.stop()
-                except Exception: pass
+            try:
+                if self.browser:
+                    await self.browser.close()
+            except Exception: pass
+
+            try:
+                if self.playwright:
+                    await self.playwright.stop()
+            except Exception: pass
             
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=self.headless,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ]
-            )
-            self.browser_generation += 1
-            self.recovery_count += 1
-            logger.info("BrowserEngine: New generation active.", extra={"gen": self.browser_generation})
+            try:
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.chromium.launch(
+                    headless=self.headless,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                    ]
+                )
+                self.browser_generation += 1
+                self.recovery_count += 1
+                logger.info("BrowserEngine: New generation active.", extra={"gen": self.browser_generation})
+            except Exception as e:
+                logger.error(f"BrowserEngine: Failed to launch browser: {e}")
+                self.browser = None
+                raise
 
     async def is_authenticated(self, page: Page) -> bool:
         """Reliable fail-open auth check via direct DOM evaluation."""
