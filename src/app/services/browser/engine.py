@@ -21,11 +21,15 @@ class BrowserEngine:
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
         
-        # Generation-based Context Management
+        # Isolated Keepalive Management
+        self.keepalive_context: Optional[BrowserContext] = None
+        self.keepalive_page: Optional[Page] = None
+        self.keepalive_lock = asyncio.Lock()
+        
+        # Generation-based Request Context Management
         self.active_context: Optional[BrowserContext] = None
         self.retiring_contexts: Dict[BrowserContext, int] = {} # context -> active_page_count
         self.context_generation = 0
-        self.keepalive_page: Optional[Page] = None
         
         # Persistent data directory for cookie/auth extraction
         self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
@@ -51,7 +55,7 @@ class BrowserEngine:
 
     @property
     def active_pages(self) -> int:
-        """Total active pages across all contexts (active + retiring)."""
+        """Total active request pages (excludes keepalive)."""
         total = 0
         if self.active_context:
             try: total += len(self.active_context.pages)
@@ -71,7 +75,7 @@ class BrowserEngine:
 
     async def get_page(self) -> Page:
         """
-        Returns a new isolated page. 
+        Returns a new isolated request page. 
         Triggers rotation if active context is unhealthy.
         """
         async with self.management_lock:
@@ -80,7 +84,8 @@ class BrowserEngine:
             return await self.active_context.new_page()
 
     async def _ensure_healthy_browser(self):
-        """Ensures the Playwright and Browser instances are alive."""
+        """Ensures the Playwright, Browser, and Keepalive context are alive and healthy."""
+        browser_reinitialized = False
         if not self.playwright or not self.browser or not self.browser.is_connected():
             logger.info("BrowserEngine: Initializing Browser instance...")
             if self.playwright: 
@@ -100,10 +105,83 @@ class BrowserEngine:
                     "--disable-gpu",
                 ]
             )
+            browser_reinitialized = True
             self.recovery_count += 1
 
+        # Health check for keepalive resources (Self-healing)
+        needs_keepalive_recreation = browser_reinitialized
+        if not needs_keepalive_recreation:
+            # Simplified health check focusing on the page object
+            if not self.keepalive_page or self.keepalive_page.is_closed():
+                logger.warning("keepalive_health_failed", extra={"reason": "missing_or_closed"})
+                needs_keepalive_recreation = True
+            else:
+                try:
+                    # Bounded connectivity check to detect discarded/frozen tabs
+                    await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning("keepalive_health_failed", extra={"reason": "timeout"})
+                    needs_keepalive_recreation = True
+                except Exception as e:
+                    logger.warning("keepalive_health_failed", extra={"reason": "eval_failed", "error": str(e)})
+                    needs_keepalive_recreation = True
+
+        if needs_keepalive_recreation:
+            async with self.keepalive_lock:
+                # Double-check after acquiring lock to prevent duplicate recreation
+                if not browser_reinitialized and self.keepalive_page and not self.keepalive_page.is_closed():
+                    try:
+                        await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
+                        logger.info("keepalive_recreation_skipped", extra={"reason": "already_restored"})
+                        return
+                    except asyncio.TimeoutError:
+                        logger.warning("keepalive_recreation_doublecheck_failed", extra={"reason": "timeout"})
+                    except Exception as e:
+                        logger.warning("keepalive_recreation_doublecheck_failed", extra={"reason": "eval_failed", "error": str(e)})
+                
+                logger.info("keepalive_recreation_started")
+                await self._create_keepalive_context()
+                logger.info("keepalive_recreation_completed")
+                if not browser_reinitialized:
+                    logger.info("keepalive_recreated")
+                logger.info("keepalive_health_restored")
+
+    async def _create_keepalive_context(self):
+        """Initializes a dedicated keepalive context and page with environmental stability fixes."""
+        # Cleanup old resources if they exist but were deemed unhealthy
+        if self.keepalive_page:
+            try: await self.keepalive_page.close()
+            except Exception: pass
+        if self.keepalive_context:
+            try: await self.keepalive_context.close()
+            except Exception: pass
+            
+        try:
+            self.keepalive_context = await self.browser.new_context()
+            self.keepalive_page = await self.keepalive_context.new_page()
+            
+            # Use stable lightweight data URI with a title to prevent suspension in Linux environments
+            data_uri = "data:text/html,<html><head><title>keepalive</title></head><body>keepalive</body></html>"
+            await self.keepalive_page.goto(data_uri, wait_until="domcontentloaded")
+            
+            # Post-creation validation to ensure renderer is responsive
+            await asyncio.wait_for(self.keepalive_page.evaluate("document.title"), timeout=2.0)
+            logger.info("keepalive_context_created")
+        except Exception as e:
+            logger.error(f"BrowserEngine: Failed to create keepalive context: {e}")
+            # Ensure we don't leave partial/broken state
+            if self.keepalive_page:
+                try: await self.keepalive_page.close()
+                except Exception: pass
+            if self.keepalive_context:
+                try: await self.keepalive_context.close()
+                except Exception: pass
+            self.keepalive_page = None
+            self.keepalive_context = None
+            raise
+
     async def _ensure_healthy_context(self):
-        """Ensures an active context is available and healthy."""
+        """Ensures an active request context is available and healthy."""
         needs_rotation = False
         if not self.active_context:
             needs_rotation = True
@@ -111,7 +189,7 @@ class BrowserEngine:
             try: 
                 await self.active_context.browser.version()
             except Exception as e:
-                logger.warning(f"BrowserEngine: Context health check failed: {e}")
+                logger.warning(f"BrowserEngine: Request context health check failed: {e}")
                 needs_rotation = True
         
         if needs_rotation:
@@ -144,7 +222,7 @@ class BrowserEngine:
 
     async def rotate_context(self):
         """
-        Rotates the active context. 
+        Rotates the active request context. 
         Old context is moved to 'retiring' until its pages are closed.
         Loads existing login state if available and valid.
         """
@@ -157,12 +235,8 @@ class BrowserEngine:
                 logger.info("autosave_cancelled_cleanly", extra={"reason": "context_rotation"})
             except Exception as e:
                 logger.warning(f"BrowserEngine: Error cancelling autosave task: {e}")
-            self.state_autosave_task = None
+        self.state_autosave_task = None
         
-        # 2. Store old keepalive reference to close AFTER the new one is ready
-        # This prevents the browser window from flickering or closing due to zero tabs.
-        old_keepalive = self.keepalive_page
-
         if self.active_context:
             self.retiring_contexts[self.active_context] = len(self.active_context.pages)
             await self._atomic_save_state(self.active_context)
@@ -180,21 +254,7 @@ class BrowserEngine:
 
         self.active_context = await self.browser.new_context(**context_args)
         
-        # Initialize the NEW keepalive page within the new active context
-        self.keepalive_page = await self.active_context.new_page()
-        await self.keepalive_page.goto("about:blank", wait_until="domcontentloaded")
-        logger.info("BrowserEngine: Keepalive page initialized.")
-
-        # 3. ONLY NOW close the old keepalive page
-        if old_keepalive:
-            try:
-                if not old_keepalive.is_closed():
-                    await old_keepalive.close()
-            except Exception:
-                pass
-            old_keepalive = None
-
-        logger.info("context_rotated", extra={
+        logger.info("request_context_rotated", extra={
             "context_generation": self.context_generation,
             "active_pages": self.active_pages
         })
@@ -305,6 +365,11 @@ class BrowserEngine:
         """Callback for pages to notify their closure, allowing for context cleanup."""
         async with self.management_lock:
             context = page.context
+            
+            # Explicitly exclude keepalive context from retirement logic
+            if self.keepalive_context and context == self.keepalive_context:
+                return
+
             if context in self.retiring_contexts:
                 if len(context.pages) == 0:
                     try: 
@@ -319,7 +384,7 @@ class BrowserEngine:
             logger.info("BrowserEngine: Shutting down...")
             self.is_shutting_down = True
             
-            # 1. stop autosave task
+            # 1. Stop autosave task
             if self.state_autosave_task and not self.state_autosave_task.done():
                 self.state_autosave_task.cancel()
                 logger.info("autosave_stopped", extra={"reason": "shutdown"})
@@ -328,39 +393,44 @@ class BrowserEngine:
                 except asyncio.CancelledError:
                     pass
 
-            # 2. final atomic save
+            # 2. Final atomic save of request session
             if self.active_context:
                 await self._atomic_save_state(self.active_context)
-
-            # 3. close keepalive page
-            if self.keepalive_page and not self.keepalive_page.is_closed():
-                try:
-                    await self.keepalive_page.close()
-                except Exception as e:
-                    logger.warning(f"BrowserEngine: Error closing keepalive page: {e}")
             
-            # 4. close active context
+            # 3. Close request contexts
             if self.active_context:
                 try: 
                     await self.active_context.close()
                 except Exception as e: 
                     logger.warning(f"BrowserEngine: Error closing active context: {e}")
             
-            # 4. close retiring contexts
             for ctx in list(self.retiring_contexts.keys()):
                 try: 
                     await ctx.close()
                 except Exception as e: 
                     logger.warning(f"BrowserEngine: Error closing retiring context: {e}")
             
-            # 5. close browser
+            # 4. Close isolated keepalive resources
+            if self.keepalive_page and not self.keepalive_page.is_closed():
+                try:
+                    await self.keepalive_page.close()
+                except Exception as e:
+                    logger.warning(f"BrowserEngine: Error closing keepalive page: {e}")
+            
+            if self.keepalive_context:
+                try:
+                    await self.keepalive_context.close()
+                    logger.info("keepalive_context_closed")
+                except Exception as e:
+                    logger.warning(f"BrowserEngine: Error closing keepalive context: {e}")
+            
+            # 5. Shutdown browser and playwright
             if self.browser:
                 try: 
                     await self.browser.close()
                 except Exception as e: 
                     logger.warning(f"BrowserEngine: Error closing browser: {e}")
             
-            # 6. stop playwright
             if self.playwright:
                 try: 
                     await self.playwright.stop()
@@ -369,6 +439,8 @@ class BrowserEngine:
             
             self.active_context = None
             self.retiring_contexts = {}
+            self.keepalive_context = None
+            self.keepalive_page = None
             self.browser = None
             self.playwright = None
             logger.info("BrowserEngine: Shutdown complete.")
