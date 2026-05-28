@@ -4,6 +4,7 @@ import json
 import time
 import re
 import uuid
+import weakref
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from collections import OrderedDict
@@ -28,8 +29,14 @@ class PersistentTab:
         self.conversation_id = conversation_id
         self.browser_generation = generation
         self.status = TabStatus.IDLE
-        self.created_at = time.time()
-        self.last_used_at = self.created_at
+        self.created_at = time.time() # Wall-clock for logging
+        
+        # INVARIANT: last_accessed_at is ONLY for LRU/Eviction (Idle timeout)
+        self.last_accessed_at = time.monotonic()
+        
+        # INVARIANT: last_heartbeat_at is ONLY for liveness (Orphan/Stale cleanup)
+        # It represents forward progress of the owning request.
+        self.last_heartbeat_at = time.monotonic()
         
         # Ownership Tracking
         self.lease_token: Optional[str] = None
@@ -37,6 +44,22 @@ class PersistentTab:
         self.leased_at: Optional[float] = None
         
         self._lock = asyncio.Lock() # Private lock, managed via acquire/release methods
+
+    def heartbeat(self, source: str = "unknown"):
+        """
+        Signals forward progress of the owning request to prevent orphan cleanup.
+        INVARIANT: Heartbeat timestamps are monotonic and progress-only.
+        """
+        now = time.monotonic()
+        if now <= self.last_heartbeat_at:
+            logger.debug(f"Tab({self.conversation_id}): Heartbeat [{source}] ignored (Non-monotonic)", 
+                         extra={"req_id": self.owner_request_id})
+            return
+
+        elapsed = now - self.last_heartbeat_at
+        self.last_heartbeat_at = now
+        logger.debug(f"Tab({self.conversation_id}): Heartbeat [{source}]", 
+                     extra={"req_id": self.owner_request_id, "elapsed": f"{elapsed:.1f}s"})
 
     def is_valid(self, current_gen: int) -> bool:
         """Determines if the tab is viable for a new lease."""
@@ -63,11 +86,13 @@ class PersistentTab:
         self.status = TabStatus.LEASED
         self.lease_token = token
         self.owner_request_id = request_id
-        self.leased_at = time.time()
-        self.last_used_at = self.leased_at
+        self.leased_at = time.monotonic()
         
-        logger.debug(f"Tab({self.conversation_id}): Lease acquired by {request_id}", 
-                     extra={"token": token})
+        # Initialize both timestamps for the new lease
+        self.last_accessed_at = self.leased_at
+        self.heartbeat("initial_lease")
+        
+        logger.info(f"Tab({self.conversation_id}): Lease acquired", extra={"token": token, "req_id": request_id})
         return token
 
     async def release_lease(self, token: str) -> bool:
@@ -87,7 +112,8 @@ class PersistentTab:
             self.lease_token = None
             self.owner_request_id = None
             self.leased_at = None
-            self.last_used_at = time.time()
+            self.last_accessed_at = time.monotonic() # Final access update
+            logger.info(f"Tab({self.conversation_id}): Lease released", extra={"token": token})
             return True
         finally:
             self._lock.release()
@@ -126,46 +152,53 @@ class ManagedPage:
         self.lease_token = lease_token
         self._released = False
         self._lock = asyncio.Lock()
-        self.acquired_at = time.time()
+        self.acquired_at = time.monotonic()
 
     async def close(self):
         """
         Idempotent release of the lease. 
         Ensures semaphore is returned and persistent tab is unlocked.
+        FIX: Uses asyncio.shield to prevent lease/lock leak during cancellation.
         """
         async with self._lock:
             if self._released:
                 return
             self._released = True
             
-            try:
-                # 1. Semaphore return
-                self.session.semaphore.release()
-                self.session.active_lease_count = max(0, self.session.active_lease_count - 1)
-                
-                # 2. Lifecycle management
-                if self.persistent_tab and self.lease_token:
-                    # Return to registry via the tab's own release API
-                    success = await self.persistent_tab.release_lease(self.lease_token)
-                    if success:
-                        # If tab was invalidated/killed while leased, ensure physical close now
-                        if self.persistent_tab.status in (TabStatus.INVALIDATING, TabStatus.DEAD):
-                            await self.persistent_tab.close()
-                        
-                        logger.info(f"PersistentTab({self.persistent_tab.conversation_id}): Lease released.", 
-                                    extra={"provider": self.session.name, "duration": time.time() - self.acquired_at})
-                    else:
-                        logger.warning(f"PersistentTab({self.persistent_tab.conversation_id}): Ownership lost or already released.")
+            # Execute actual release logic in a shielded block
+            await asyncio.shield(self._do_close())
+
+    async def _do_close(self):
+        """Actual release implementation, shielded from cancellation."""
+        try:
+            # 1. Semaphore return
+            self.session.semaphore.release()
+            self.session.active_lease_count = max(0, self.session.active_lease_count - 1)
+            
+            # 2. Lifecycle management
+            if self.persistent_tab and self.lease_token:
+                # Return to registry via the tab's own release API
+                success = await self.persistent_tab.release_lease(self.lease_token)
+                if success:
+                    # If tab was invalidated/killed while leased, ensure physical close now
+                    if self.persistent_tab.status in (TabStatus.INVALIDATING, TabStatus.DEAD):
+                        await self.persistent_tab.close()
+                    
+                    duration = time.monotonic() - self.acquired_at
+                    logger.info(f"PersistentTab({self.persistent_tab.conversation_id}): Lease released.", 
+                                extra={"provider": self.session.name, "duration": f"{duration:.2f}s"})
                 else:
-                    # One-off temporary tab: physical close
-                    try:
-                        if not self.page.is_closed():
-                            await self.page.close()
-                        logger.info("Temporary tab closed.", extra={"provider": self.session.name})
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.error(f"ManagedPage: Error during release: {e}")
+                    logger.warning(f"PersistentTab({self.persistent_tab.conversation_id}): Ownership lost or already released.")
+            else:
+                # One-off temporary tab: physical close
+                try:
+                    if not self.page.is_closed():
+                        await self.page.close()
+                    logger.info("Temporary tab closed.", extra={"provider": self.session.name})
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"ManagedPage: Error during shielded release: {e}")
 
 class ProviderSession:
     """
@@ -194,9 +227,10 @@ class ProviderSession:
         self.idle_timeout = CONFIG["Playwright"].getint("idle_conversation_timeout", 900) # 15 mins
         self.lease_timeout = CONFIG["Playwright"].getint("lease_timeout", 180) # 3 mins
         
-        # Background Tasks
+        # Background Tasks Tracking
         self.autosave_task: Optional[asyncio.Task] = None
         self.eviction_task: Optional[asyncio.Task] = None
+        self._orphan_cleanup_tasks = weakref.WeakSet()
         
         # Persistent state
         self.state_path = os.path.join(engine.user_data_dir, f"{name}_state.json")
@@ -249,6 +283,10 @@ class ProviderSession:
                             # Check status BEFORE invalidation to detect if it's safe to close immediately
                             if stale_tab.status == TabStatus.IDLE:
                                 stale_to_close = stale_tab
+                            else:
+                                # Detached recovery for orphaned leased tab
+                                self._schedule_orphan_cleanup(stale_tab)
+                            
                             stale_tab.invalidate()
                             tab = None
                 
@@ -305,6 +343,9 @@ class ProviderSession:
                 # Check status BEFORE invalidating to determine if we can close it
                 if old_tab.status == TabStatus.IDLE:
                     to_close.append(old_tab)
+                else:
+                    # Detached recovery for orphaned leased tab
+                    self._schedule_orphan_cleanup(old_tab)
                 old_tab.invalidate()
 
             # LRU Limit Enforcement
@@ -319,6 +360,9 @@ class ProviderSession:
                     # Check status BEFORE invalidating
                     if t.status == TabStatus.IDLE:
                         to_close.append(t)
+                    else:
+                        # Detached recovery for orphaned leased tab
+                        self._schedule_orphan_cleanup(t)
                     t.invalidate()
                 else:
                     break # All busy, allow temporary overflow
@@ -366,6 +410,9 @@ class ProviderSession:
                 # Check status BEFORE invalidating
                 if tab.status == TabStatus.IDLE:
                     to_close.append(tab)
+                else:
+                    # Detached recovery for orphaned leased tab
+                    self._schedule_orphan_cleanup(tab)
                 tab.invalidate()
         
         for t in to_close:
@@ -424,18 +471,19 @@ class ProviderSession:
         try:
             while not self.engine.is_shutting_down:
                 await asyncio.sleep(30)
-                now = time.time()
+                now = time.monotonic()
                 to_evict = []
                 stale_recovery = []
                 
                 async with self.registry_lock:
                     for cid, tab in list(self.conversation_registry.items()):
-                        # 1. Idle Eviction
-                        if tab.status == TabStatus.IDLE and (now - tab.last_used_at > self.idle_timeout):
+                        # 1. Idle Eviction (Uses accessed_at)
+                        if tab.status == TabStatus.IDLE and (now - tab.last_accessed_at > self.idle_timeout):
                             to_evict.append(cid)
                         
-                        # 2. Stale Lease Recovery (Crashed Request)
-                        if tab.status == TabStatus.LEASED and tab.leased_at and (now - tab.leased_at > self.lease_timeout):
+                        # 2. Stale Lease Recovery (Crashed Request protection)
+                        # Uses heartbeat_at to avoid killing healthy active streams
+                        if tab.status == TabStatus.LEASED and (now - tab.last_heartbeat_at > self.lease_timeout):
                             stale_recovery.append(cid)
                 
                 for cid in to_evict:
@@ -448,20 +496,19 @@ class ProviderSession:
                     if tab_to_kill:
                         tab_to_kill.invalidate()
                         await tab_to_kill.close()
-                        logger.info(f"Evicted idle conversation: {cid}")
+                        logger.info(f"Idle eviction: {cid}", extra={"provider": self.name})
 
                 for cid in stale_recovery:
                     tab_to_kill = None
                     async with self.registry_lock:
                         tab = self.conversation_registry.get(cid)
                         if tab and tab.status == TabStatus.LEASED:
-                            logger.warning(f"Recovering stale lease for CID: {cid}")
+                            logger.warning(f"Stale lease recovery: {cid} (No heartbeat for {self.lease_timeout}s)")
                             # ATOMIC INVALIDATION
                             tab_to_kill = self.conversation_registry.pop(cid, None)
                     
                     if tab_to_kill:
                         tab_to_kill.invalidate()
-                        # The physical close ensures the page is killed even if the lock is held
                         await tab_to_kill.close()
                             
         except asyncio.CancelledError: pass
@@ -482,7 +529,7 @@ class ProviderSession:
                     except: pass
 
     async def close_resources(self, save_state: bool = True):
-        """Teardown all session resources."""
+        """Teardown all session resources and track tasks."""
         if save_state: await self.save_state()
 
         if self.autosave_task:
@@ -497,6 +544,15 @@ class ProviderSession:
             except: pass
             self.eviction_task = None
 
+        # Drain orphan cleanup tasks
+        if hasattr(self, "_orphan_cleanup_tasks"):
+            orphan_tasks = list(self._orphan_cleanup_tasks)
+            for task in orphan_tasks:
+                if not task.done():
+                    task.cancel()
+            if orphan_tasks:
+                await asyncio.gather(*orphan_tasks, return_exceptions=True)
+
         await self._purge_all_tabs()
 
         if self.keepalive_page:
@@ -510,6 +566,43 @@ class ProviderSession:
             try: await self.context.close()
             except Exception: pass
             self.context = None
+
+    def _schedule_orphan_cleanup(self, tab: PersistentTab):
+        """Schedules a detached physical close for a leased tab that was removed from registry."""
+        async def _delayed_close():
+            token_at_start = tab.lease_token
+            logger.debug(f"Orphan cleanup scheduled for {tab.conversation_id}")
+            try:
+                while True:
+                    # Check periodically based on lease_timeout
+                    await asyncio.sleep(self.lease_timeout)
+                    
+                    # 0. State check: If tab is already dead, cleanup was successful elsewhere
+                    if tab.status == TabStatus.DEAD:
+                        logger.debug(f"Orphan cleanup ABORTED for {tab.conversation_id} (Already DEAD)")
+                        return
+
+                    # 1. Ownership check: If token changed, lease naturally ended
+                    if tab.lease_token != token_at_start:
+                        return
+                    
+                    # 2. Heartbeat check: Protect healthy active streams
+                    # Heartbeat != LRU. This only tracks request-level progress.
+                    time_since_heartbeat = time.monotonic() - tab.last_heartbeat_at
+                    if time_since_heartbeat < self.lease_timeout:
+                        logger.debug(f"Orphan cleanup SKIP for {tab.conversation_id} (Heartbeat fresh: {time_since_heartbeat:.1f}s)")
+                        continue
+                    
+                    # 3. Deterministic Kill: Tab is orphaned AND unresponsive
+                    logger.warning(f"Orphan cleanup KILL for {tab.conversation_id} (No heartbeat for {time_since_heartbeat:.1f}s)")
+                    await tab.close()
+                    return
+            except Exception as e:
+                logger.warning(f"Orphan cleanup error for {tab.conversation_id}: {e}")
+
+        # Fire and forget detached cleanup task
+        task = asyncio.create_task(_delayed_close())
+        self._orphan_cleanup_tasks.add(task)
 
 class BrowserEngine:
     """
@@ -599,9 +692,9 @@ class BrowserEngine:
             logger.info("BrowserEngine: Shutting down...")
             self.is_shutting_down = True
             
-            drain_start = time.time()
+            drain_start = time.monotonic()
             drain_timeout = 15.0
-            while self.active_pages > 0 and (time.time() - drain_start) < drain_timeout:
+            while self.active_pages > 0 and (time.monotonic() - drain_start) < drain_timeout:
                 await asyncio.sleep(1.0)
             
             for session in list(self.sessions.values()):
