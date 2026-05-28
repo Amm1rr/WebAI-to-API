@@ -1,95 +1,95 @@
 # WebAI-to-API: The Browser-Native AI Runtime
 
-> **Status:** Production-Hardened PoC (Playwright Integration)  
-> **Vision:** A universal runtime layer for browser-based AI systems.
+> **Status:** Production-Ready (Hardened Playwright Architecture)  
+> **Vision:** A universal runtime layer that converts browser-based AI into high-availability APIs.
 
 ## Project Overview
 
-**WebAI-to-API** is evolving from a simple Gemini web wrapper into a generalized **"Web AI Runtime"**. The project's core mission is to convert browser-based AI chat applications (Gemini, ChatGPT, Claude, etc.) into stable, developer-friendly, and production-ready APIs.
+**WebAI-to-API** is a specialized **"Web AI Runtime"** designed to convert browser-based AI interfaces (Gemini, ChatGPT, Claude) into stable, OpenAI-compatible APIs. 
 
-Instead of relying on fragile reverse-engineered HTTP endpoints, this project leverages **Browser Automation (Playwright)** to drive the actual Web UIs, ensuring maximum compatibility and resilience against protocol changes.
-
----
-
-## Core Architecture (The Runtime)
-
-The project is built on a modular, provider-agnostic architecture designed for high availability and resource isolation:
-
-### 1. Browser Engine (`src/app/services/browser/engine.py`)
-- **Generation-Based Context Rotation:** Implements a self-healing mechanism that rotates browser contexts if they become unhealthy, without interrupting active streams.
-- **Concurrency Control:** A global semaphore-based system that limits the number of active browser tabs (default: 5) to prevent memory exhaustion.
-- **Persistent Contexts:** Uses local data directories to maintain authenticated sessions (Google login, etc.) across server restarts.
-- **Docker Ready:** Configured with specific Chromium flags for stability in containerized environments.
-
-### 2. Provider Adapters (`src/app/services/providers/`)
-- **Isolation-Safe Execution:** Each request runs in its own isolated browser page (tab), preventing conversation contamination.
-- **Resilient Locators:** Uses semantic ARIA roles and structural markers to interact with Web UIs, making it resilient to CSS/obfuscation changes.
-- **GeminiPlaywrightProvider:** The flagship implementation for Google Gemini Web.
-
-### 3. Stream Normalization Layer
-- **MutationObserver Extraction:** Injects JS observers into the browser to capture text deltas in real-time.
-- **Rewrite-Resilient Diffing:** Detects when the UI re-renders markdown or code blocks, ensuring the stream output remains consistent and duplication-free.
-- **Non-Blocking Bridge:** Uses bounded queues and non-blocking callbacks to ensure the browser's message loop is never stalled by the Python backend.
+By leveraging **Playwright**, the project bypasses fragile reverse-engineered protocols and instead drives actual browser instances. This ensures maximum resilience against UI updates and protocol changes, providing a "bridge" between the web-native AI world and standard developer workflows.
 
 ---
 
-### 4. Production Safeguards
-- **Strict Semaphore Ownership:** Uses a stateful `RequestState` to guarantee semaphore permits are never leaked or over-released.
-- **Cancellation Propagation:** If a client disconnects, the runtime explicitly triggers the UI "Stop" button and cleans up the browser tab immediately.
-- **Self-Healing:** Automatically recovers from Chromium crashes or UI freezes.
+## Core Architecture
+
+The architecture is built for **extreme reliability**, **isolation**, and **concurrency safety**:
+
+### 1. Provider-Scoped Sessions (`ProviderSession`)
+- **Complete Isolation:** Each provider (Gemini, ChatGPT, etc.) operates in its own dedicated `BrowserContext`. Cookies, localStorage, and session data are strictly isolated.
+- **Tab-Based Strategy:** Requests are processed as isolated **Pages (Tabs)** within the same browser window, significantly reducing memory overhead compared to multi-window models.
+- **Atomic Persistence:** Session states are saved using a **Write-Sync-Replace** strategy. This prevents file corruption during unexpected crashes or power failures.
+
+### 2. Browser Engine (`BrowserEngine`)
+- **Singleton Orchestration:** Manages the core Chromium process and coordinates multiple provider sessions.
+- **Generation Tracking:** Tracks browser process restarts (generations) to automatically invalidate and recreate stale contexts, ensuring zero "zombie" states.
+- **Self-Healing Keepalive:** Maintains a permanent, hidden "Keeper Tab" in every context to prevent Chromium from closing the window and to monitor renderer health in real-time.
+
+### 3. Managed Resource Lifecycle
+- **ManagedPage Wrapper:** A foolproof resource owner that ensures every browser tab and its associated concurrency permit (Semaphore) is released exactly once, even during critical failures.
+- **Graceful Shutdown Drain:** During server shutdown, the engine waits for active requests to finish (Drain period) before persisting state and closing the browser.
+
+---
+
+## Production Safeguards
+
+- **Atomic State Saves:** Uses `fsync` and temporary files to guarantee `state.json` integrity.
+- **Fail-Open Auth Checks:** Heuristic detection of login pages and guest modes that avoids unnecessary context resets during transient network blips.
+- **Bounded RPC Timeouts:** All browser interactions (typing, clicking, health probes) are wrapped in strict timeouts to prevent the request pipeline from stalling.
+- **Rewrite-Resilient Stream:** Injected JS observers detect Gemini UI "polishing" (markdown re-renders) to provide a clean, duplication-free stream.
 
 ---
 
 ## Strategic Roadmap
 
-### Phase 1: MVP & Hardening (Current)
-- [x] Stable Playwright integration for Gemini Web.
-- [x] Production-grade lifecycle management and cleanup.
-- [x] Concurrency and isolation safety.
-- [x] Basic session persistence via manual login.
+### Phase 1: Hardened Foundation (Current)
+- [x] Provider-Scoped context isolation.
+- [x] Atomic session persistence and corruption safety.
+- [x] Self-healing keeper tab for window persistence.
+- [x] Multi-tab concurrency management via `ManagedPage`.
 
-### Phase 2: Orchestration & Expansion (Medium-Term)
-- **Multi-Provider Support:** Add native adapters for ChatGPT Web, Claude Web, and Grok.
-- **Automated Auth Management:** Automated cookie rotation and session validation for all providers.
-- **Session Registry Migration:** Refactor the existing `SessionRegistry` to manage Playwright Page persistence (Conversation IDs).
+### Phase 2: Provider Expansion (Medium-Term)
+- **New Adapters:** Add native support for ChatGPT Web, Claude Web, and Grok.
+- **Multi-Account Pooling:** Support for cycling through multiple authenticated sessions per provider.
+- **Session Persistence:** Full integration of `conversation_id` to maintain chat history across API calls.
 
-### Phase 3: Infrastructure & Ecosystem (Long-Term)
-- **Universal Provider Abstraction:** A unified SDK for any browser-based AI.
-- **Browser Farm Integration:** Support for distributing browser contexts across multiple nodes.
-- **BYOS Infrastructure:** Position as the premier "Bring Your Own Subscription" (BYOS) gateway for developers.
+### Phase 3: Infrastructure (Long-Term)
+- **Universal Provider SDK:** A unified framework for adding new web-based AI models.
+- **Distributed Browser Farm:** Ability to offload browser contexts to separate nodes.
+- **Auto-Auth Solvers:** Automated handling of common login challenges and "What's new" popups.
 
 ---
 
 ## Operational Guide
 
-### 1. Manual Authentication
-Before the API can drive the browser, you must log in once to save the persistent context:
+### 1. Manual Authentication (Session Setup)
+The API requires an authenticated browser session. Run the smart verifier to log in:
 ```bash
 poetry run python verify_login.py
 ```
+*The script will automatically detect a successful login to Gemini and save the state to disk.*
 
 ### 2. Using the API
-Requests to the Playwright runtime use the `playwright/` model prefix:
+Requests use the `playwright/` model prefix. Each request opens a new tab in the shared window:
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "playwright/gemini",
-    "messages": [{"role": "user", "content": "Explain your new architecture."}],
+    "messages": [{"role": "user", "content": "Hello! List your architecture features."}],
     "stream": true
   }'
 ```
 
 ### 3. Configuration (`config.conf`)
-The `[Playwright]` section allows tuning for your environment:
-- `headless`: Toggle visible browser (default `false` for debugging).
-- `max_concurrent_pages`: Limit concurrent tabs.
-- `navigation_timeout`: Timeout for page loads.
+- `headless`: Set to `false` to see the browser window and tabs in real-time.
+- `max_concurrent_pages`: Controls the maximum number of simultaneous request tabs per provider.
+- `chunk_timeout`: Maximum wait time for the next token in a stream.
 
 ---
 
 ## Note for AI Agents
-When working on this project, prioritize **lifecycle correctness** and **resource isolation**. Every request must be strictly owned by a `RequestState` and guaranteed to clean up its browser resources. Avoid any changes that introduce shared state between active browser pages unless explicitly requested.
+When modifying this codebase, strictly adhere to the **ManagedPage** ownership model. Manual semaphore management or raw `page.close()` calls outside the wrapper are forbidden. Always prioritize **Fail-Open** logic for health checks to maintain system uptime during transient web UI inconsistencies.
 
 ---
 
