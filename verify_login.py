@@ -15,7 +15,13 @@ async def verify_login():
     Detects successful login and saves state automatically.
     """
     engine = await get_browser_engine()
-    page = await engine.get_page()
+    
+    # 1. Obtain managed page via engine to ensure browser health/init
+    page_wrapper = await engine.get_page("gemini")
+    page = page_wrapper.page
+    
+    # 2. Fetch the session for scoped state persistence logic
+    session = await engine.get_session("gemini")
     
     print("\n" + "="*50)
     print("PLAYWRIGHT SMART LOGIN VERIFIER")
@@ -38,18 +44,18 @@ async def verify_login():
         try:
             while True:
                 # Check if we are logged in by looking for the input box
-                # Correct Playwright Async API usage: await is_visible() without timeout
                 input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                 if input_exists and not login_detected:
                     login_detected = True
-                    await engine.save_state()
+                    # Use session-scoped save_state
+                    await session.save_state()
                     print("\n[SUCCESS] Login detected and session saved to disk!")
                     print("You can now safely press ENTER or continue setting up.")
                 
                 # Periodic backup every 20 seconds instead of 5
                 await asyncio.sleep(20)
                 if login_detected:
-                    await engine.save_state()
+                    await session.save_state()
         except Exception:
             pass # Silent exit on page close
 
@@ -68,7 +74,16 @@ async def verify_login():
             await save_task
         except asyncio.CancelledError:
             pass
-        await engine.save_state()
+        
+        # Deterministic shutdown ordering
+        # 1. Final session save
+        await session.save_state()
+        
+        # 2. Release managed resources (closes page and releases semaphore)
+        if page_wrapper:
+            await page_wrapper.close()
+            
+        # 3. Shutdown engine
         await engine.close()
         print("\nSession saved. BrowserEngine closed.")
 

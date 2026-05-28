@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
 from app.services.base import BaseProvider
-from app.services.browser.engine import get_browser_engine
+from app.services.browser.engine import get_browser_engine, ManagedPage
 from app.schemas.request import OpenAIChatRequest
 from app.logger import logger
 from app.config import CONFIG
@@ -33,8 +33,8 @@ class GeminiPlaywrightProvider(BaseProvider):
     Production-grade Browser-native provider for Gemini Web.
     
     Features: 
-    - Generation-based context rotation (self-healing without active stream drops)
-    - Strict semaphore ownership via RequestState
+    - Isolated ProviderSessions with dedicated contexts
+    - ManagedPage wrapper for centralized lifecycle control
     - Non-blocking browser bridge with backpressure metrics
     - Rewrite-resilient DOM diffing
     - Structured metrics & logging
@@ -44,17 +44,18 @@ class GeminiPlaywrightProvider(BaseProvider):
         engine = await get_browser_engine()
         state = RequestState(request_id=str(uuid.uuid4()).replace("-", "_"), start_time=time.time())
         
-        # 1. Strict Semaphore Acquisition
-        await engine.semaphore.acquire()
-        state.permit_acquired = True
+        # 1. Scoped Session Acquisition
+        session = await engine.get_session("gemini")
         
-        page = None
+        page_wrapper = None
         observer_task = None
-        cleanup_started = False
 
         try:
-            # 2. Page Acquisition (Supports Self-Healing)
-            page = await engine.get_page()
+            # 2. Page Acquisition (Handles Semaphore, Generation Tracking, and Self-Healing internally)
+            # Returns a ManagedPage which owns the semaphore lifecycle.
+            page_wrapper = await session.get_page()
+            state.permit_acquired = True
+            page = page_wrapper.page
             
             callback_name = f"emit_{state.request_id}"
             # Bounded queue with non-blocking bridge
@@ -79,36 +80,35 @@ class GeminiPlaywrightProvider(BaseProvider):
             logger.info("Navigating to Gemini Web", extra={
                 "request_id": state.request_id, 
                 "active_pages": engine.active_pages,
-                "context_gen": engine.context_generation
             })
             
             await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
             await asyncio.sleep(2) # Wait for potential redirects and history load
             
-            # 6. ADD AUTH HEALTH CHECK
+            # Auth health check
             is_auth = await engine.is_authenticated(page)
             if not is_auth:
                 logger.warning("auth_invalidated", extra={"request_id": state.request_id})
                 
                 # Delete corrupted/expired state
-                if os.path.exists(engine.state_path):
+                if os.path.exists(session.state_path):
                     try:
-                        os.remove(engine.state_path)
+                        os.remove(session.state_path)
                         logger.info("Deleted expired state.json to force re-auth.")
                     except Exception as e:
                         logger.error(f"Failed to delete expired state: {e}")
                         
-                # Recreate clean context
-                await engine.rotate_context()
+                # Trigger recovery
+                await session.ensure_healthy()
                 raise HTTPException(status_code=401, detail="Authentication expired. Please run verify_login.py.")
 
-            # 2. Pre-submit Observer Injection
+            # 3. Pre-submit Observer Injection
             observer_task = asyncio.create_task(
                 page.evaluate(f"({STREAM_EXTRACTOR_SCRIPT})('{callback_name}')"),
                 name=f"observer_{state.request_id}"
             )
 
-            # 3. Resilient Submission
+            # 4. Resilient Submission
             input_locator = page.locator('div[contenteditable="true"]').filter(has_text=re.compile("Prompt|Gemini|Ask", re.I)).first
             
             if await input_locator.count() == 0:
@@ -145,20 +145,20 @@ class GeminiPlaywrightProvider(BaseProvider):
 
             if is_stream:
                 return StreamingResponse(
-                    self._sse_generator(queue, request.model or "playwright/gemini", page, state, observer_task, engine),
+                    self._sse_generator(queue, request.model or "playwright/gemini", page, state, observer_task, engine, page_wrapper),
                     media_type="text/event-stream"
                 )
             else:
-                return await self._get_buffered_response(queue, request.model or "playwright/gemini", page, state, observer_task, engine)
+                return await self._get_buffered_response(queue, request.model or "playwright/gemini", page, state, observer_task, engine, page_wrapper)
 
         except Exception as e:
             state.cleanup_started = True
             logger.error(f"Error in chat_completions: {e}", extra={"request_id": state.request_id})
-            await self._cleanup(page, observer_task, state, engine)
+            await self._cleanup(observer_task, state, page_wrapper)
             if isinstance(e, HTTPException): raise
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def _sse_generator(self, queue: asyncio.Queue, model: str, page: Page, state: RequestState, observer_task: Optional[asyncio.Task], engine: Any):
+    async def _sse_generator(self, queue: asyncio.Queue, model: str, page: Page, state: RequestState, observer_task: Optional[asyncio.Task], engine: Any, page_wrapper: ManagedPage):
         """Streaming generator with rewrite support and cancellation propagation."""
         from app.utils.streaming import format_sse_chunk, get_done_chunk
         chunk_timeout = CONFIG["Playwright"].getint("chunk_timeout", 90)
@@ -200,9 +200,9 @@ class GeminiPlaywrightProvider(BaseProvider):
                 logger.warning(f"Failed to click stop button during stream cancellation: {e}")
             raise
         finally:
-            await self._cleanup(page, observer_task, state, engine)
+            await self._cleanup(observer_task, state, page_wrapper)
 
-    async def _get_buffered_response(self, queue: asyncio.Queue, model: str, page: Page, state: RequestState, observer_task: Optional[asyncio.Task], engine: Any):
+    async def _get_buffered_response(self, queue: asyncio.Queue, model: str, page: Page, state: RequestState, observer_task: Optional[asyncio.Task], engine: Any, page_wrapper: ManagedPage):
         total_timeout = CONFIG["Playwright"].getint("total_request_timeout", 120)
         try:
             full_text = ""
@@ -216,10 +216,10 @@ class GeminiPlaywrightProvider(BaseProvider):
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="Request timed out.")
         finally:
-            await self._cleanup(page, observer_task, state, engine)
+            await self._cleanup(observer_task, state, page_wrapper)
 
-    async def _cleanup(self, page: Optional[Page], observer_task: Optional[asyncio.Task], state: RequestState, engine: Any):
-        """Idempotent cleanup of request resources."""
+    async def _cleanup(self, observer_task: Optional[asyncio.Task], state: RequestState, page_wrapper: Optional[ManagedPage]):
+        """Idempotent cleanup of request resources via ManagedPage wrapper."""
         async with state.lock:
             if state.cleanup_started and state.page_closed and state.semaphore_released: return
             state.cleanup_started = True
@@ -232,18 +232,14 @@ class GeminiPlaywrightProvider(BaseProvider):
                         pass
                     except Exception as e:
                         logger.warning(f"Error cancelling observer task: {e}")
-                if page and not state.page_closed:
-                    try: 
-                        if not page.is_closed(): await page.close()
-                    except Exception as e: 
-                        logger.warning(f"Error closing page: {e}")
-                    await engine.notify_page_closed(page)
+                
+                if page_wrapper and not state.page_closed:
+                    await page_wrapper.close()
                     state.page_closed = True
-                    logger.info("Resources released", extra={"request_id": state.request_id})
-            finally:
-                if state.permit_acquired and not state.semaphore_released:
-                    engine.semaphore.release()
                     state.semaphore_released = True
+                    logger.info("Resources released", extra={"request_id": state.request_id})
+            except Exception as e:
+                logger.warning(f"Cleanup encountered an error: {e}")
 
     async def list_models(self) -> List[dict]:
         return [{"id": "playwright/gemini", "object": "model", "created": int(time.time()), "owned_by": "google-playwright"}]

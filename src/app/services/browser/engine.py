@@ -3,60 +3,262 @@ import asyncio
 import json
 import time
 import re
-from typing import Optional
-from playwright.async_api import async_playwright, Playwright, BrowserContext, Page, Browser
+from typing import Optional, Dict, Any
+from playwright.async_api import async_playwright, Playwright, BrowserContext, Page, Browser, Error as PlaywrightError
 from app.logger import logger
 from app.config import CONFIG
 
-class BrowserEngine:
+class ManagedPage:
     """
-    Production-grade Browser Engine.
-    Manages a SINGLE shared BrowserContext for all requests (Tabs vs Windows).
-    Supports atomic state persistence (cookies/login) and self-healing.
+    A wrapper around a Playwright Page that ensures centralized semaphore 
+    release and deterministic resource cleanup.
     """
-    _instance: Optional['BrowserEngine'] = None
-    _lock = asyncio.Lock()
+    def __init__(self, page: Page, session: 'ProviderSession'):
+        self.page = page
+        self.session = session
+        self._released = False
+        self._lock = asyncio.Lock()
 
-    def __init__(self):
-        self.playwright: Optional[Playwright] = None
-        self.browser: Optional[Browser] = None
-        
-        # Shared Context Management (Tabs strategy)
+    async def close(self):
+        """Safely closes the page and releases the session semaphore exactly once."""
+        async with self._lock:
+            if self._released:
+                return
+            self._released = True
+            
+            try:
+                if not self.page.is_closed():
+                    await self.page.close()
+            except Exception as e:
+                logger.warning(f"ManagedPage: Error closing page: {e}")
+            finally:
+                self.session.semaphore.release()
+
+class ProviderSession:
+    """
+    Manages a dedicated BrowserContext for a specific provider (e.g., Gemini, ChatGPT).
+    Encapsulates semaphore control, state persistence, and keepalive management.
+    """
+    def __init__(self, engine: 'BrowserEngine', name: str):
+        self.engine = engine
+        self.name = name
         self.context: Optional[BrowserContext] = None
         self.keepalive_page: Optional[Page] = None
-        self.keepalive_lock = asyncio.Lock()
+        self.last_browser_generation = -1
         
-        # Persistent data directory for cookie/auth extraction
-        self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
-        self.state_path = os.path.join(self.user_data_dir, "state.json")
-        os.makedirs(self.user_data_dir, exist_ok=True)
+        # Concurrency & Lifecycle
+        self.semaphore = asyncio.Semaphore(engine.max_pages)
+        self.init_lock = asyncio.Lock()   # Serializes setup/health checks
+        self.state_lock = asyncio.Lock()  # Serializes disk I/O
+        self.autosave_task: Optional[asyncio.Task] = None
         
-        # State Safety Controls
-        self.state_lock = asyncio.Lock()
-        self.state_autosave_task: Optional[asyncio.Task] = None
-        self.is_shutting_down = False
-        
-        # Load config
-        self.headless = CONFIG["Playwright"].getboolean("headless", False)
-        self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
-        
-        # Concurrency control
-        self.semaphore = asyncio.Semaphore(self.max_pages)
-        self.management_lock = asyncio.Lock()
-        
-        # Metrics
-        self.recovery_count = 0
+        # Persistent state
+        self.state_path = os.path.join(engine.user_data_dir, f"{name}_state.json")
+
+    @property
+    def is_alive(self) -> bool:
+        """Checks if the context is initialized, healthy, and belongs to the current browser generation."""
+        return (
+            self.context is not None and 
+            self.engine.browser is not None and 
+            self.engine.browser.is_connected() and
+            self.last_browser_generation == self.engine.browser_generation
+        )
 
     @property
     def active_pages(self) -> int:
-        """Total active request pages (excludes keepalive)."""
+        """Count of active request tabs (excludes keepalive)."""
         if self.context:
             try:
-                # Subtract 1 for the permanent keepalive page
                 return max(0, len(self.context.pages) - 1)
             except Exception:
                 pass
         return 0
+
+    async def get_page(self) -> ManagedPage:
+        """
+        Acquires a semaphore permit and returns a new ManagedPage.
+        This is the only safe way to obtain a page for a request.
+        """
+        # 1. Reject if shutting down
+        if self.engine.is_shutting_down:
+            raise RuntimeError("BrowserEngine is shutting down")
+
+        # 2. Semaphore Acquisition (Enforce limit before any browser work)
+        await self.semaphore.acquire()
+        
+        try:
+            # 3. Ensure health (Lazy init or recovery)
+            await self.ensure_healthy()
+            
+            # 4. Bounded Page Creation
+            # Wrap context.new_page() with a timeout to prevent hanging.
+            page = await asyncio.wait_for(self.context.new_page(), timeout=10.0)
+            
+            return ManagedPage(page, self)
+        except Exception:
+            # Release permit if page creation fails or times out
+            self.semaphore.release()
+            raise
+
+    async def ensure_healthy(self):
+        """Self-healing logic to recover from crashes or discarded tabs."""
+        async with self.init_lock:
+            needs_setup = not self.is_alive
+            
+            if not needs_setup:
+                try:
+                    # Probe keepalive tab responsiveness with bounded timeout
+                    if not self.keepalive_page or self.keepalive_page.is_closed():
+                        needs_setup = True
+                    else:
+                        await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.warning(f"ProviderSession({self.name}): Health probe failed: {e}")
+                    needs_setup = True
+
+            if needs_setup:
+                await self._setup()
+
+    async def _setup(self):
+        """Initializes context, keepalive tab, and autosave loop."""
+        # Clean shutdown of previous resources (if any)
+        await self.close_resources(save_state=False)
+
+        context_args = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+
+        if self._validate_state_file():
+            context_args["storage_state"] = self.state_path
+            logger.info(f"ProviderSession({self.name}): Loading session state.")
+
+        try:
+            self.context = await self.engine.browser.new_context(**context_args)
+            self.keepalive_page = await self.context.new_page()
+            self.last_browser_generation = self.engine.browser_generation
+            
+            # Navigate to stable URI
+            data_uri = f"data:text/html,<html><head><title>keepalive-{self.name}</title></head><body>keepalive-{self.name}</body></html>"
+            await self.keepalive_page.goto(data_uri, wait_until="domcontentloaded")
+            
+            # Verify renderer responsiveness
+            await asyncio.wait_for(self.keepalive_page.evaluate("document.title"), timeout=2.0)
+            
+            # Start single autosave task
+            if not self.engine.is_shutting_down:
+                self.autosave_task = asyncio.create_task(self._autosave_loop())
+            
+            logger.info("provider_session_initialized", extra={"provider": self.name, "gen": self.last_browser_generation})
+        except Exception as e:
+            logger.error(f"ProviderSession({self.name}): Initialization failed: {e}")
+            await self.close_resources(save_state=False)
+            raise
+
+    def _validate_state_file(self) -> bool:
+        """Validates JSON structure to prevent Playwright startup crashes."""
+        if not os.path.exists(self.state_path):
+            return False
+        try:
+            if os.path.getsize(self.state_path) == 0:
+                return False
+            with open(self.state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return "cookies" in data or "origins" in data
+        except Exception as e:
+            ts = int(time.time())
+            logger.error(f"ProviderSession({self.name}): Corrupted state detected: {e}")
+            try: os.rename(self.state_path, f"{self.state_path}.corrupted.{ts}")
+            except Exception: pass
+            return False
+
+    async def _autosave_loop(self):
+        """Periodic checkpointing task."""
+        try:
+            while not self.engine.is_shutting_down:
+                await asyncio.sleep(60)
+                if self.is_alive:
+                    await self.save_state()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"ProviderSession({self.name}): Autosave loop crashed: {e}")
+
+    async def save_state(self):
+        """Atomically persists storage state to disk."""
+        if not self.is_alive:
+            return
+
+        async with self.state_lock:
+            tmp_path = f"{self.state_path}.tmp"
+            try:
+                await self.context.storage_state(path=tmp_path)
+                with open(tmp_path, "rb+") as f:
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.state_path)
+            except Exception as e:
+                if "Target closed" not in str(e):
+                    logger.warning(f"ProviderSession({self.name}): Persistence failed: {e}")
+                if os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except Exception: pass
+
+    async def close_resources(self, save_state: bool = True):
+        """Deterministic resource teardown."""
+        if save_state:
+            await self.save_state()
+
+        if self.autosave_task:
+            self.autosave_task.cancel()
+            try:
+                await self.autosave_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self.autosave_task = None
+
+        if self.keepalive_page:
+            try:
+                if not self.keepalive_page.is_closed():
+                    await self.keepalive_page.close()
+            except Exception:
+                pass
+            self.keepalive_page = None
+
+        if self.context:
+            try:
+                await self.context.close()
+            except Exception:
+                pass
+            self.context = None
+            logger.info("provider_session_closed", extra={"provider": self.name})
+
+class BrowserEngine:
+    """
+    Production-grade Browser Engine.
+    Orchestrates a singleton Browser process and multiple ProviderSessions.
+    """
+    _instance: Optional['BrowserEngine'] = None
+    _lock = asyncio.Lock() # For singleton protection
+
+    def __init__(self):
+        self.playwright: Optional[Playwright] = None
+        self.browser: Optional[Browser] = None
+        self.browser_generation = 0
+        
+        # Concurrency & Sessions
+        self.sessions: Dict[str, ProviderSession] = {}
+        self.sessions_lock = asyncio.Lock()    # Protects sessions dictionary
+        self.management_lock = asyncio.Lock()  # Serializes browser recovery
+        
+        # Configuration
+        self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        
+        self.headless = CONFIG["Playwright"].getboolean("headless", False)
+        self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
+        self.is_shutting_down = False
+        self.recovery_count = 0
 
     @classmethod
     async def get_instance(cls) -> 'BrowserEngine':
@@ -66,25 +268,30 @@ class BrowserEngine:
                     cls._instance = cls()
         return cls._instance
 
-    async def get_page(self) -> Page:
-        """
-        Returns a new isolated tab (page) within the shared context.
-        Ensures the browser and context are healthy.
-        """
+    async def get_session(self, provider_name: str) -> ProviderSession:
+        """Returns or initializes a ProviderSession in a thread-safe manner."""
+        async with self.sessions_lock:
+            if provider_name not in self.sessions:
+                self.sessions[provider_name] = ProviderSession(self, provider_name)
+            return self.sessions[provider_name]
+
+    async def get_page(self, provider: str = "gemini") -> ManagedPage:
+        """Entry point for requests to obtain a new tab."""
         async with self.management_lock:
             await self._ensure_healthy_browser()
-            return await self.context.new_page()
+        
+        session = await self.get_session(provider)
+        return await session.get_page()
 
     async def _ensure_healthy_browser(self):
-        """Ensures Playwright, Browser, and the shared Context are alive and healthy."""
-        browser_reinitialized = False
+        """Maintains the browser process and tracks its generation."""
         if not self.playwright or not self.browser or not self.browser.is_connected():
-            logger.info("BrowserEngine: Initializing Browser instance...")
-            if self.playwright: 
-                try: 
-                    await self.playwright.stop()
-                except Exception as e: 
-                    logger.warning(f"BrowserEngine: Error stopping previous playwright instance: {e}")
+            logger.info("BrowserEngine: Initializing Browser...")
+            
+            # Ensure full cleanup of stale resources
+            if self.playwright:
+                try: await self.playwright.stop()
+                except Exception: pass
             
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch(
@@ -97,218 +304,75 @@ class BrowserEngine:
                     "--disable-gpu",
                 ]
             )
-            browser_reinitialized = True
+            self.browser_generation += 1
             self.recovery_count += 1
-
-        # Shared context and keepalive health check (Self-healing)
-        needs_context_setup = browser_reinitialized or not self.context
-        
-        if not needs_context_setup:
-            # Check context health
-            try:
-                await self.browser.version() # Browser still connected?
-                if not self.keepalive_page or self.keepalive_page.is_closed():
-                    logger.warning("keepalive_health_failed", extra={"reason": "missing_or_closed"})
-                    needs_context_setup = True
-                else:
-                    # Bounded connectivity check
-                    await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
-            except Exception as e:
-                logger.warning("context_health_failed", extra={"error": str(e)})
-                needs_context_setup = True
-
-        if needs_context_setup:
-            await self._setup_shared_context()
-
-    async def _setup_shared_context(self):
-        """Initializes the single shared context and permanent keepalive tab."""
-        async with self.keepalive_lock:
-            # Cleanup old resources if they exist
-            if self.state_autosave_task and not self.state_autosave_task.done():
-                self.state_autosave_task.cancel()
-                try: await self.state_autosave_task
-                except asyncio.CancelledError: pass
-            
-            if self.keepalive_page:
-                try: await self.keepalive_page.close()
-                except Exception: pass
-            if self.context:
-                try: await self.context.close()
-                except Exception: pass
-
-            context_args = {
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            }
-            
-            if self._validate_state_file():
-                context_args["storage_state"] = self.state_path
-                logger.info(f"BrowserEngine: Loading state from {self.state_path}")
-
-            try:
-                self.context = await self.browser.new_context(**context_args)
-                self.keepalive_page = await self.context.new_page()
-                
-                # Use stable lightweight data URI with a title to prevent suspension
-                data_uri = "data:text/html,<html><head><title>keepalive</title></head><body>keepalive</body></html>"
-                await self.keepalive_page.goto(data_uri, wait_until="domcontentloaded")
-                
-                # Post-creation validation
-                await asyncio.wait_for(self.keepalive_page.evaluate("document.title"), timeout=2.0)
-                
-                # Start autosave for the shared context
-                if not self.is_shutting_down:
-                    self.state_autosave_task = asyncio.create_task(self._autosave_loop())
-                
-                logger.info("shared_context_initialized", extra={"active_pages": self.active_pages})
-            except Exception as e:
-                logger.error(f"BrowserEngine: Failed to setup shared context: {e}")
-                self.context = None
-                self.keepalive_page = None
-                raise
-
-    def _validate_state_file(self) -> bool:
-        """Validates the state.json file before loading."""
-        if not os.path.exists(self.state_path):
-            return False
-            
-        try:
-            with open(self.state_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-            if "cookies" in data or "origins" in data:
-                logger.info("state_load_success", extra={"file": self.state_path, "size": os.path.getsize(self.state_path)})
-                return True
-            else:
-                raise ValueError("Missing 'cookies' or 'origins' keys")
-        except Exception as e:
-            ts = int(time.time())
-            corrupted_path = f"{self.state_path}.corrupted.{ts}"
-            logger.error("state_load_invalid", extra={"error": str(e), "file": self.state_path})
-            try:
-                os.rename(self.state_path, corrupted_path)
-                logger.warning(f"BrowserEngine: Renamed corrupted state to {corrupted_path}")
-            except Exception as rename_err:
-                logger.error(f"BrowserEngine: Failed to rename corrupted state: {rename_err}")
-            return False
-
-    async def _autosave_loop(self):
-        """Periodic background task to checkpoint shared session state."""
-        try:
-            while not self.is_shutting_down:
-                await asyncio.sleep(60)
-                if self.context and self.browser and self.browser.is_connected():
-                    await self._atomic_save_state()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"BrowserEngine: Autosave loop error: {e}")
-
-    async def _atomic_save_state(self):
-        """Atomically saves the shared context storage state."""
-        if not self.context or not self.browser or not self.browser.is_connected():
-            return
-
-        async with self.state_lock:
-            tmp_path = f"{self.state_path}.tmp"
-            try:
-                await self.context.storage_state(path=tmp_path)
-                
-                with open(tmp_path, "rb+") as f:
-                    f.flush()
-                    os.fsync(f.fileno())
-                
-                os.replace(tmp_path, self.state_path)
-                logger.info("state_save_success", extra={"size": os.path.getsize(self.state_path)})
-            except Exception as e:
-                if "Target closed" in str(e) or "Browser closed" in str(e):
-                    return
-                logger.warning("state_save_failure", extra={"error": str(e)})
-                if os.path.exists(tmp_path):
-                    try: os.remove(tmp_path)
-                    except Exception: pass
-
-    async def save_state(self):
-        """Public method to manually trigger state saving."""
-        if self.context and not self.is_shutting_down:
-            await self._atomic_save_state()
+            logger.info("BrowserEngine: New generation active.", extra={"gen": self.browser_generation})
 
     async def is_authenticated(self, page: Page) -> bool:
-        """
-        Reliable health check for authentication state.
-        Uses a fail-open strategy and direct DOM evaluation.
-        """
+        """Reliable fail-open auth check via direct DOM evaluation."""
         try:
             url = page.url
             if "accounts.google.com" in url and "/signin" in url:
-                logger.warning("Auth health check: Direct sign-in URL detected.")
                 return False
             
+            # Targeted selector check
             signin_button = page.get_by_role("button", name=re.compile(r"sign in", re.IGNORECASE)).first
-            
             try:
-                # Optimized visibility check via direct DOM evaluation
+                # Direct DOM probe is more deterministic than is_visible
                 visible = await asyncio.wait_for(
-                    signin_button.evaluate(
-                        "el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)"
-                    ),
+                    signin_button.evaluate("el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)"),
                     timeout=1.5
                 )
-                if visible:
-                    logger.warning("Auth health check: 'Sign in' button is visible.")
-                    return False
-            except asyncio.TimeoutError:
-                logger.debug("Auth health check visibility timeout (fail-open).")
-            except Exception as e:
-                logger.debug(f"Auth health check evaluation skipped: {e}")
-                
+                if visible: return False
+            except (asyncio.TimeoutError, Exception):
+                pass
             return True
         except Exception as e:
-            if "Target closed" in str(e) or "Browser closed" in str(e):
-                return True 
-            logger.warning(f"BrowserEngine: Non-fatal auth check error (fail-open): {e}")
+            if "Target closed" in str(e): return True
+            logger.warning(f"Auth health check error (fail-open): {e}")
             return True
 
-    async def notify_page_closed(self, page: Page):
-        """Callback for pages to notify their closure. No-op in shared context model."""
-        pass
+    @property
+    def active_pages(self) -> int:
+        """Aggregated count of active request tabs across all providers."""
+        return sum(s.active_pages for s in self.sessions.values())
 
     async def close(self) -> None:
-        """Clean and orderly shutdown of all browser resources."""
+        """Graceful shutdown sequence with bounded request drain."""
         async with self.management_lock:
+            if self.is_shutting_down:
+                return
+            
             logger.info("BrowserEngine: Shutting down...")
             self.is_shutting_down = True
             
-            # 1. Stop autosave task
-            if self.state_autosave_task and not self.state_autosave_task.done():
-                self.state_autosave_task.cancel()
-                try: await self.state_autosave_task
-                except asyncio.CancelledError: pass
+            # 1. Bounded Request Drain
+            # Wait for up to 15 seconds for active pages to finish.
+            drain_start = time.time()
+            drain_timeout = 15.0
+            while self.active_pages > 0 and (time.time() - drain_start) < drain_timeout:
+                logger.info(f"BrowserEngine: Draining active pages ({self.active_pages} left)...")
+                await asyncio.sleep(1.0)
+            
+            if self.active_pages > 0:
+                logger.warning(f"BrowserEngine: Draining timed out with {self.active_pages} pages remaining.")
 
-            # 2. Final atomic save
-            if self.context:
-                await self._atomic_save_state()
+            # 2. Close all sessions (cancels tasks, closes contexts)
+            # This will also save state since we are doing a graceful shutdown.
+            for session in list(self.sessions.values()):
+                await session.close_resources(save_state=True)
             
-            # 3. Close keepalive tab
-            if self.keepalive_page and not self.keepalive_page.is_closed():
-                try: await self.keepalive_page.close()
-                except Exception: pass
-            
-            # 4. Close shared context
-            if self.context:
-                try: await self.context.close()
-                except Exception: pass
-            
-            # 5. Shutdown browser and playwright
+            # 3. Cleanup browser process
             if self.browser:
                 try: await self.browser.close()
                 except Exception: pass
             
+            # 4. Cleanup playwright driver
             if self.playwright:
                 try: await self.playwright.stop()
                 except Exception: pass
             
-            self.context = None
-            self.keepalive_page = None
+            self.sessions.clear()
             self.browser = None
             self.playwright = None
             logger.info("BrowserEngine: Shutdown complete.")
