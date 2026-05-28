@@ -271,14 +271,14 @@ class ProviderSession:
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
         if self.engine.is_shutting_down:
-            return
+            raise RuntimeError("Browser engine is shutting down")
             
         async with self.init_lock:
             async with self.engine.management_lock:
                 await self.engine._ensure_healthy_browser()
 
             if self.engine.is_shutting_down:
-                return
+                raise RuntimeError("Browser engine is shutting down")
 
             # Atomic Purge on generation rollover
             if self.last_browser_generation != self.engine.browser_generation:
@@ -330,7 +330,16 @@ class ProviderSession:
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
-            self.context.on("close", lambda c: self._on_context_closed())
+            
+            def safe_on_context_close(c):
+                try:
+                    asyncio.get_running_loop().create_task(self._on_context_closed())
+                except RuntimeError:
+                    logger.debug(
+                        "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed.",
+                        self.name
+                    )
+            self.context.on("close", safe_on_context_close)
             
             self.keepalive_page = await self.context.new_page()
             self.last_browser_generation = self.engine.browser_generation
@@ -428,7 +437,10 @@ class ProviderSession:
                 
                 if not self.is_alive:
                     if not self.engine.is_shutting_down:
-                        logger.warning(f"ProviderSession({self.name}): Unexpected liveness loss (Window closure). Triggering shutdown.")
+                        logger.warning(
+                            "ProviderSession(%s): Unexpected liveness loss (Window closure). Triggering shutdown.",
+                            self.name
+                        )
                         self.engine._on_browser_disconnected()
                     break
 
@@ -492,7 +504,7 @@ class ProviderSession:
         except Exception as e:
             logger.error(f"Reaper loop crashed ({self.name}): {e}")
 
-    def _on_context_closed(self):
+    async def _on_context_closed(self):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
             return

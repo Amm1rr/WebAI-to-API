@@ -103,7 +103,10 @@ class BrowserEngine:
         self._disconnect_handled = True
         logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).")
         # Fire-and-forget terminal shutdown to kill all background loops and prevent recreation
-        asyncio.create_task(self.close())
+        try:
+            asyncio.get_running_loop().create_task(self.close())
+        except RuntimeError:
+            logger.debug("BrowserEngine: Shutdown task scheduling skipped - event loop already closed.")
 
 
 
