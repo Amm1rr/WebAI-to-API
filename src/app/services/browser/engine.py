@@ -38,6 +38,9 @@ class PersistentTab:
         # It represents forward progress of the owning request.
         self.last_heartbeat_at = time.monotonic()
         
+        # Internal flag to deduplicate detached cleanup tasks
+        self._cleanup_scheduled = False
+        
         # Ownership Tracking
         self.lease_token: Optional[str] = None
         self.owner_request_id: Optional[str] = None
@@ -569,36 +572,47 @@ class ProviderSession:
 
     def _schedule_orphan_cleanup(self, tab: PersistentTab):
         """Schedules a detached physical close for a leased tab that was removed from registry."""
+        if tab._cleanup_scheduled:
+            return
+        tab._cleanup_scheduled = True
+
         async def _delayed_close():
             token_at_start = tab.lease_token
-            logger.debug(f"Orphan cleanup scheduled for {tab.conversation_id}")
             try:
                 while True:
                     # Check periodically based on lease_timeout
                     await asyncio.sleep(self.lease_timeout)
                     
-                    # 0. State check: If tab is already dead, cleanup was successful elsewhere
+                    # 0. Fast exit if tab already dead or ownership changed
                     if tab.status == TabStatus.DEAD:
-                        logger.debug(f"Orphan cleanup ABORTED for {tab.conversation_id} (Already DEAD)")
                         return
-
-                    # 1. Ownership check: If token changed, lease naturally ended
                     if tab.lease_token != token_at_start:
                         return
                     
-                    # 2. Heartbeat check: Protect healthy active streams
-                    # Heartbeat != LRU. This only tracks request-level progress.
+                    # 1. Heartbeat check: Protect healthy active streams
                     time_since_heartbeat = time.monotonic() - tab.last_heartbeat_at
                     if time_since_heartbeat < self.lease_timeout:
                         logger.debug(f"Orphan cleanup SKIP for {tab.conversation_id} (Heartbeat fresh: {time_since_heartbeat:.1f}s)")
                         continue
                     
+                    # 2. TOCTOU Mitigation: Re-read heartbeat after a cooperative yield
+                    # This ensures we don't kill a tab that just reported progress before our wakeup
+                    latest_heartbeat = tab.last_heartbeat_at
+                    await asyncio.sleep(0)
+                    if latest_heartbeat != tab.last_heartbeat_at:
+                        logger.debug(f"Orphan cleanup ABORTED for {tab.conversation_id} (Late heartbeat detected)")
+                        continue
+
                     # 3. Deterministic Kill: Tab is orphaned AND unresponsive
-                    logger.warning(f"Orphan cleanup KILL for {tab.conversation_id} (No heartbeat for {time_since_heartbeat:.1f}s)")
-                    await tab.close()
+                    if tab.lease_token == token_at_start and tab.status != TabStatus.DEAD:
+                        logger.warning(f"Orphan cleanup KILL for {tab.conversation_id} (Stalled for {time_since_heartbeat:.1f}s)")
+                        # Shield physical close from engine shutdown cancellation
+                        await asyncio.shield(tab.close())
                     return
             except Exception as e:
-                logger.warning(f"Orphan cleanup error for {tab.conversation_id}: {e}")
+                logger.error(f"Detached cleanup CRASHED for {tab.conversation_id}: {e}")
+            finally:
+                tab._cleanup_scheduled = False
 
         # Fire and forget detached cleanup task
         task = asyncio.create_task(_delayed_close())
