@@ -36,6 +36,7 @@ class BrowserEngine:
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
         self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
+        self._disconnect_handled = False
         
         # Basic provider adapter registry mapping
         from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
@@ -62,8 +63,13 @@ class BrowserEngine:
         return await session.acquire_lease()
 
     async def _ensure_healthy_browser(self):
+        if self.is_shutting_down:
+            logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.")
+            return
+
         if not self.playwright or not self.browser or not self.browser.is_connected():
             logger.info("BrowserEngine: Initializing Browser...")
+            
             if self.browser:
                 try: await self.browser.close()
                 except: pass
@@ -77,12 +83,27 @@ class BrowserEngine:
                     headless=self.headless,
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
                 )
+                
+                # Bind disconnect listener for manual closure detection
+                self._disconnect_handled = False
+                self.browser.on("disconnected", lambda b: self._on_browser_disconnected())
+                
                 self.browser_generation += 1
                 logger.info("BrowserEngine: New generation active.", extra={"gen": self.browser_generation})
             except Exception as e:
                 logger.error(f"BrowserEngine: Failed to launch browser: {e}")
                 self.browser = None
                 raise
+
+    def _on_browser_disconnected(self):
+        """Internal handler for Playwright's disconnected event."""
+        if self.is_shutting_down or self._disconnect_handled:
+            return
+            
+        self._disconnect_handled = True
+        logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).")
+        # Fire-and-forget terminal shutdown to kill all background loops and prevent recreation
+        asyncio.create_task(self.close())
 
 
 
@@ -163,24 +184,35 @@ class BrowserEngine:
 
     async def close(self) -> None:
         async with self.management_lock:
-            if self.is_shutting_down: return
+            if self.is_shutting_down: 
+                logger.debug("BrowserEngine: Shutdown already in progress or complete.")
+                return
             logger.info("BrowserEngine: Shutting down...")
             self.is_shutting_down = True
             
             drain_start = time.monotonic()
             drain_timeout = 15.0
             while self.active_pages > 0 and (time.monotonic() - drain_start) < drain_timeout:
+                logger.info(f"BrowserEngine: Waiting for {self.active_pages} active pages to drain...")
                 await asyncio.sleep(1.0)
             
             for session in list(self.sessions.values()):
+                logger.debug(f"BrowserEngine: Closing session resources for {session.name}")
                 await session.close_resources(save_state=True)
             
             if self.browser:
-                try: await self.browser.close()
-                except: pass
+                try: 
+                    logger.debug("BrowserEngine: Closing browser process.")
+                    await self.browser.close()
+                except Exception as e:
+                    logger.warning(f"BrowserEngine: Error closing browser: {e}")
+            
             if self.playwright:
-                try: await self.playwright.stop()
-                except: pass
+                try: 
+                    logger.debug("BrowserEngine: Stopping playwright.")
+                    await self.playwright.stop()
+                except Exception as e:
+                    logger.warning(f"BrowserEngine: Error stopping playwright: {e}")
             
             self.sessions.clear()
             self.browser = None

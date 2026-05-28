@@ -61,6 +61,9 @@ class ProviderSession:
         return (
             self.context is not None and 
             self.engine.browser is not None and 
+            self.engine.browser.is_connected() and
+            self.keepalive_page is not None and
+            not self.keepalive_page.is_closed() and
             self.last_browser_generation == self.engine.browser_generation
         )
 
@@ -267,9 +270,15 @@ class ProviderSession:
 
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
+        if self.engine.is_shutting_down:
+            return
+            
         async with self.init_lock:
             async with self.engine.management_lock:
                 await self.engine._ensure_healthy_browser()
+
+            if self.engine.is_shutting_down:
+                return
 
             # Atomic Purge on generation rollover
             if self.last_browser_generation != self.engine.browser_generation:
@@ -321,6 +330,8 @@ class ProviderSession:
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
+            self.context.on("close", lambda c: self._on_context_closed())
+            
             self.keepalive_page = await self.context.new_page()
             self.last_browser_generation = self.engine.browser_generation
             
@@ -356,12 +367,16 @@ class ProviderSession:
                 if self.is_alive:
                     await self.save_state()
         except asyncio.CancelledError: pass
+        except Exception as e:
+            logger.error(f"ProviderSession({self.name}): Autosave loop error: {e}")
 
     async def _eviction_loop(self):
         """Deterministic eviction and stale lease recovery."""
         try:
             while not self.engine.is_shutting_down:
                 await asyncio.sleep(30)
+                if self.engine.is_shutting_down: break
+                
                 now = time.monotonic()
                 to_evict = []
                 stale_recovery = []
@@ -409,8 +424,13 @@ class ProviderSession:
         try:
             while not self.engine.is_shutting_down:
                 await asyncio.sleep(30)
+                if self.engine.is_shutting_down: break
+                
                 if not self.is_alive:
-                    continue
+                    if not self.engine.is_shutting_down:
+                        logger.warning(f"ProviderSession({self.name}): Unexpected liveness loss (Window closure). Triggering shutdown.")
+                        self.engine._on_browser_disconnected()
+                    break
 
                 # 1. Snapshot IDLE tabs under registry_lock
                 candidates = []
@@ -471,6 +491,15 @@ class ProviderSession:
         except asyncio.CancelledError: pass
         except Exception as e:
             logger.error(f"Reaper loop crashed ({self.name}): {e}")
+
+    def _on_context_closed(self):
+        """Handler for BrowserContext.on('close')."""
+        if self.engine.is_shutting_down:
+            return
+        
+        logger.warning(f"ProviderSession({self.name}): Context closed (Window manually closed or crash).")
+        # Delegate terminal shutdown to engine
+        self.engine._on_browser_disconnected()
 
     async def save_state(self):
         if not self.is_alive: return
