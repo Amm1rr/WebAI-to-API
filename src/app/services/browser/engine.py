@@ -69,7 +69,8 @@ class PersistentTab:
         return (
             self.status == TabStatus.IDLE and
             self.browser_generation == current_gen and
-            not self.page.is_closed()
+            not self.page.is_closed() and
+            (self.page.context.browser.is_connected() if self.page.context.browser else False)
         )
 
     async def acquire_lease(self, request_id: str) -> Optional[str]:
@@ -80,23 +81,37 @@ class PersistentTab:
         # Note: External caller must ensure registry_lock is NOT held while awaiting this
         await self._lock.acquire()
         
-        # Re-validate state AND physical page AFTER acquiring the lock
-        if self.status != TabStatus.IDLE or self.page.is_closed():
-            self._lock.release()
-            return None
+        try:
+            # 1. Basic Re-validation (State & Generation)
+            if self.status != TabStatus.IDLE or self.page.is_closed():
+                return None
+
+            # 2. Active Liveness Probe (Lightweight)
+            # This detects transport disconnects where is_closed() might be stale.
+            try:
+                await asyncio.wait_for(self.page.evaluate("1"), timeout=1.0)
+            except Exception as e:
+                logger.warning(f"Tab({self.conversation_id}) liveness probe failed: {e}")
+                self.invalidate()
+                return None
+                
+            token = str(uuid.uuid4())
+            self.status = TabStatus.LEASED
+            self.lease_token = token
+            self.owner_request_id = request_id
+            self.leased_at = time.monotonic()
             
-        token = str(uuid.uuid4())
-        self.status = TabStatus.LEASED
-        self.lease_token = token
-        self.owner_request_id = request_id
-        self.leased_at = time.monotonic()
-        
-        # Initialize both timestamps for the new lease
-        self.last_accessed_at = self.leased_at
-        self.heartbeat("initial_lease")
-        
-        logger.info(f"Tab({self.conversation_id}): Lease acquired", extra={"token": token, "req_id": request_id})
-        return token
+            # Initialize both timestamps for the new lease
+            self.last_accessed_at = self.leased_at
+            self.heartbeat("initial_lease")
+            
+            logger.info(f"Tab({self.conversation_id}): Lease acquired", extra={"token": token, "req_id": request_id})
+            return token
+        except Exception:
+            return None
+        finally:
+            if not self.lease_token:
+                self._lock.release()
 
     async def release_lease(self, token: str) -> bool:
         """
@@ -234,6 +249,7 @@ class ProviderSession:
         # Background Tasks Tracking
         self.autosave_task: Optional[asyncio.Task] = None
         self.eviction_task: Optional[asyncio.Task] = None
+        self.reaper_task: Optional[asyncio.Task] = None
         self._orphan_cleanup_tasks = weakref.WeakSet()
         self.active_orphans = weakref.WeakSet()
         
@@ -368,9 +384,18 @@ class ProviderSession:
                             # Generation rollover during acquisition
                             await tab.release_lease(token)
                             async with self.registry_lock:
-                                self.conversation_registry.pop(conversation_id, None)
+                                if self.conversation_registry.get(conversation_id) is tab:
+                                    self.conversation_registry.pop(conversation_id)
                             await tab.close()
                     else:
+                        # Probe failed or tab became invalid/busy
+                        if not tab.is_valid(self.engine.browser_generation):
+                            # Purge if it's definitely dead/invalid (not just busy)
+                            if tab.status != TabStatus.LEASED:
+                                async with self.registry_lock:
+                                    if self.conversation_registry.get(conversation_id) is tab:
+                                        self.conversation_registry.pop(conversation_id)
+                                await tab.close()
                         logger.debug(f"Tab {conversation_id} busy or invalid. Falling back to new tab.")
 
             # 3. New Tab Flow
@@ -378,7 +403,7 @@ class ProviderSession:
             page = await asyncio.wait_for(self.context.new_page(), timeout=10.0)
             return ManagedPage(page, self)
 
-        except Exception:
+        except BaseException:
             self.active_lease_count = max(0, self.active_lease_count - 1)
             self.semaphore.release()
             raise
@@ -502,6 +527,8 @@ class ProviderSession:
                     self.autosave_task = asyncio.create_task(self._autosave_loop())
                 if not self.eviction_task or self.eviction_task.done():
                     self.eviction_task = asyncio.create_task(self._eviction_loop())
+                if not self.reaper_task or self.reaper_task.done():
+                    self.reaper_task = asyncio.create_task(self._reaper_loop())
             
             logger.info("provider_session_initialized", extra={"provider": self.name, "gen": self.last_browser_generation})
         except Exception as e:
@@ -567,12 +594,85 @@ class ProviderSession:
                             logger.warning(f"Stale lease recovery: {cid} (No heartbeat for {self.lease_timeout}s)")
                             # ATOMIC INVALIDATION
                             tab_to_kill = self.conversation_registry.pop(cid, None)
-                    
+
                     if tab_to_kill:
                         tab_to_kill.invalidate()
                         await tab_to_kill.close()
-                            
+
         except asyncio.CancelledError: pass
+
+    async def _reaper_loop(self):
+        """Active liveness sweeper for IDLE persistent tabs."""
+        try:
+            while not self.engine.is_shutting_down:
+                await asyncio.sleep(30)
+                if not self.is_alive:
+                    continue
+
+                # 1. Snapshot IDLE tabs under registry_lock
+                candidates = []
+                async with self.registry_lock:
+                    for tab in self.conversation_registry.values():
+                        if tab.status == TabStatus.IDLE:
+                            candidates.append(tab)
+
+                # 2. Parallel Probe outside registry_lock (bounded concurrency)
+                probe_sem = asyncio.Semaphore(10)
+
+                async def probe_tab(t):
+                    async with probe_sem:
+                        try:
+                            if (
+                                not t.page.is_closed()
+                                and t.browser_generation == self.engine.browser_generation
+                            ):
+                                browser = t.page.context.browser
+
+                                # Transport-level validation
+                                if browser and not browser.is_connected():
+                                    return t.conversation_id
+
+                                await asyncio.wait_for(
+                                    t.page.evaluate("1"),
+                                    timeout=1.0
+                                )
+
+                                return None
+
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            pass
+
+                        return t.conversation_id
+
+                results = await asyncio.gather(
+                    *(probe_tab(t) for t in candidates),
+                    return_exceptions=False
+                )
+
+                dead_cids = [cid for cid in results if cid]
+
+                # 3. Cleanup dead tabs under registry_lock
+                if dead_cids:
+                    to_close = []
+                    async with self.registry_lock:
+                        for cid in dead_cids:
+                            tab = self.conversation_registry.get(cid)
+                            # Only reap if still IDLE and hasn't been replaced
+                            if tab and tab.status == TabStatus.IDLE:
+                                t = self.conversation_registry.pop(cid)
+                                to_close.append(t)
+                                t.invalidate()
+
+                    for t in to_close:
+                        await t.close()
+                    if to_close:
+                        logger.info(f"Reaper purged {len(to_close)} dead tabs from registry ({self.name})")
+
+        except asyncio.CancelledError: pass
+        except Exception as e:
+            logger.error(f"Reaper loop crashed ({self.name}): {e}")
 
     async def save_state(self):
         if not self.is_alive: return
@@ -604,6 +704,12 @@ class ProviderSession:
             try: await self.eviction_task
             except: pass
             self.eviction_task = None
+
+        if self.reaper_task:
+            self.reaper_task.cancel()
+            try: await self.reaper_task
+            except: pass
+            self.reaper_task = None
 
         # Drain orphan cleanup tasks
         if hasattr(self, "_orphan_cleanup_tasks"):
