@@ -35,8 +35,11 @@ try:
     from g4f.api import run_api as run_g4f_api
 
     G4F_AVAILABLE = True
-except ImportError:
+except (ImportError, SyntaxError, Exception) as e:
     G4F_AVAILABLE = False
+    # Only print warning if it's not a simple import error (like missing package)
+    if not isinstance(e, ImportError):
+        print(f"DEBUG: g4f provider disabled due to initialization error: {e}")
 
 
 # Helper class for terminal colors
