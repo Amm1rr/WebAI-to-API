@@ -11,7 +11,7 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, E
 
 from app.services.base import BaseProvider
 from app.services.browser.engine import get_browser_engine
-from app.services.browser.tab import ManagedPage, PersistentTab
+from app.services.browser.tab import ManagedPage, PersistentTab, TabStatus
 from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
 from app.schemas.request import OpenAIChatRequest
 from app.logger import logger
@@ -145,7 +145,23 @@ class GeminiPlaywrightProvider(BaseProvider):
             
             input_locator = page.locator(SELECTORS["INPUT"]).first
             if state.active_tab: state.active_tab.heartbeat("input_wait")
-            await input_locator.wait_for(state="visible", timeout=15000)
+            try:
+                await input_locator.wait_for(state="visible", timeout=15000)
+            except Exception as e:
+                state.page_poisoned = True
+                if state.active_tab:
+                    state.active_tab.status = TabStatus.DEAD
+                logger.warning(
+                    "Gemini input textbox acquisition failed. Page is poisoned.",
+                    extra={
+                        "request_id": state.request_id,
+                        "conversation_id": state.conversation_id,
+                        "page_url": page.url,
+                        "tab_type": "reused" if state.reused_conversation else "temporary",
+                        "error": str(e)
+                    }
+                )
+                raise
             
             # 3. Auth Validation
             if state.active_tab: state.active_tab.heartbeat("auth_check")
