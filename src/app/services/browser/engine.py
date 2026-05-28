@@ -234,6 +234,7 @@ class ProviderSession:
         self.autosave_task: Optional[asyncio.Task] = None
         self.eviction_task: Optional[asyncio.Task] = None
         self._orphan_cleanup_tasks = weakref.WeakSet()
+        self.active_orphans = weakref.WeakSet()
         
         # Persistent state
         self.state_path = os.path.join(engine.user_data_dir, f"{name}_state.json")
@@ -253,8 +254,63 @@ class ProviderSession:
             "provider": self.name,
             "registry_size": len(self.conversation_registry),
             "active_leases": self.active_lease_count,
-            "max_capacity": self.max_conversations
+            "max_capacity": self.max_conversations,
+            "total_pages": self.page_count
         }
+
+    @property
+    def page_count(self) -> int:
+        """
+        Calculates the total number of live browser pages owned by this session.
+        Counted: IDLE, LEASED, INVALIDATING.
+        Excluded: DEAD.
+        """
+        count = 0
+        # 1. Registry tabs (IDLE or LEASED)
+        for tab in self.conversation_registry.values():
+            if tab.status != TabStatus.DEAD:
+                count += 1
+        
+        # 2. Active Orphans (INVALIDATING)
+        for tab in self.active_orphans:
+            if tab.status != TabStatus.DEAD:
+                count += 1
+        
+        # 3. Internal pages (keepalive)
+        if self.keepalive_page and not self.keepalive_page.is_closed():
+            count += 1
+            
+        return count
+
+    async def get_eviction_candidates(self) -> List[PersistentTab]:
+        """
+        Returns a prioritized list of tabs eligible for best-effort eviction.
+        Priority: 
+        1. INVALIDATING (Orphans)
+        2. IDLE (Persistent LRU)
+        3. STALE LEASED (Unresponsive)
+        """
+        candidates = []
+        now = time.monotonic()
+        
+        async with self.registry_lock:
+            # 1. Orphans (already in INVALIDATING)
+            for tab in list(self.active_orphans):
+                if tab.status == TabStatus.INVALIDATING:
+                    candidates.append(tab)
+            
+            # 2. IDLE tabs (LRU: ordered by insertion/move_to_end)
+            for tab in self.conversation_registry.values():
+                if tab.status == TabStatus.IDLE:
+                    candidates.append(tab)
+            
+            # 3. STALE LEASED tabs
+            for tab in self.conversation_registry.values():
+                if tab.status == TabStatus.LEASED:
+                    if now - tab.last_heartbeat_at > self.lease_timeout:
+                        candidates.append(tab)
+                        
+        return candidates
 
     async def acquire_lease(self, conversation_id: Optional[str] = None, request_id: str = "default") -> ManagedPage:
         """
@@ -317,6 +373,7 @@ class ProviderSession:
                         logger.debug(f"Tab {conversation_id} busy or invalid. Falling back to new tab.")
 
             # 3. New Tab Flow
+            await self.engine.enforce_soft_cap()
             page = await asyncio.wait_for(self.context.new_page(), timeout=10.0)
             return ManagedPage(page, self)
 
@@ -575,6 +632,7 @@ class ProviderSession:
         if tab._cleanup_scheduled:
             return
         tab._cleanup_scheduled = True
+        self.active_orphans.add(tab)
 
         async def _delayed_close():
             token_at_start = tab.lease_token
@@ -612,6 +670,7 @@ class ProviderSession:
             except Exception as e:
                 logger.error(f"Detached cleanup CRASHED for {tab.conversation_id}: {e}")
             finally:
+                self.active_orphans.discard(tab)
                 tab._cleanup_scheduled = False
 
         # Fire and forget detached cleanup task
@@ -636,6 +695,7 @@ class BrowserEngine:
         os.makedirs(self.user_data_dir, exist_ok=True)
         self.headless = CONFIG["Playwright"].getboolean("headless", False)
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
+        self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
 
     @classmethod
@@ -698,7 +758,78 @@ class BrowserEngine:
 
     @property
     def active_pages(self) -> int:
+        """Counts current active leases (semaphore slots)."""
         return sum(s.active_lease_count for s in self.sessions.values())
+
+    @property
+    def total_page_count(self) -> int:
+        """Counts all live browser pages across all sessions."""
+        return sum(s.page_count for s in self.sessions.values())
+
+    async def enforce_soft_cap(self):
+        """
+        Enforces the global soft-cap on total browser pages.
+        Coordinates best-effort eviction across all provider sessions.
+        """
+        if self.total_page_count <= self.max_total_tabs:
+            return
+
+        logger.warning(f"BrowserEngine: Soft-cap pressure detected ({self.total_page_count}/{self.max_total_tabs})")
+
+        candidates = []
+        for session in self.sessions.values():
+            session_candidates = await session.get_eviction_candidates()
+            candidates.extend((session, tab) for tab in session_candidates)
+            
+        def get_priority(tab: PersistentTab) -> int:
+            if tab.status == TabStatus.INVALIDATING: return 1
+            if tab.status == TabStatus.IDLE: return 2
+            if tab.status == TabStatus.LEASED: return 3
+            return 4
+
+        # Sort by priority then by last accessed (LRU)
+        candidates.sort(key=lambda item: (get_priority(item[1]), item[1].last_accessed_at))
+
+        needed_evictions = self.total_page_count - self.max_total_tabs
+        evicted = 0
+        
+        for session, tab in candidates:
+            if evicted >= needed_evictions:
+                break
+                
+            now = time.monotonic()
+            await tab._lock.acquire()
+            try:
+                # 1. Skip if already dead or gone
+                if tab.status == TabStatus.DEAD:
+                    continue
+                
+                # 2. Detailed re-validation under lock
+                if tab.status == TabStatus.IDLE:
+                    pass # Still IDLE, safe to evict
+                elif tab.status == TabStatus.INVALIDATING:
+                    pass # Already doomed
+                elif tab.status == TabStatus.LEASED:
+                    # ONLY evict LEASED if it's actually stale (Source of Truth: session)
+                    is_stale = (now - tab.last_heartbeat_at) > session.lease_timeout
+                    if not is_stale or tab.lease_token is None:
+                        continue
+                else:
+                    continue # Unknown or incompatible state
+                
+                # Transition to INVALIDATING under lock to prevent future leases
+                tab.status = TabStatus.INVALIDATING
+            finally:
+                tab._lock.release()
+            
+            logger.info(f"BrowserEngine: Evicting tab {tab.conversation_id} due to soft-cap pressure.")
+            await tab.close()
+            
+            # Increment ONLY if physical closure succeeded
+            if tab.status == TabStatus.DEAD:
+                evicted += 1
+            else:
+                logger.warning(f"BrowserEngine: Eviction failed for {tab.conversation_id} (Status: {tab.status})")
 
     async def close(self) -> None:
         async with self.management_lock:

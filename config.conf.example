@@ -43,4 +43,22 @@ gemini = true
 # Its usefull to fix errors like 403 or restricted connections
 # Example: http_proxy = http://127.0.0.1:2334
 [Proxy]
-http_proxy =
+http_proxy = 
+
+# --- Playwright Settings ---
+# Settings for the browser automation engine.
+[Playwright]
+# Run in headless mode (true/false)
+headless = false
+# Maximum concurrent pages across all sessions (HARD LIMIT via semaphore)
+max_concurrent_pages = 5
+# Global soft-cap for total open pages across all sessions (eviction threshold)
+max_total_tabs = 50
+# Maximum conversations to keep in the LRU registry per provider
+max_persistent_conversations = 20
+# Timeouts in milliseconds
+navigation_timeout = 30000
+ui_wait_timeout = 15000
+# Eviction timeouts in seconds
+idle_conversation_timeout = 900
+lease_timeout = 180

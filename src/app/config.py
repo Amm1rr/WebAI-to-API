@@ -36,8 +36,12 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["Playwright"] = {
             "headless": "false",
             "max_concurrent_pages": "5",
+            "max_total_tabs": "50",
+            "max_persistent_conversations": "20",
             "navigation_timeout": "30000",
             "ui_wait_timeout": "15000",
+            "idle_conversation_timeout": "900",
+            "lease_timeout": "180",
             "chunk_timeout": "90",
             "total_request_timeout": "120"
         }
