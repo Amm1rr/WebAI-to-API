@@ -164,11 +164,12 @@ class GeminiPlaywrightProvider(BaseProvider):
             
             # Submission Loop (Retry fallback Enter)
             confirmed = False
-            
-            # Prevent stale confirmation from previous lifecycle
-            state.submission_confirmed.clear()
 
             for attempt in range(2):
+                # Every retry attempt must begin with a clean Event state 
+                # for reliable edge-triggered confirmation.
+                state.submission_confirmed.clear()
+
                 if await submit_button.is_enabled():
                     await submit_button.click()
                 else:
