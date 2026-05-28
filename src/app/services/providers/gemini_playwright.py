@@ -85,16 +85,22 @@ class GeminiPlaywrightProvider(BaseProvider):
             await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
             await asyncio.sleep(2) # Wait for potential redirects and history load
             
-            if "accounts.google.com" in page.url and "/signin" in page.url:
-                logger.warning("Auth redirect detected.", extra={"request_id": state.request_id})
+            # 6. ADD AUTH HEALTH CHECK
+            is_auth = await engine.is_authenticated(page)
+            if not is_auth:
+                logger.warning("auth_invalidated", extra={"request_id": state.request_id})
+                
+                # Delete corrupted/expired state
+                if os.path.exists(engine.state_path):
+                    try:
+                        os.remove(engine.state_path)
+                        logger.info("Deleted expired state.json to force re-auth.")
+                    except Exception as e:
+                        logger.error(f"Failed to delete expired state: {e}")
+                        
+                # Recreate clean context
+                await engine.rotate_context()
                 raise HTTPException(status_code=401, detail="Authentication expired. Please run verify_login.py.")
-            
-            # Check for guest mode
-            try:
-                signin_button = page.get_by_role("button", name=re.compile("Sign in", re.IGNORECASE))
-                if await signin_button.is_visible(timeout=2000):
-                    logger.warning("Gemini loaded in Guest Mode.", extra={"request_id": state.request_id})
-            except: pass
 
             # 2. Pre-submit Observer Injection
             observer_task = asyncio.create_task(
@@ -124,9 +130,11 @@ class GeminiPlaywrightProvider(BaseProvider):
             await submit_button.click(force=True)
             
             try:
-                if await submit_button.is_enabled(timeout=1000):
+                if await submit_button.is_enabled():
+                    logger.debug("Send button still enabled, trying Enter fallback...")
                     await page.keyboard.press("Enter")
-            except: pass
+            except Exception as e:
+                logger.warning(f"Failed fallback submit button check: {e}")
             
             logger.info("Prompt submitted successfully", extra={
                 "request_id": state.request_id,
@@ -188,7 +196,8 @@ class GeminiPlaywrightProvider(BaseProvider):
             try:
                 stop_button = page.locator(SELECTORS["STOP_BUTTON"]).first
                 if await stop_button.is_visible(): await stop_button.click()
-            except: pass
+            except Exception as e:
+                logger.warning(f"Failed to click stop button during stream cancellation: {e}")
             raise
         finally:
             await self._cleanup(page, observer_task, state, engine)
@@ -217,12 +226,17 @@ class GeminiPlaywrightProvider(BaseProvider):
             try:
                 if observer_task and not observer_task.done():
                     observer_task.cancel()
-                    try: await observer_task
-                    except: pass
+                    try: 
+                        await observer_task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"Error cancelling observer task: {e}")
                 if page and not state.page_closed:
                     try: 
                         if not page.is_closed(): await page.close()
-                    except: pass
+                    except Exception as e: 
+                        logger.warning(f"Error closing page: {e}")
                     await engine.notify_page_closed(page)
                     state.page_closed = True
                     logger.info("Resources released", extra={"request_id": state.request_id})
