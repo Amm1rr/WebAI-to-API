@@ -65,12 +65,16 @@ class PersistentTab:
                      extra={"req_id": self.owner_request_id, "elapsed": f"{elapsed:.1f}s"})
 
     def is_valid(self, current_gen: int) -> bool:
-        """Determines if the tab is viable for a new lease."""
+        """
+        Structural validation only. 
+        Checks internal state, generation, and basic Playwright page status.
+        Does NOT perform active liveness probes or rely on transport-level connectivity.
+        Authority for active liveness resides in acquire_lease() and _reaper_loop().
+        """
         return (
             self.status == TabStatus.IDLE and
             self.browser_generation == current_gen and
-            not self.page.is_closed() and
-            (self.page.context.browser.is_connected() if self.page.context.browser else False)
+            not self.page.is_closed()
         )
 
     async def acquire_lease(self, request_id: str) -> Optional[str]:
@@ -258,10 +262,13 @@ class ProviderSession:
 
     @property
     def is_alive(self) -> bool:
+        """
+        Structural session validity.
+        Rely on ensure_healthy() for active liveness probing.
+        """
         return (
             self.context is not None and 
             self.engine.browser is not None and 
-            self.engine.browser.is_connected() and
             self.last_browser_generation == self.engine.browser_generation
         )
 
@@ -476,6 +483,7 @@ class ProviderSession:
                 logger.warning(f"Browser generation rollover ({self.last_browser_generation} -> {self.engine.browser_generation})")
                 await self._purge_all_tabs()
 
+            # 2. Check active liveness of the session-wide keepalive page
             if not self.is_alive:
                 await self._setup()
             else:
@@ -483,8 +491,10 @@ class ProviderSession:
                     if not self.keepalive_page or self.keepalive_page.is_closed():
                         await self._setup()
                     else:
+                        # ACTIVE PROBE: The authority for session liveness
                         await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
                 except (asyncio.TimeoutError, Exception):
+                    logger.warning(f"ProviderSession({self.name}) liveness probe failed. Re-initializing.")
                     await self._setup()
 
     async def _purge_all_tabs(self):
@@ -626,12 +636,7 @@ class ProviderSession:
                                 not t.page.is_closed()
                                 and t.browser_generation == self.engine.browser_generation
                             ):
-                                browser = t.page.context.browser
-
-                                # Transport-level validation
-                                if browser and not browser.is_connected():
-                                    return t.conversation_id
-
+                                # Active Liveness Probe (The real authority)
                                 await asyncio.wait_for(
                                     t.page.evaluate("1"),
                                     timeout=1.0
