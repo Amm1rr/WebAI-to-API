@@ -124,6 +124,14 @@ class GeminiPlaywrightProvider(BaseProvider):
             await session._setup_page_bridge(page)
             page._gemini_callbacks[state.request_id] = bridge_callback
             
+            # Cooperative yield to ensure event loop schedules registration
+            await asyncio.sleep(0.01)
+            
+            logger.debug(
+                f"Bridge callback registered for requestId: {state.request_id}",
+                extra={"request_id": state.request_id, "exposed_keys": list(page._gemini_callbacks.keys())}
+            )
+            
             nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
             
             # 2. Target Navigation
@@ -147,6 +155,8 @@ class GeminiPlaywrightProvider(BaseProvider):
             if state.active_tab: state.active_tab.heartbeat("input_wait")
             try:
                 await input_locator.wait_for(state="visible", timeout=15000)
+                # Let the heavy framework JS event listeners settle completely
+                await asyncio.sleep(0.5)
             except (PlaywrightTimeoutError, PlaywrightError) as e:
                 state.page_poisoned = True
                 if state.active_tab:

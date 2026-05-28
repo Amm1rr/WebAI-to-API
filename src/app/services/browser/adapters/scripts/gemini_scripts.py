@@ -18,9 +18,22 @@ COMPLETION_CHECK_MS = 100
 
 STREAM_EXTRACTOR_SCRIPT = f"""
 (async (callbackName, requestId) => {{
-    const rawEmit = window[callbackName];
+    // Robustly wait for the exposed binding to become available on the window object
+    let rawEmit = window[callbackName];
     if (!rawEmit) {{
-        console.error(`[${{requestId}}] Bridge callback not found:`, callbackName);
+        console.log(`[${{requestId}}] Binding ${{callbackName}} not found immediately on window. Polling...`);
+        for (let i = 0; i < 20; i++) {{
+            await new Promise(resolve => setTimeout(resolve, 100));
+            rawEmit = window[callbackName];
+            if (rawEmit) {{
+                console.log(`[${{requestId}}] Binding ${{callbackName}} resolved after polling.`);
+                break;
+            }}
+        }}
+    }}
+
+    if (!rawEmit) {{
+        console.error(`[${{requestId}}] Bridge callback still not found after polling:`, callbackName);
         return;
     }}
 
@@ -32,10 +45,13 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         try {{
             if (rawEmit) {{
                 payload.requestId = requestId;
+                console.log(`[${{requestId}}] Emitting payload:`, JSON.stringify(payload));
                 rawEmit(payload);
+            }} else {{
+                console.error(`[${{requestId}}] Cannot emit, rawEmit is missing.`);
             }}
         }} catch (e) {{
-            console.warn(`[${{requestId}}] Emit failed:`, e.message);
+            console.error(`[${{requestId}}] Emit failed with exception:`, e.stack || e.message);
         }}
     }};
 

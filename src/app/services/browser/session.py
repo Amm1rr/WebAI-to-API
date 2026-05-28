@@ -605,13 +605,38 @@ class ProviderSession:
             async def page_bridge(source, payload):
                 req_id = payload.get("requestId")
                 if not req_id:
+                    logger.error("Bridge received payload without requestId", extra={"payload": payload})
                     return
-                callback = getattr(page, "_gemini_callbacks", {}).get(req_id)
-                if callback:
+                
+                logger.debug(
+                    f"Bridge payload received. requestId: {req_id}, type: {payload.get('type')}",
+                    extra={"request_id": req_id, "payload_type": payload.get("type")}
+                )
+                
+                callbacks = getattr(page, "_gemini_callbacks", {})
+                callback = callbacks.get(req_id)
+                if not callback:
+                    logger.error(
+                        f"Bridge callback lookup missed for requestId: {req_id}",
+                        extra={
+                            "request_id": req_id,
+                            "payload": payload,
+                            "exposed_callbacks": list(callbacks.keys())
+                        }
+                    )
+                    return
+
+                try:
                     if asyncio.iscoroutinefunction(callback):
                         await callback(source, payload)
                     else:
                         callback(source, payload)
+                except Exception as e:
+                    logger.error(
+                        f"Exception during bridge callback execution for requestId: {req_id}: {e}",
+                        exc_info=True,
+                        extra={"request_id": req_id}
+                    )
                     
             await page.expose_binding("__gemini_bridge", page_bridge)
             page._gemini_bridge_exposed = True
