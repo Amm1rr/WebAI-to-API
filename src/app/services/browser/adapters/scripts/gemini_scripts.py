@@ -258,7 +258,7 @@ STREAM_EXTRACTOR_SCRIPT = f"""
             const sendButton = document.querySelector('{SELECTORS["SEND_BUTTON"]}');
             const stopButton = document.querySelector('{SELECTORS["STOP_BUTTON"]}');
             const isStopVisible = isElementVisible(stopButton);
-            const isGenerating = (sendButton && sendButton.disabled) || isStopVisible;
+            const isGenerating = (state.responseContainer && sendButton && sendButton.disabled) || isStopVisible;
 
             // INVARIANT: Transition to 'started' is strictly one-way
             if (isGenerating && !state.started) {{

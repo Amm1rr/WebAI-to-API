@@ -103,7 +103,7 @@ class GeminiPlaywrightProvider(BaseProvider):
                     return
                 
                 # Authoritative submission confirmation
-                if payload.get("type") in ("started", "chunk", "rewrite"):
+                if payload.get("type") in ("started", "chunk", "rewrite", "done"):
                     if not state.submission_confirmed.is_set():
                         state.submission_confirmed.set()
 

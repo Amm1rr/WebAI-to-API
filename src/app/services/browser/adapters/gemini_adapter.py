@@ -72,6 +72,9 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         confirmed = False
         for attempt in range(2):
             if state and hasattr(state, "submission_confirmed") and state.submission_confirmed:
+                if state.submission_confirmed.is_set():
+                    confirmed = True
+                    break
                 state.submission_confirmed.clear()
                 
             if await submit_button.is_enabled():
