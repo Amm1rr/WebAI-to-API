@@ -2,6 +2,10 @@ class WebAIRuntimeError(Exception):
     """Base runtime error for all browser and provider operations."""
     pass
 
+class TransientSessionError(WebAIRuntimeError):
+    """Raised when a transient/recoverable page load, locator, or network timeout occurs in the pre-submission phase."""
+    pass
+
 class BrowserEngineError(WebAIRuntimeError):
     """Base exception for BrowserEngine-scoped errors."""
     pass

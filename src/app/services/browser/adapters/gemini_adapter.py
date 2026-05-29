@@ -5,6 +5,7 @@ from playwright.async_api import Page
 from app.services.browser.base_adapter import BaseProviderAdapter
 from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
 from app.logger import logger
+from app.services.browser.errors import TransientSessionError
 
 class GeminiProviderAdapter(BaseProviderAdapter):
     """
@@ -17,6 +18,7 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         return "gemini"
 
     async def check_authentication(self, page: Page) -> bool:
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
         try:
             if "accounts.google.com" in page.url and "/signin" in page.url:
                 return False
@@ -26,13 +28,15 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 if count > 0:
                     if await signin_button.first.is_visible():
                         return False
-            except Exception as e:
-                logger.debug(f"Auth visibility check failed: {e}")
+            except (PlaywrightTimeoutError, PlaywrightError, asyncio.TimeoutError) as e:
+                # Only known transient Playwright/connection issues are transient
+                raise TransientSessionError(f"Transient error during authentication DOM check: {e}") from e
             return True
-        except Exception as e:
-            if "Target closed" in str(e):
-                return True
-            return True
+        except TransientSessionError:
+            raise
+        except (PlaywrightTimeoutError, PlaywrightError, asyncio.TimeoutError) as e:
+            # Outer navigation or target closure Playwright issues are transient
+            raise TransientSessionError(f"Transient failure during authentication navigation check: {e}") from e
 
     def extract_conversation_id(self, url: str) -> Optional[str]:
         match = re.search(r"/app/([a-z0-9]+)", url)

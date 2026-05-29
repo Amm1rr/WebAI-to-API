@@ -208,7 +208,12 @@ class ManagedPage:
             await self._do_close()
 
     async def _do_close(self):
-        """Actual release implementation, shielded from cancellation."""
+        """Actual release implementation, shielded from cancellation.
+
+        Safety: Cleanup order must always be:
+        1. Release conversation ownership and tab/page resources (lease release).
+        2. Release session semaphore permit (semaphore release).
+        """
         try:
             # 0. Active Conversation Ownership Release with Stale-Finalizer Protection (Zero-Await)
             if self.persistent_tab:
@@ -226,11 +231,7 @@ class ManagedPage:
                         extra={"generation": self.session.engine.browser_generation}
                     )
 
-            # 1. Semaphore return
-            self.session.semaphore.release()
-            self.session.active_lease_count = max(0, self.session.active_lease_count - 1)
-            
-            # 2. Lifecycle management
+            # 1. Lifecycle management (lease release)
             if self.persistent_tab and self.lease_token:
                 # Return to registry via the tab's own release API
                 success = await self.persistent_tab.release_lease(self.lease_token)
@@ -281,3 +282,7 @@ class ManagedPage:
                     "tab_id": self.persistent_tab.conversation_id if self.persistent_tab else "temporary"
                 }
             )
+        finally:
+            # 2. Semaphore return (semaphore release) - must always run even if resource release throws!
+            self.session.semaphore.release()
+            self.session.active_lease_count = max(0, self.session.active_lease_count - 1)
