@@ -402,12 +402,14 @@ class ProviderSession:
     async def _do_session_recovery(self):
         async with self.init_lock:
             logger.warning(f"ProviderSession({self.name}): Handling escalated session failure.")
-            # 1. Purge the stale context state file
+            # 1. Intentionally preserve the persistent auth state file.
+            # We do NOT delete the storage state file during recovery because transient failures
+            # (such as temporary network issues or page load delays) should not destroy persisted sessions.
             if os.path.exists(self.state_path):
-                try:
-                    os.remove(self.state_path)
-                except Exception as e:
-                    logger.debug(f"Failed to delete stale state file: {e}")
+                logger.warning(
+                    f"ProviderSession({self.name}): Persistent auth state file exists at {self.state_path} "
+                    "and is intentionally preserved during recovery to survive transient failure events."
+                )
             
             # 2. Invalidate context to force re-setup on next ensure_healthy()
             await self.close_resources(save_state=False)
