@@ -23,7 +23,7 @@ class BrowserEngine:
     _instance: Optional['BrowserEngine'] = None
     _lock = asyncio.Lock()
 
-    def __init__(self):
+    def __init__(self, headless: Optional[bool] = None, is_bootstrap: bool = False):
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
         self.browser_generation = 0
@@ -32,7 +32,11 @@ class BrowserEngine:
         self.management_lock = asyncio.Lock()
         self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
         os.makedirs(self.user_data_dir, exist_ok=True)
-        self.headless = CONFIG["Playwright"].getboolean("headless", False)
+        self.is_bootstrap = is_bootstrap
+        if headless is not None:
+            self.headless = headless
+        else:
+            self.headless = CONFIG["Playwright"].getboolean("headless", False)
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
         self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
@@ -45,22 +49,30 @@ class BrowserEngine:
         }
 
     @classmethod
-    async def get_instance(cls) -> 'BrowserEngine':
+    async def get_instance(cls, headless: Optional[bool] = None) -> 'BrowserEngine':
         if cls._instance is None:
             async with cls._lock:
                 if cls._instance is None:
-                    cls._instance = cls()
+                    cls._instance = cls(headless=headless)
         return cls._instance
 
-    async def get_session(self, provider_name: str) -> ProviderSession:
+    async def get_session(self, provider_name: str, enable_persistence: bool = False) -> ProviderSession:
         async with self.sessions_lock:
             if provider_name not in self.sessions:
-                self.sessions[provider_name] = ProviderSession(self, provider_name)
+                self.sessions[provider_name] = ProviderSession(self, provider_name, enable_persistence=enable_persistence)
+            elif enable_persistence:
+                self.sessions[provider_name].enable_persistence = True
             return self.sessions[provider_name]
 
-    async def get_page(self, provider: str = "gemini") -> ManagedPage:
-        session = await self.get_session(provider)
+    async def get_page(self, provider: str = "gemini", enable_persistence: bool = False) -> ManagedPage:
+        session = await self.get_session(provider, enable_persistence=enable_persistence)
         return await session.acquire_lease()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
     async def _ensure_healthy_browser(self):
         if self.is_shutting_down:
@@ -194,7 +206,10 @@ class BrowserEngine:
             if self.is_shutting_down: 
                 logger.debug("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
                 return
-            logger.info("BrowserEngine: Shutting down...", extra={"generation": self.browser_generation})
+            if getattr(self, "is_bootstrap", False):
+                logger.info("BrowserEngine: Shutting down isolated bootstrap engine...", extra={"generation": self.browser_generation})
+            else:
+                logger.info("BrowserEngine: Shutting down singleton runtime engine...", extra={"generation": self.browser_generation})
             self.is_shutting_down = True
             
             drain_start = time.monotonic()
@@ -226,5 +241,7 @@ class BrowserEngine:
             self.playwright = None
             logger.info("BrowserEngine: Shutdown complete.", extra={"generation": self.browser_generation})
 
-async def get_browser_engine() -> BrowserEngine:
-    return await BrowserEngine.get_instance()
+async def get_browser_engine(headless: Optional[bool] = None, is_bootstrap: bool = False) -> BrowserEngine:
+    if is_bootstrap:
+        return BrowserEngine(headless=headless, is_bootstrap=True)
+    return await BrowserEngine.get_instance(headless=headless)

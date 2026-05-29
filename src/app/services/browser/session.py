@@ -20,9 +20,10 @@ class ProviderSession:
     Manages isolated browser resources for a specific provider.
     Handles persistent tab registry and deterministic leasing.
     """
-    def __init__(self, engine: 'BrowserEngine', name: str):
+    def __init__(self, engine: 'BrowserEngine', name: str, enable_persistence: bool = False):
         self.engine = engine
         self.name = name
+        self.enable_persistence = enable_persistence
         self.context: Optional[BrowserContext] = None
         self.keepalive_page: Optional[Page] = None
         self.last_browser_generation = -1
@@ -54,7 +55,10 @@ class ProviderSession:
         self.active_orphans = weakref.WeakSet()
         
         # Persistent state
-        self.state_path = os.path.join(engine.user_data_dir, f"{name}_state.json")
+        auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", "auth_state")
+        if auth_state_dir:
+            os.makedirs(auth_state_dir, exist_ok=True)
+        self.state_path = os.path.join(auth_state_dir, f"{name}.json")
 
     @property
     def is_alive(self) -> bool:
@@ -439,7 +443,12 @@ class ProviderSession:
             
             # Start background tasks
             if not self.engine.is_shutting_down:
-                if not self.autosave_task or self.autosave_task.done():
+                # Background persistence tasks are strictly disabled in the runtime API service.
+                enable_autosave = (
+                    self.enable_persistence and 
+                    os.environ.get("ENABLE_AUTOSAVE", "false").lower() == "true"
+                )
+                if enable_autosave and (not self.autosave_task or self.autosave_task.done()):
                     self.autosave_task = asyncio.create_task(self._autosave_loop())
                 if not self.eviction_task or self.eviction_task.done():
                     self.eviction_task = asyncio.create_task(self._eviction_loop())
@@ -681,6 +690,13 @@ class ProviderSession:
 
     async def save_state(self):
         if not self.is_alive: return
+        # The runtime API service does not contain an active persistence execution path.
+        if not self.enable_persistence:
+            logger.warning(
+                f"ProviderSession({self.name}): save_state called outside of manual bootstrap utility flow. "
+                "Persistence is disabled during active runtime API service execution."
+            )
+            return
         async with self.state_lock:
             tmp_path = f"{self.state_path}.tmp"
             try:

@@ -43,8 +43,12 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
             "idle_conversation_timeout": "900",
             "lease_timeout": "180",
             "chunk_timeout": "90",
-            "total_request_timeout": "120"
+            "total_request_timeout": "120",
+            "auth_state_dir": "auth_state"
         }
+    else:
+        if "auth_state_dir" not in config["Playwright"]:
+            config["Playwright"]["auth_state_dir"] = "auth_state"
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:
@@ -66,6 +70,11 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
                 config.write(f)
     except Exception as e:
         logger.error(f"Error writing to config file: {e}")
+
+    import os
+    env_auth_state_dir = os.environ.get("AUTH_STATE_DIR")
+    if env_auth_state_dir:
+        config["Playwright"]["auth_state_dir"] = env_auth_state_dir
 
     return config
 

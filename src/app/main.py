@@ -33,6 +33,14 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown logic
+    logger.info("Gracefully closing BrowserEngine during application shutdown...")
+    try:
+        from app.services.browser.engine import get_browser_engine
+        engine = await get_browser_engine()
+        await engine.close()
+        logger.info("BrowserEngine closed gracefully.")
+    except Exception as e:
+        logger.error(f"Error closing BrowserEngine: {e}", exc_info=True)
     logger.info("Application shutdown complete.")
 
 app = FastAPI(lifespan=lifespan)
