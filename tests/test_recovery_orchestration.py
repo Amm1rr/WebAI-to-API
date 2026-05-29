@@ -141,11 +141,12 @@ async def test_transient_auth_failure_retry_and_lease_release(monkeypatch):
         stream=False
     )
     
-    # 4. Execute chat_completions; it must raise TransientSessionError after 3 failed attempts
-    with pytest.raises(TransientSessionError) as excinfo:
+    # 4. Execute chat_completions; it must raise HTTPException 503 after 3 failed attempts
+    with pytest.raises(HTTPException) as excinfo:
         await provider.chat_completions(request)
         
-    assert "Mock transient auth failure" in str(excinfo.value)
+    assert excinfo.value.status_code == 503
+    assert "Mock transient auth failure" in str(excinfo.value.detail)
     
     # 5. Verify the retry loop properties:
     # - It must have retried up to 3 times (3 acquisitions)
@@ -270,7 +271,7 @@ async def test_post_submission_no_retry(monkeypatch):
         await provider.chat_completions(request)
         
     assert excinfo.value.status_code == 500
-    assert "Post-submission failure" in str(excinfo.value.detail)
+    assert excinfo.value.detail == "Internal server error."
     
     # Verify no retries occurred:
     # - Only exactly 1 lease acquired
@@ -365,11 +366,394 @@ async def test_observer_leak_prevention(monkeypatch):
     )
     
     # Execute chat_completions; it must fail after 3 attempts due to the timeout
-    with pytest.raises(TransientSessionError):
+    with pytest.raises(HTTPException) as excinfo:
         await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 503
         
     # Verify that the observer was started and then successfully cancelled
     assert observer_run_event.is_set()
     assert observer_cancelled_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_auth_expired_maps_to_401(monkeypatch):
+    """Verify that SessionNotAliveError maps to HTTPException 401."""
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session._setup_page_bridge = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    mock_page = MagicMock()
+    mock_page.url = "https://gemini.google.com/app"
+    mock_page._gemini_callbacks = {}
+    mock_page.goto = AsyncMock()
+    mock_page.evaluate = AsyncMock()
+    mock_page.on = MagicMock()
+    mock_page.remove_listener = MagicMock()
+    
+    mock_input_locator = AsyncMock()
+    mock_input_locator.wait_for = AsyncMock()
+    mock_page.locator.return_value.first = mock_input_locator
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        lease = MagicMock()
+        lease.page = mock_page
+        lease.persistent_tab = None
+        lease.close = AsyncMock()
+        return lease
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    # Mock adapter check_authentication to return False (auth expired)
+    async def mock_check_authentication(*args, **kwargs):
+        return False
+    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 401
+    assert "Authentication expired." in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_maps_to_503(monkeypatch):
+    """Verify that TransientSessionError maps to HTTPException 503."""
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session._setup_page_bridge = AsyncMock()
+    mock_engine.get_session = MagicMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    mock_page = MagicMock()
+    mock_page.url = "https://gemini.google.com/app"
+    mock_page._gemini_callbacks = {}
+    mock_page.goto = AsyncMock()
+    mock_page.evaluate = AsyncMock()
+    mock_page.on = MagicMock()
+    mock_page.remove_listener = MagicMock()
+    
+    mock_input_locator = AsyncMock()
+    mock_input_locator.wait_for = AsyncMock()
+    mock_page.locator.return_value.first = mock_input_locator
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        lease = MagicMock()
+        lease.page = mock_page
+        lease.persistent_tab = None
+        lease.close = AsyncMock()
+        return lease
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    # Mock adapter check_authentication to raise TransientSessionError
+    async def mock_check_authentication(*args, **kwargs):
+        from app.services.browser.errors import TransientSessionError
+        raise TransientSessionError("Mock transient error")
+    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    
+    # Bypass retry sleep
+    original_sleep = asyncio.sleep
+    async def mock_sleep(delay):
+        await original_sleep(0)
+    monkeypatch.setattr("app.services.providers.gemini_playwright.asyncio.sleep", mock_sleep)
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 503
+    assert "Mock transient error" in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_timeout_maps_to_504(monkeypatch):
+    """Verify that asyncio.TimeoutError maps to HTTPException 504."""
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session._setup_page_bridge = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    mock_page = MagicMock()
+    mock_page.url = "https://gemini.google.com/app"
+    mock_page._gemini_callbacks = {}
+    mock_page.goto = AsyncMock()
+    mock_page.evaluate = AsyncMock()
+    mock_page.on = MagicMock()
+    mock_page.remove_listener = MagicMock()
+    
+    # Mock acquire_lease to raise asyncio.TimeoutError directly
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise asyncio.TimeoutError()
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 504
+    assert "Request timed out." in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_unknown_exception_maps_to_500(monkeypatch):
+    """Verify that unexpected exceptions map to HTTPException 500 with a secure internal error message."""
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session._setup_page_bridge = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    # Make acquire_lease raise an unexpected exception
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise ValueError("Secret database password failed")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 500
+    # Crucial security check: internal traceback/raw message must not leak to details
+    assert "Internal server error." in excinfo.value.detail
+    assert "Secret database password" not in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_exception_before_retry_loop_initializes_state(monkeypatch):
+    """Verify that an exception raised before the retry loop (when state is None)
+    maps properly and does not trigger UnboundLocalError during error handling/cleanup.
+    """
+    async def mock_get_browser_engine():
+        raise RuntimeError("Failure before retry loop")
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 500
+    assert "Internal server error." in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_browser_disconnected_error_poisons_session(monkeypatch):
+    """Verify that BrowserDisconnectedError poisons the session and maps to 502."""
+    from app.services.browser.errors import BrowserDisconnectedError
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session.handle_session_failure = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise BrowserDisconnectedError("Process died")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 502
+    assert "Underlying browser process disconnected." in excinfo.value.detail
+    mock_session.handle_session_failure.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_browser_generation_mismatch_error_poisons_session(monkeypatch):
+    """Verify that BrowserGenerationMismatchError poisons the session and maps to 503."""
+    from app.services.browser.errors import BrowserGenerationMismatchError
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session.handle_session_failure = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise BrowserGenerationMismatchError("Mismatch occurred")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 503
+    assert "Browser generation rollover mismatch." in excinfo.value.detail
+    mock_session.handle_session_failure.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_playwright_closed_page_error_maps_to_503(monkeypatch):
+    """Verify that closed page/context PlaywrightError maps to 503 'Browser session unavailable.'."""
+    from playwright.async_api import Error as PlaywrightError
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise PlaywrightError("Target page, context or browser has been closed")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 503
+    assert "Browser session unavailable." in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_generic_playwright_error_maps_to_502(monkeypatch):
+    """Verify that generic PlaywrightError maps to 502 'Browser interaction failure.'."""
+    from playwright.async_api import Error as PlaywrightError
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise PlaywrightError("Failed to click element due to overlap")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 502
+    assert "Browser interaction failure." in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_www_authenticate_header_exists_on_401(monkeypatch):
+    """Verify that SessionNotAliveError includes WWW-Authenticate header in 401 response."""
+    from app.services.browser.errors import SessionNotAliveError
+    mock_engine = MagicMock()
+    mock_engine.browser_generation = 1
+    mock_session = AsyncMock()
+    mock_session.submit_lock = asyncio.Lock()
+    mock_session.handle_session_failure = AsyncMock()
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    
+    async def mock_get_browser_engine():
+        return mock_engine
+    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    
+    async def mock_acquire_lease(conversation_id, request_id):
+        raise SessionNotAliveError("Expired session cookies")
+    mock_session.acquire_lease = mock_acquire_lease
+    
+    provider = GeminiPlaywrightProvider()
+    request = OpenAIChatRequest(
+        model="playwright/gemini",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=False
+    )
+    
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(request)
+        
+    assert excinfo.value.status_code == 401
+    assert "Authentication expired." in excinfo.value.detail
+    assert excinfo.value.headers is not None
+    assert excinfo.value.headers.get("WWW-Authenticate") == "Bearer"
+
 
 

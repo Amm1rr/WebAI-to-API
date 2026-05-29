@@ -17,7 +17,16 @@ from app.schemas.request import OpenAIChatRequest
 from app.logger import logger
 from app.config import CONFIG
 from app.services.browser.adapters.scripts.gemini_scripts import STREAM_EXTRACTOR_SCRIPT, STOP_OBSERVER_SCRIPT, SELECTORS
-from app.services.browser.errors import TransientSessionError
+from app.services.browser.errors import (
+    TransientSessionError,
+    SessionNotAliveError,
+    BrowserShuttingDownError,
+    BrowserDisconnectedError,
+    BrowserGenerationMismatchError,
+    LeaseInvalidatedError,
+    QueueOverflowError,
+    ConversationBusyError
+)
 
 @dataclass
 class RequestState:
@@ -54,201 +63,201 @@ class GeminiPlaywrightProvider(BaseProvider):
     """
 
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
-        engine = await get_browser_engine()
         request_id = str(uuid.uuid4()).replace("-", "_")
         start_time = time.monotonic()
-        session = await engine.get_session("gemini")
-        adapter = GeminiProviderAdapter()
         
         page_lease = None
         observer_task = None
         state = None
         setup_success = False
+        session = None
         
         max_retries = 3
         backoff_delays = [1.0, 2.0, 4.0]
         
-        for attempt in range(1, max_retries + 1):
-            page_lease = None
-            observer_task = None
-            state = RequestState(request_id=request_id, start_time=start_time)
-            
-            def on_close(p):
-                if state.cleanup_started: return
-                logger.warning("Page close detected", extra={"request_id": state.request_id})
-                state.page_poisoned = True
-                if state.active_tab: state.active_tab.invalidate()
-
-            def on_crash(p):
-                if state.cleanup_started: return
-                logger.warning("Page crash detected", extra={"request_id": state.request_id})
-                state.page_poisoned = True
-                if state.active_tab: state.active_tab.invalidate()
-
-            # Bind handlers to state for cleanup-layer access
-            state.on_close_handler = on_close
-            state.on_crash_handler = on_crash
-            
-            try:
-                # 1. Acquire Lease (Request-scoped semaphore + Tab selection)
-                page_lease = await session.acquire_lease(conversation_id=request.conversation_id, request_id=state.request_id)
-                state.permit_acquired = True
-                page = page_lease.page
-
-                # Register lifecycle listeners to detect poisoned tabs
-                page.on("close", on_close)
-                page.on("crash", on_crash)
+        try:
+            engine = await get_browser_engine()
+            session = await engine.get_session("gemini")
+            adapter = GeminiProviderAdapter()
+            for attempt in range(1, max_retries + 1):
+                page_lease = None
+                observer_task = None
+                state = RequestState(request_id=request_id, start_time=start_time)
                 
-                # If the lease returned a persistent tab, track it in state
-                if page_lease.persistent_tab:
-                    state.active_tab = page_lease.persistent_tab
-                    state.reused_conversation = True
-                    state.conversation_id = request.conversation_id
-                
-                def check_generation():
-                    self._validate_tab_generation(state.active_tab, engine.browser_generation, "Browser generation mismatch detected during prompt processing")
-
-                callback_name = "__gemini_bridge"
-                queue = asyncio.Queue(maxsize=100)
-
-                async def bridge_callback(source, payload):
+                def on_close(p):
                     if state.cleanup_started: return
-                    if payload.get("type") == "ready":
-                        state.js_ready.set()
-                        return
-                    
-                    # Authoritative submission confirmation
-                    if payload.get("type") in ("started", "chunk", "rewrite", "done"):
-                        if not state.submission_confirmed.is_set():
-                            state.submission_confirmed.set()
-
-                    # 'started' is a synchronization-only signal; skip queueing.
-                    if payload.get("type") == "started":
-                        return 
-                        
-                    try:
-                        queue.put_nowait(payload)
-                        state.max_queue_depth = max(state.max_queue_depth, queue.qsize())
-                    except asyncio.QueueFull:
-                        state.dropped_chunks += 1
-                        state.queue_overflow = True
-                    except Exception as e:
-                        logger.warning(f"Bridge emit failure: {e}")
-                        state.page_poisoned = True
-
-                # Ensure permanent bridge is exposed on this page and register callback
-                await session._setup_page_bridge(page)
-                page._gemini_callbacks[state.request_id] = bridge_callback
-                
-                # Cooperative yield to ensure event loop schedules registration
-                await asyncio.sleep(0.01)
-                
-                logger.debug(
-                    f"Bridge callback registered for requestId: {state.request_id}",
-                    extra={"request_id": state.request_id, "exposed_keys": list(page._gemini_callbacks.keys())}
-                )
-                
-                nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
-                
-                # 2. Target Navigation
-                check_generation()
-                if state.reused_conversation:
-                    target_url = f"https://gemini.google.com/app/{state.conversation_id}"
-                    if page.url != target_url:
-                        if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                        await page.goto(target_url, wait_until="domcontentloaded", timeout=nav_timeout)
-                        if state.active_tab: state.active_tab.heartbeat("navigation_end")
-                elif request.conversation_id:
-                    if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                    await page.goto(f"https://gemini.google.com/app/{request.conversation_id}", wait_until="domcontentloaded", timeout=nav_timeout)
-                    if state.active_tab: state.active_tab.heartbeat("navigation_end")
-                else:
-                    if "gemini.google.com/app" not in page.url:
-                        if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                        await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
-                        if state.active_tab: state.active_tab.heartbeat("navigation_end")
-                
-                input_locator = page.locator(SELECTORS["INPUT"]).first
-                if state.active_tab: state.active_tab.heartbeat("input_wait")
-                try:
-                    check_generation()
-                    await input_locator.wait_for(state="visible", timeout=15000)
-                    # Let the heavy framework JS event listeners settle completely
-                    await asyncio.sleep(0.5)
-                except (PlaywrightTimeoutError, PlaywrightError) as e:
+                    logger.warning("Page close detected", extra={"request_id": state.request_id})
                     state.page_poisoned = True
-                    if state.active_tab:
-                        state.active_tab.status = TabStatus.DEAD
-                    raise TransientSessionError(f"Gemini input textbox acquisition failed: {e}") from e
-                
-                # 3. Outer Orchestration: Redirect grace period check (2.5s)
-                if state.active_tab: state.active_tab.heartbeat("auth_check")
-                check_generation()
-                
-                grace_timeout = 2.5
-                poll_interval = 0.5
-                elapsed = 0.0
-                last_transient_error = None
-                is_authenticated = False
-                while elapsed < grace_timeout:
-                    try:
-                        is_authenticated = await adapter.check_authentication(page)
-                        if is_authenticated:
-                            break
-                    except TransientSessionError as e:
-                        last_transient_error = e
-                        logger.debug(f"Transient authentication check failed during grace period: {e}")
-                    await asyncio.sleep(poll_interval)
-                    elapsed += poll_interval
-                    
-                check_generation()
-                if not is_authenticated:
-                    if last_transient_error:
-                        raise last_transient_error
-                    from app.services.browser.errors import SessionNotAliveError
-                    raise SessionNotAliveError("Authentication expired.")
+                    if state.active_tab: state.active_tab.invalidate()
 
-                # 4. Observer Injection
-                if state.active_tab: state.active_tab.heartbeat("observer_injection")
-                check_generation()
-                observer_task = asyncio.create_task(
-                    page.evaluate(f"({STREAM_EXTRACTOR_SCRIPT})('{callback_name}', '{state.request_id}')"),
-                    name=f"observer_{state.request_id}"
-                )
+                def on_crash(p):
+                    if state.cleanup_started: return
+                    logger.warning("Page crash detected", extra={"request_id": state.request_id})
+                    state.page_poisoned = True
+                    if state.active_tab: state.active_tab.invalidate()
 
-                # Sync: Wait for JS Ready
+                # Bind handlers to state for cleanup-layer access
+                state.on_close_handler = on_close
+                state.on_crash_handler = on_crash
+                
                 try:
-                    async with asyncio.timeout(5.0):
-                        await state.js_ready.wait()
-                except asyncio.TimeoutError:
-                    logger.warning("JS Ready Signal Timeout", extra={"request_id": state.request_id})
-                    raise TransientSessionError("JS Ready Signal Timeout during pre-submission phase.")
-                
-                # Successful pre-submission setup: break out of the retry loop
-                break
-                
-            except TransientSessionError as e:
-                logger.warning(
-                    f"Transient failure during pre-submission phase (Attempt {attempt}/{max_retries}): {e}",
-                    extra={"request_id": state.request_id}
-                )
-                # IMMEDIATELY release lease and clean up resources before backoff sleep
-                if page_lease or observer_task:
-                    await self._cleanup(observer_task, state, page_lease, session)
-                    page_lease = None
-                    observer_task = None
-                
-                if attempt == max_retries:
-                    logger.error(
-                        "Max retries exhausted for transient pre-submission failures.",
+                    # 1. Acquire Lease (Request-scoped semaphore + Tab selection)
+                    page_lease = await session.acquire_lease(conversation_id=request.conversation_id, request_id=state.request_id)
+                    state.permit_acquired = True
+                    page = page_lease.page
+
+                    # Register lifecycle listeners to detect poisoned tabs
+                    page.on("close", on_close)
+                    page.on("crash", on_crash)
+                    
+                    # If the lease returned a persistent tab, track it in state
+                    if page_lease.persistent_tab:
+                        state.active_tab = page_lease.persistent_tab
+                        state.reused_conversation = True
+                        state.conversation_id = request.conversation_id
+                    
+                    def check_generation():
+                        self._validate_tab_generation(state.active_tab, engine.browser_generation, "Browser generation mismatch detected during prompt processing")
+
+                    callback_name = "__gemini_bridge"
+                    queue = asyncio.Queue(maxsize=100)
+
+                    async def bridge_callback(source, payload):
+                        if state.cleanup_started: return
+                        if payload.get("type") == "ready":
+                            state.js_ready.set()
+                            return
+                        
+                        # Authoritative submission confirmation
+                        if payload.get("type") in ("started", "chunk", "rewrite", "done"):
+                            if not state.submission_confirmed.is_set():
+                                state.submission_confirmed.set()
+
+                        # 'started' is a synchronization-only signal; skip queueing.
+                        if payload.get("type") == "started":
+                            return 
+                            
+                        try:
+                            queue.put_nowait(payload)
+                            state.max_queue_depth = max(state.max_queue_depth, queue.qsize())
+                        except asyncio.QueueFull:
+                            state.dropped_chunks += 1
+                            state.queue_overflow = True
+                        except Exception as e:
+                            logger.warning(f"Bridge emit failure: {e}")
+                            state.page_poisoned = True
+
+                    # Ensure permanent bridge is exposed on this page and register callback
+                    await session._setup_page_bridge(page)
+                    page._gemini_callbacks[state.request_id] = bridge_callback
+                    
+                    # Cooperative yield to ensure event loop schedules registration
+                    await asyncio.sleep(0.01)
+                    
+                    logger.debug(
+                        f"Bridge callback registered for requestId: {state.request_id}",
+                        extra={"request_id": state.request_id, "exposed_keys": list(page._gemini_callbacks.keys())}
+                    )
+                    
+                    nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
+                    
+                    # 2. Target Navigation
+                    check_generation()
+                    if state.reused_conversation:
+                        target_url = f"https://gemini.google.com/app/{state.conversation_id}"
+                        if page.url != target_url:
+                            if state.active_tab: state.active_tab.heartbeat("navigation_start")
+                            await page.goto(target_url, wait_until="domcontentloaded", timeout=nav_timeout)
+                            if state.active_tab: state.active_tab.heartbeat("navigation_end")
+                    elif request.conversation_id:
+                        if state.active_tab: state.active_tab.heartbeat("navigation_start")
+                        await page.goto(f"https://gemini.google.com/app/{request.conversation_id}", wait_until="domcontentloaded", timeout=nav_timeout)
+                        if state.active_tab: state.active_tab.heartbeat("navigation_end")
+                    else:
+                        if "gemini.google.com/app" not in page.url:
+                            if state.active_tab: state.active_tab.heartbeat("navigation_start")
+                            await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
+                            if state.active_tab: state.active_tab.heartbeat("navigation_end")
+                    
+                    input_locator = page.locator(SELECTORS["INPUT"]).first
+                    if state.active_tab: state.active_tab.heartbeat("input_wait")
+                    try:
+                        check_generation()
+                        await input_locator.wait_for(state="visible", timeout=15000)
+                        # Let the heavy framework JS event listeners settle completely
+                        await asyncio.sleep(0.5)
+                    except (PlaywrightTimeoutError, PlaywrightError) as e:
+                        state.page_poisoned = True
+                        if state.active_tab:
+                            state.active_tab.status = TabStatus.DEAD
+                        raise TransientSessionError(f"Gemini input textbox acquisition failed: {e}") from e
+                    
+                    # 3. Outer Orchestration: Redirect grace period check (2.5s)
+                    if state.active_tab: state.active_tab.heartbeat("auth_check")
+                    check_generation()
+                    
+                    grace_timeout = 2.5
+                    poll_interval = 0.5
+                    elapsed = 0.0
+                    last_transient_error = None
+                    is_authenticated = False
+                    while elapsed < grace_timeout:
+                        try:
+                            is_authenticated = await adapter.check_authentication(page)
+                            if is_authenticated:
+                                break
+                        except TransientSessionError as e:
+                            last_transient_error = e
+                            logger.debug(f"Transient authentication check failed during grace period: {e}")
+                        await asyncio.sleep(poll_interval)
+                        elapsed += poll_interval
+                        
+                    check_generation()
+                    if not is_authenticated:
+                        if last_transient_error:
+                            raise last_transient_error
+                        raise SessionNotAliveError("Authentication expired.")
+
+                    # 4. Observer Injection
+                    if state.active_tab: state.active_tab.heartbeat("observer_injection")
+                    check_generation()
+                    observer_task = asyncio.create_task(
+                        page.evaluate(f"({STREAM_EXTRACTOR_SCRIPT})('{callback_name}', '{state.request_id}')"),
+                        name=f"observer_{state.request_id}"
+                    )
+
+                    # Sync: Wait for JS Ready
+                    try:
+                        async with asyncio.timeout(5.0):
+                            await state.js_ready.wait()
+                    except asyncio.TimeoutError:
+                        logger.warning("JS Ready Signal Timeout", extra={"request_id": state.request_id})
+                        raise TransientSessionError("JS Ready Signal Timeout during pre-submission phase.")
+                    
+                    # Successful pre-submission setup: break out of the retry loop
+                    break
+                    
+                except TransientSessionError as e:
+                    logger.warning(
+                        f"Transient failure during pre-submission phase (Attempt {attempt}/{max_retries}): {e}",
                         extra={"request_id": state.request_id}
                     )
-                    raise
-                
-                backoff_delay = backoff_delays[attempt - 1]
-                await asyncio.sleep(backoff_delay)
+                    # IMMEDIATELY release lease and clean up resources before backoff sleep
+                    if page_lease or observer_task:
+                        await self._cleanup(observer_task, state, page_lease, session)
+                        page_lease = None
+                        observer_task = None
+                    
+                    if attempt == max_retries:
+                        logger.error(
+                            "Max retries exhausted for transient pre-submission failures.",
+                            extra={"request_id": state.request_id}
+                        )
+                        raise
+                    
+                    backoff_delay = backoff_delays[attempt - 1]
+                    await asyncio.sleep(backoff_delay)
 
-        try:
             # 5. Hardened Prompt Submission Boundary (Serialized via submit_lock - Strictly non-retryable)
             prompt = request.messages[-1].get("content", "")
             confirmed = False
@@ -279,19 +288,33 @@ class GeminiPlaywrightProvider(BaseProvider):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Error in chat_completions: {e}", extra={"request_id": state.request_id})
-            from app.services.browser.errors import (
+            req_id = state.request_id if state else request_id
+            logger.exception("Error in chat_completions", extra={"request_id": req_id})
+            from playwright.async_api import Error as PlaywrightError
+            
+            poison_session_errors = (
                 SessionNotAliveError,
-                BrowserShuttingDownError,
                 BrowserDisconnectedError,
                 BrowserGenerationMismatchError,
-                LeaseInvalidatedError,
-                QueueOverflowError,
-                ConversationBusyError
             )
-            if isinstance(e, SessionNotAliveError):
+            if isinstance(e, poison_session_errors) and session:
                 await session.handle_session_failure()
-                raise HTTPException(status_code=401, detail="Authentication expired.")
+            
+            if isinstance(e, SessionNotAliveError):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication expired.",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+            if isinstance(e, TransientSessionError):
+                raise HTTPException(status_code=503, detail=str(e))
+            if isinstance(e, asyncio.TimeoutError):
+                raise HTTPException(status_code=504, detail="Request timed out.")
+            if isinstance(e, PlaywrightError):
+                err_msg = str(e).lower()
+                if "target page, context or browser has been closed" in err_msg or "execution context was destroyed" in err_msg:
+                    raise HTTPException(status_code=503, detail="Browser session unavailable.")
+                raise HTTPException(status_code=502, detail="Browser interaction failure.")
             if isinstance(e, BrowserShuttingDownError):
                 raise HTTPException(status_code=503, detail="Browser engine is shutting down.")
             if isinstance(e, BrowserDisconnectedError):
@@ -305,7 +328,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             if isinstance(e, ConversationBusyError):
                 raise HTTPException(status_code=409, detail="Conversation is busy with another active request.")
             if isinstance(e, HTTPException): raise
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail="Internal server error.")
         finally:
             # Fix Leak: If setup was cancelled or failed before returning/awaiting, cleanup now.
             if not setup_success:
@@ -363,6 +386,9 @@ class GeminiPlaywrightProvider(BaseProvider):
                 if await stop_button.is_visible(): await stop_button.click()
             except: pass
             raise
+        except Exception as e:
+            logger.exception("Error in streaming response generator", extra={"request_id": state.request_id})
+            raise
         finally:
             if lease or observer_task:
                 await self._cleanup(observer_task, state, lease, session)
@@ -406,8 +432,12 @@ class GeminiPlaywrightProvider(BaseProvider):
                 lease = None
                 observer_task = None
 
-    async def _cleanup(self, observer_task: Optional[asyncio.Task], state: RequestState, lease: Optional[ManagedPage], session: Any):
+    async def _cleanup(self, observer_task: Optional[asyncio.Task], state: Optional[RequestState], lease: Optional[ManagedPage], session: Any):
         """Deterministic release of request resources."""
+        if not state and not lease and not observer_task:
+            return
+        if not state:
+            state = RequestState(request_id="unknown", start_time=time.monotonic())
         # Use shield to ensure cleanup completes even if outer request is cancelled
         await asyncio.shield(self._do_cleanup(observer_task, state, lease, session))
 
