@@ -8,6 +8,8 @@ sys.path.append(os.path.join(os.getcwd(), "src"))
 
 from app.services.browser.engine import get_browser_engine
 from app.services.providers.gemini_playwright_scripts import SELECTORS
+from playwright.async_api import Error as PlaywrightError
+from app.logger import logger
 
 async def verify_login():
     """
@@ -62,8 +64,12 @@ async def verify_login():
                     await asyncio.sleep(20)
                     if login_detected:
                         await session.save_state()
-            except Exception:
-                pass # Silent exit on page close
+            except asyncio.CancelledError:
+                raise
+            except PlaywrightError:
+                pass # Expected Playwright closure errors exit silently
+            except Exception as e:
+                logger.warning(f"Unexpected error in auto-save loop: {e}", exc_info=True)
  
         # Start the background observer
         save_task = asyncio.create_task(auto_save_loop())
