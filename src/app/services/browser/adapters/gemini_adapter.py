@@ -20,16 +20,14 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         try:
             if "accounts.google.com" in page.url and "/signin" in page.url:
                 return False
-            signin_button = page.get_by_role("button", name=re.compile(r"sign in", re.IGNORECASE)).first
+            signin_button = page.get_by_role("button", name=re.compile(r"sign in", re.IGNORECASE))
             try:
-                visible = await asyncio.wait_for(
-                    signin_button.evaluate("el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)"),
-                    timeout=1.5
-                )
-                if visible:
-                    return False
-            except (asyncio.TimeoutError, Exception):
-                pass
+                count = await signin_button.count()
+                if count > 0:
+                    if await signin_button.first.is_visible():
+                        return False
+            except Exception as e:
+                logger.debug(f"Auth visibility check failed: {e}")
             return True
         except Exception as e:
             if "Target closed" in str(e):
