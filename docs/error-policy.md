@@ -73,40 +73,42 @@ Ownership of recovery execution is strictly partitioned:
 
 ## 5. Runtime Exception Semantics
 
-The use of a semantic exception hierarchy is strongly recommended to enable precise escalation:
+The runtime implements a dedicated, minimal, lifecycle-scoped exception hierarchy under `src/app/services/browser/errors.py`:
 
-- `RuntimeInvariantError`: Critical violation of system invariants (e.g., lock order).
-- `LeaseInvalidatedError`: Attempt to operate on a lease that is no longer authoritative.
-- `TerminalShutdownError`: Operation attempted during or after terminal shutdown.
-- `BrowserGenerationMismatchError`: Detected use of artifacts from a previous browser process.
-- `PoisonedPageError`: Interaction with a tab marked `DEAD`.
-- `StreamIntegrityError`: Detection of corrupted or out-of-order streaming data.
-- `QueueOverflowError`: Request-scoped event queue has reached its safety bound.
-- `RecoveryRequiredError`: Internal signal for escalation to session-level recovery.
+- `WebAIRuntimeError`: Base exception for all browser and provider runtime failures.
+  - `BrowserEngineError`: Base exception for BrowserEngine-scoped errors.
+    - `BrowserShuttingDownError`: Raised when an operation is attempted while the browser engine is shutting down.
+    - `BrowserDisconnectedError`: Raised when the underlying browser process unexpectedly disconnects.
+    - `BrowserGenerationMismatchError`: Raised when operating on a browser resource from a previous/stale process generation.
+  - `SessionError`: Base exception for ProviderSession-scoped errors.
+    - `SessionNotAliveError`: Raised when a liveness probe on the context's keepalive page fails or provider authentication loss occurs.
+  - `RequestError`: Base exception for request-scoped failures.
+    - `LeaseInvalidatedError`: Raised when attempting to operate on an invalidated or stale tab lease.
+    - `QueueOverflowError`: Raised when the request-scoped event buffer reaches saturation limit during bridge enqueuing.
 
-**Invariant**: Exception classification MUST reflect runtime scope and recovery authority boundaries.
+**Invariant**: Exception classification MUST reflect the runtime scope and recovery authority boundaries. Exception hierarchy is strictly scoped to lifecycle and resource-management concerns; it does not model domain-level or business-level failures.
 
-**Protocol**: Generic `RuntimeError` usage should be minimized in invariant-sensitive paths in favor of these semantic types.
+**Protocol**: Generic `RuntimeError` usage is minimized in favor of these custom exceptions in all state-sensitive and resource-acquisition paths.
 
 ### 5.1 Escalation Semantics
-- **Detection**: Providers are responsible for detecting failures and escalating to the authoritative session layer.
-- **Recovery Authority**: `ProviderSession` performs authoritative recovery for session-scoped failures (e.g., context recreation, tab purging).
+- **Detection**: Providers are responsible for detecting failures and escalating to the authoritative session layer by raising `SessionNotAliveError`.
+- **Recovery Authority**: `ProviderSession` catches the escalated exception and executes `handle_session_failure()` as the sole recovery executor (handling stale state file deletions and context invalidations).
 - **Shutdown Authority**: `BrowserEngine` owns terminal shutdown authority and coordinates global process teardown.
-- **Isolation**: Request-scoped failures must not silently escalate into engine shutdown; they must be handled at the lowest possible authority level.
-- **Precedence**: Engine-scoped failures invalidate all lower-level recovery paths immediately.
+- **Isolation**: Request-scoped failures (e.g., `QueueOverflowError`) must not silently poison the broader session or escalate into engine shutdown; they must be handled and isolated at the request level.
+- **Precedence**: Engine-scoped failures (e.g., `BrowserShuttingDownError`) invalidate all lower-level recovery paths immediately.
 - **Ownership**: Recovery execution must respect lifecycle ownership boundaries and follow the established lock hierarchy.
 
 ---
 
 ## 6. Cancellation & Cleanup Semantics
 
-Cancellation safety is a core runtime invariant.
+Cancellation safety is a core runtime invariant. The system prioritizes deterministic cleanup and strongly guarantees critical resource release under normal task cancellation, while auxiliary browser operations remain best-effort.
 
-- **Shielded Teardown**: All resource release (locks, semaphore permits, bridge state) MUST be wrapped in `asyncio.shield`.
-- **Idempotency**: Cleanup paths and `ManagedPage.close()` MUST be safe for multiple concurrent executions.
-- **Non-Swallowing**: `CancelledError` must be propagated after cleanup; it must never be silently suppressed.
-- **Best-Effort Success**: Teardown must continue even if individual auxiliary steps (e.g., script detachment) fail. Lock and permit release is mandatory.
-- **Task Integrity**: Request-scoped async tasks (observers, generators) must be terminated before communication channels are removed.
+- **Shielded Teardown**: Critical resource release paths (such as semaphore permit returns and persistent tab lease unlocking) MUST be wrapped in `asyncio.shield` to secure their execution during task cancellation.
+- **Idempotency**: Cleanup paths and `ManagedPage.close()` MUST be idempotent and safe for multiple concurrent executions. Failures in one step must not block subsequent resource release.
+- **Non-Swallowing**: `asyncio.CancelledError` must be propagated after executing the shielded cleanup; it must never be silently suppressed.
+- **Best-Effort vs Mandatory Cleanup**: The system strongly guarantees the return of active leases and semaphores under normal cancellation (mandatory release). Auxiliary Playwright cleanup operations (such as script detachment, page closure, or tab recreation) are executed on a best-effort basis and must not prevent successful lease/semaphore release.
+- **Task Integrity**: Request-scoped async tasks (observers, stream buffers) must be terminated before the tab's communication channels are removed.
 
 ---
 
