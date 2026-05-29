@@ -41,3 +41,7 @@ class LeaseInvalidatedError(RequestError):
 class QueueOverflowError(RequestError):
     """Raised when the event stream queue saturates during bridge enqueuing."""
     pass
+
+class ConversationBusyError(RequestError):
+    """Raised when a request is made for a conversation that is already active with another request."""
+    pass

@@ -239,7 +239,8 @@ class GeminiPlaywrightProvider(BaseProvider):
                 BrowserDisconnectedError,
                 BrowserGenerationMismatchError,
                 LeaseInvalidatedError,
-                QueueOverflowError
+                QueueOverflowError,
+                ConversationBusyError
             )
             if isinstance(e, SessionNotAliveError):
                 await session.handle_session_failure()
@@ -254,6 +255,8 @@ class GeminiPlaywrightProvider(BaseProvider):
                 raise HTTPException(status_code=409, detail="Tab lease has been invalidated.")
             if isinstance(e, QueueOverflowError):
                 raise HTTPException(status_code=429, detail="Event queue saturated.")
+            if isinstance(e, ConversationBusyError):
+                raise HTTPException(status_code=409, detail="Conversation is busy with another active request.")
             if isinstance(e, HTTPException): raise
             raise HTTPException(status_code=500, detail=str(e))
         finally:

@@ -181,11 +181,13 @@ class ManagedPage:
     """
     def __init__(self, page: Page, session: Any, 
                  persistent_tab: Optional[PersistentTab] = None,
-                 lease_token: Optional[str] = None):
+                 lease_token: Optional[str] = None,
+                 request_id: str = "default"):
         self.page = page
         self.session = session
         self.persistent_tab = persistent_tab
         self.lease_token = lease_token
+        self.request_id = request_id
         self._released = False
         self._lock = asyncio.Lock()
         self.acquired_at = time.monotonic()
@@ -208,6 +210,22 @@ class ManagedPage:
     async def _do_close(self):
         """Actual release implementation, shielded from cancellation."""
         try:
+            # 0. Active Conversation Ownership Release with Stale-Finalizer Protection (Zero-Await)
+            if self.persistent_tab:
+                cid = self.persistent_tab.conversation_id
+                async def safe_ownership_release():
+                    async with self.session.conversation_lock:
+                        # Conditional Release & Stale-Finalizer Protection
+                        if self.session.active_conversations.get(cid) == self.request_id:
+                            self.session.active_conversations.pop(cid, None)
+                try:
+                    await safe_ownership_release()
+                except Exception as ownership_err:
+                    logger.error(
+                        f"Failed to release ownership for conversation {cid}: {ownership_err}",
+                        extra={"generation": self.session.engine.browser_generation}
+                    )
+
             # 1. Semaphore return
             self.session.semaphore.release()
             self.session.active_lease_count = max(0, self.session.active_lease_count - 1)

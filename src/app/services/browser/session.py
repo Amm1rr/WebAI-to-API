@@ -10,7 +10,7 @@ from playwright.async_api import Page, BrowserContext
 from app.logger import logger
 from app.config import CONFIG
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
-from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError
+from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
 
 if TYPE_CHECKING:
     from app.services.browser.engine import BrowserEngine
@@ -34,9 +34,11 @@ class ProviderSession:
         
         self.init_lock = asyncio.Lock()   # For setup/re-init
         self.registry_lock = asyncio.Lock() # ONLY for trivial registry mutations
+        self.conversation_lock = asyncio.Lock() # Protects ONLY active_conversations; MUST NOT be held simultaneously with registry_lock
         self.state_lock = asyncio.Lock()  # For disk I/O
         self.submit_lock = asyncio.Lock() # For serializing prompt submission
         self._recovery_task: Optional[asyncio.Task] = None
+        self.active_conversations: Dict[str, str] = {} # Maps conversation_id -> request_id (active ownership tracking)
         
         # Conversation Registry (LRU-capable)
         self.conversation_registry: Dict[str, PersistentTab] = OrderedDict()
@@ -142,14 +144,23 @@ class ProviderSession:
         if self.engine.is_shutting_down:
             raise BrowserShuttingDownError("BrowserEngine is shutting down")
 
-        # 1. Bound total request concurrency
-        await self.semaphore.acquire()
-        self.active_lease_count += 1
-        
+        # 1. Atomic Check-and-Reserve under conversation_lock (Strictly Zero-Await for lookups/mutations)
+        if conversation_id:
+            async with self.conversation_lock:
+                if conversation_id in self.active_conversations:
+                    raise ConversationBusyError(f"Conversation {conversation_id} is busy with another active request.")
+                self.active_conversations[conversation_id] = request_id
+
+        # 2. Bound total request concurrency
+        acquired_semaphore = False
         try:
+            await self.semaphore.acquire()
+            acquired_semaphore = True
+            self.active_lease_count += 1
+            
             await self.ensure_healthy()
             
-            # 2. Conversational Reuse Flow
+            # 3. Conversational Reuse Flow
             if conversation_id:
                 # PHASE 1: Fast Lookup
                 tab = None
@@ -183,7 +194,7 @@ class ProviderSession:
                             async with self.registry_lock:
                                 self.conversation_registry.move_to_end(conversation_id)
                             logger.info(f"Reusing persistent tab: {conversation_id}")
-                            return ManagedPage(tab.page, self, persistent_tab=tab, lease_token=token)
+                            return ManagedPage(tab.page, self, persistent_tab=tab, lease_token=token, request_id=request_id)
                         else:
                             # Generation rollover during acquisition
                             await tab.release_lease(token)
@@ -202,15 +213,31 @@ class ProviderSession:
                                 await tab.close()
                         logger.debug(f"Tab {conversation_id} busy or invalid. Falling back to new tab.")
 
-            # 3. New Tab Flow
+            # 4. New Tab Flow
             await self.engine.enforce_soft_cap()
             page = await asyncio.wait_for(self.context.new_page(), timeout=10.0)
             await self._setup_page_bridge(page)
-            return ManagedPage(page, self)
+            return ManagedPage(page, self, request_id=request_id)
 
         except BaseException as e:
-            self.active_lease_count = max(0, self.active_lease_count - 1)
-            self.semaphore.release()
+            if acquired_semaphore:
+                self.active_lease_count = max(0, self.active_lease_count - 1)
+                self.semaphore.release()
+            
+            # Guarded rollback of conversation ownership reservation (Shielded against cancellation)
+            if conversation_id:
+                async def safe_rollback():
+                    async with self.conversation_lock:
+                        if self.active_conversations.get(conversation_id) == request_id:
+                            self.active_conversations.pop(conversation_id, None)
+                try:
+                    await asyncio.shield(safe_rollback())
+                except Exception as rollback_err:
+                    logger.error(
+                        f"Failed to rollback ownership reservation for conversation {conversation_id}: {rollback_err}",
+                        extra={"generation": self.engine.browser_generation}
+                    )
+            
             logger.debug(
                 f"ProviderSession({self.name}): Aborted lease acquisition: {e}",
                 extra={"generation": self.engine.browser_generation}
@@ -222,57 +249,90 @@ class ProviderSession:
         Promotes a temporary lease to a persistent conversation.
         Decoupled from registry_lock to avoid deadlocks.
         """
-        # Note: A new tab is already exclusively 'owned' by the caller
-        tab = PersistentTab(lease.page, conversation_id, self.engine.browser_generation)
-        
-        # 1. Pre-lock the tab before putting it in registry (Ownership Transfer)
-        token = await tab.acquire_lease("internal_registration")
-        if not token:
-            raise LeaseInvalidatedError("Failed to lock new tab for registration")
-        
-        to_close = []
-        async with self.registry_lock:
-            # Handle duplicate/collision
-            if conversation_id in self.conversation_registry:
-                old_tab = self.conversation_registry.pop(conversation_id)
-                # Check status BEFORE invalidating to determine if we can close it
-                if old_tab.status == TabStatus.IDLE:
-                    to_close.append(old_tab)
-                else:
-                    # Detached recovery for orphaned leased tab
-                    self._schedule_orphan_cleanup(old_tab)
-                old_tab.invalidate()
+        # 1. Registration Generation Consistency Check
+        from app.services.browser.errors import BrowserGenerationMismatchError, ConversationBusyError
+        BrowserGenerationMismatchError.validate(
+            self.last_browser_generation,
+            self.engine.browser_generation,
+            "Browser generation mismatch during conversation promotion."
+        )
 
-            # LRU Limit Enforcement
-            while len(self.conversation_registry) >= self.max_conversations:
-                evicted_id = None
-                for cid, t in self.conversation_registry.items():
-                    if t.status == TabStatus.IDLE:
-                        evicted_id = cid
-                        break
-                if evicted_id:
-                    t = self.conversation_registry.pop(evicted_id)
-                    # Check status BEFORE invalidating
-                    if t.status == TabStatus.IDLE:
-                        to_close.append(t)
+        # 2. Atomic Ownership Registration under conversation_lock (Strictly Zero-Await)
+        async with self.conversation_lock:
+            if conversation_id in self.active_conversations:
+                if self.active_conversations[conversation_id] != lease.request_id:
+                    raise ConversationBusyError(f"Conversation {conversation_id} is busy with another active request.")
+            else:
+                self.active_conversations[conversation_id] = lease.request_id
+
+        # 3. Registry Promotion and Insertion
+        try:
+            # Note: A new tab is already exclusively 'owned' by the caller
+            tab = PersistentTab(lease.page, conversation_id, self.engine.browser_generation)
+            
+            # 1. Pre-lock the tab before putting it in registry (Ownership Transfer)
+            token = await tab.acquire_lease("internal_registration")
+            if not token:
+                raise LeaseInvalidatedError("Failed to lock new tab for registration")
+            
+            to_close = []
+            async with self.registry_lock:
+                # Handle duplicate/collision
+                if conversation_id in self.conversation_registry:
+                    old_tab = self.conversation_registry.pop(conversation_id)
+                    # Check status BEFORE invalidating to determine if we can close it
+                    if old_tab.status == TabStatus.IDLE:
+                        to_close.append(old_tab)
                     else:
                         # Detached recovery for orphaned leased tab
-                        self._schedule_orphan_cleanup(t)
-                    t.invalidate()
-                else:
-                    break # All busy, allow temporary overflow
+                        self._schedule_orphan_cleanup(old_tab)
+                    old_tab.invalidate()
 
-            self.conversation_registry[conversation_id] = tab
-            
-        # Perform physical closes outside registry_lock
-        for t in to_close:
-            await t.close()
-            
-        # 2. Update lease to point to this new persistent tab
-        lease.persistent_tab = tab
-        lease.lease_token = token
-        logger.info(f"Registered persistent conversation: {conversation_id}")
-        return tab
+                # LRU Limit Enforcement
+                while len(self.conversation_registry) >= self.max_conversations:
+                    evicted_id = None
+                    for cid, t in self.conversation_registry.items():
+                        if t.status == TabStatus.IDLE:
+                            evicted_id = cid
+                            break
+                    if evicted_id:
+                        t = self.conversation_registry.pop(evicted_id)
+                        # Check status BEFORE invalidating
+                        if t.status == TabStatus.IDLE:
+                            to_close.append(t)
+                        else:
+                            # Detached recovery for orphaned leased tab
+                            self._schedule_orphan_cleanup(t)
+                        t.invalidate()
+                    else:
+                        break # All busy, allow temporary overflow
+
+                self.conversation_registry[conversation_id] = tab
+                
+            # Perform physical closes outside registry_lock
+            for t in to_close:
+                await t.close()
+                
+            # 2. Update lease to point to this new persistent tab
+            lease.persistent_tab = tab
+            lease.lease_token = token
+            logger.info(f"Registered persistent conversation: {conversation_id}")
+            return tab
+
+        except BaseException as e:
+            # Transactional Rollback: Remove active conversation registration if registry insertion fails
+            async def safe_rollback():
+                async with self.conversation_lock:
+                    if self.active_conversations.get(conversation_id) == lease.request_id:
+                        self.active_conversations.pop(conversation_id, None)
+            try:
+                await asyncio.shield(safe_rollback())
+            except Exception as rollback_err:
+                logger.error(
+                    f"Failed to rollback ownership reservation on failed registration for conversation {conversation_id}: {rollback_err}",
+                    extra={"generation": self.engine.browser_generation}
+                )
+            raise
 
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
