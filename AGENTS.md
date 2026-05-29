@@ -90,6 +90,7 @@ Authoritative technical invariants and behavioral guarantees are codified in the
 - **[Lifecycle and Recovery](docs/lifecycle-and-recovery.md)**: Governs engine state machine, terminal shutdown invariants, generation rollover semantics, and authoritative recovery boundaries.
 - **[Provider Contract](docs/provider-contract.md)**: Governs provider adapter responsibilities, page poisoning rules, page ownership boundaries, and escalation semantics.
 - **[Streaming Pipeline](docs/streaming-pipeline.md)**: Governs SSE ordering guarantees, rewrite-resilient normalization, bridge callback lifecycle, and queue overflow semantics.
+- **[Error Policy](docs/error-policy.md)**: Governs runtime error semantics, classification boundaries, authoritative recovery, and cancellation-safe cleanup.
 - **[Architecture Overview](docs/runtime-architecture-overview.md)**: High-level strategic vision, architectural principles, component relationships, and strategic roadmap.
 
 ---
