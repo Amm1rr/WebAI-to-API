@@ -76,6 +76,11 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     if env_auth_state_dir:
         config["Playwright"]["auth_state_dir"] = env_auth_state_dir
 
+    env_headless = os.environ.get("PLAYWRIGHT_HEADLESS")
+    if env_headless is not None:
+        is_headless = env_headless.strip().lower() in ("1", "true", "yes", "on")
+        config["Playwright"]["headless"] = "true" if is_headless else "false"
+
     return config
 
 
