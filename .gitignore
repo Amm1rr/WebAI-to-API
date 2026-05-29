@@ -16,3 +16,4 @@ htmlcov/
 coverage.xml
 dist/
 .playwright_data/
+auth_state/
