@@ -38,6 +38,7 @@ class RequestState:
     has_sent_text: bool = False
     on_close_handler: Any = None
     on_crash_handler: Any = None
+    queue_overflow: bool = False
 
 class GeminiPlaywrightProvider(BaseProvider):
     """
@@ -93,6 +94,9 @@ class GeminiPlaywrightProvider(BaseProvider):
                 state.reused_conversation = True
                 state.conversation_id = request.conversation_id
             
+            def check_generation():
+                self._validate_tab_generation(state.active_tab, engine.browser_generation, "Browser generation mismatch detected during prompt processing")
+
             callback_name = "__gemini_bridge"
             queue = asyncio.Queue(maxsize=100)
 
@@ -116,6 +120,7 @@ class GeminiPlaywrightProvider(BaseProvider):
                     state.max_queue_depth = max(state.max_queue_depth, queue.qsize())
                 except asyncio.QueueFull:
                     state.dropped_chunks += 1
+                    state.queue_overflow = True
                 except Exception as e:
                     logger.warning(f"Bridge emit failure: {e}")
                     state.page_poisoned = True
@@ -135,6 +140,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
             
             # 2. Target Navigation
+            check_generation()
             if state.reused_conversation:
                 target_url = f"https://gemini.google.com/app/{state.conversation_id}"
                 if page.url != target_url:
@@ -154,6 +160,7 @@ class GeminiPlaywrightProvider(BaseProvider):
             input_locator = page.locator(SELECTORS["INPUT"]).first
             if state.active_tab: state.active_tab.heartbeat("input_wait")
             try:
+                check_generation()
                 await input_locator.wait_for(state="visible", timeout=15000)
                 # Let the heavy framework JS event listeners settle completely
                 await asyncio.sleep(0.5)
@@ -175,15 +182,14 @@ class GeminiPlaywrightProvider(BaseProvider):
             
             # 3. Auth Validation
             if state.active_tab: state.active_tab.heartbeat("auth_check")
+            check_generation()
             if not await adapter.check_authentication(page):
-                if os.path.exists(session.state_path):
-                    try: os.remove(session.state_path)
-                    except: pass
-                await session.ensure_healthy()
-                raise HTTPException(status_code=401, detail="Authentication expired.")
+                from app.services.browser.errors import SessionNotAliveError
+                raise SessionNotAliveError("Authentication expired.")
 
             # 4. Observer Injection
             if state.active_tab: state.active_tab.heartbeat("observer_injection")
+            check_generation()
             observer_task = asyncio.create_task(
                 page.evaluate(f"({STREAM_EXTRACTOR_SCRIPT})('{callback_name}', '{state.request_id}')"),
                 name=f"observer_{state.request_id}"
@@ -202,6 +208,7 @@ class GeminiPlaywrightProvider(BaseProvider):
 
             async with session.submit_lock:
                 logger.debug("Submit lock acquired", extra={"request_id": state.request_id})
+                check_generation()
                 confirmed = await adapter.submit_prompt(page, prompt, state)
                 logger.debug("Submit lock released", extra={"request_id": state.request_id})
 
@@ -222,8 +229,31 @@ class GeminiPlaywrightProvider(BaseProvider):
                 setup_success = True
                 return resp
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Error in chat_completions: {e}", extra={"request_id": state.request_id})
+            from app.services.browser.errors import (
+                SessionNotAliveError,
+                BrowserShuttingDownError,
+                BrowserDisconnectedError,
+                BrowserGenerationMismatchError,
+                LeaseInvalidatedError,
+                QueueOverflowError
+            )
+            if isinstance(e, SessionNotAliveError):
+                await session.handle_session_failure()
+                raise HTTPException(status_code=401, detail="Authentication expired.")
+            if isinstance(e, BrowserShuttingDownError):
+                raise HTTPException(status_code=503, detail="Browser engine is shutting down.")
+            if isinstance(e, BrowserDisconnectedError):
+                raise HTTPException(status_code=502, detail="Underlying browser process disconnected.")
+            if isinstance(e, BrowserGenerationMismatchError):
+                raise HTTPException(status_code=503, detail="Browser generation rollover mismatch.")
+            if isinstance(e, LeaseInvalidatedError):
+                raise HTTPException(status_code=409, detail="Tab lease has been invalidated.")
+            if isinstance(e, QueueOverflowError):
+                raise HTTPException(status_code=429, detail="Event queue saturated.")
             if isinstance(e, HTTPException): raise
             raise HTTPException(status_code=500, detail=str(e))
         finally:
@@ -239,6 +269,9 @@ class GeminiPlaywrightProvider(BaseProvider):
         
         try:
             while True:
+                if state.queue_overflow:
+                    from app.services.browser.errors import QueueOverflowError
+                    raise QueueOverflowError("Event queue saturated")
                 try:
                     if not state.conversation_id and not state.active_tab:
                         async with state.lock:
@@ -253,6 +286,7 @@ class GeminiPlaywrightProvider(BaseProvider):
                     if payload.get("type") == "done": break
                     
                     if state.active_tab:
+                        self._validate_tab_generation(state.active_tab, engine.browser_generation, "Browser generation rollover detected during streaming")
                         state.active_tab.heartbeat("streaming_progress")
 
                     text_to_send = ""
@@ -286,6 +320,9 @@ class GeminiPlaywrightProvider(BaseProvider):
             full_text = ""
             async with asyncio.timeout(total_timeout):
                 while True:
+                    if state.queue_overflow:
+                        from app.services.browser.errors import QueueOverflowError
+                        raise QueueOverflowError("Event queue saturated")
                     if not state.conversation_id and not state.active_tab:
                         async with state.lock:
                             if not state.conversation_id and not state.active_tab:
@@ -299,6 +336,7 @@ class GeminiPlaywrightProvider(BaseProvider):
                     if payload.get("type") == "done": break
                     
                     if state.active_tab:
+                        self._validate_tab_generation(state.active_tab, engine.browser_generation, "Browser generation rollover detected during buffering")
                         state.active_tab.heartbeat("buffering_progress")
 
                     if payload.get("type") == "rewrite": full_text = payload["full_text"]
@@ -370,6 +408,11 @@ class GeminiPlaywrightProvider(BaseProvider):
                         logger.info(f"Lease returned for CID: {state.conversation_id}", extra={"request_id": state.request_id})
             except Exception as e:
                 logger.warning(f"Cleanup Error: {e}", extra={"request_id": state.request_id})
+
+    def _validate_tab_generation(self, tab: Any, current_generation: int, context_msg: str = "Browser generation mismatch detected"):
+        if tab:
+            from app.services.browser.errors import BrowserGenerationMismatchError
+            BrowserGenerationMismatchError.validate(tab.browser_generation, current_generation, context_msg)
 
     async def list_models(self) -> List[dict]:
         return [{"id": "playwright/gemini", "object": "model", "created": int(time.time()), "owned_by": "google-playwright"}]

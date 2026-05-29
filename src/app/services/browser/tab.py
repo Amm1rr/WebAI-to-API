@@ -88,8 +88,17 @@ class PersistentTab:
             # This detects transport disconnects where is_closed() might be stale.
             try:
                 await asyncio.wait_for(self.page.evaluate("1"), timeout=1.0)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
-                logger.warning(f"Tab({self.conversation_id}) liveness probe failed: {e}")
+                logger.warning(
+                    f"Tab({self.conversation_id}) liveness probe failed: {e}",
+                    extra={
+                        "generation": self.browser_generation,
+                        "tab_id": self.conversation_id,
+                        "req_id": request_id
+                    }
+                )
                 self.invalidate()
                 return None
                 
@@ -103,9 +112,14 @@ class PersistentTab:
             self.last_accessed_at = self.leased_at
             self.heartbeat("initial_lease")
             
-            logger.info(f"Tab({self.conversation_id}): Lease acquired", extra={"token": token, "req_id": request_id})
+            logger.info(f"Tab({self.conversation_id}): Lease acquired", extra={"token": token, "req_id": request_id, "generation": self.browser_generation})
             return token
-        except Exception:
+        except Exception as e:
+            logger.error(
+                f"Tab({self.conversation_id}): Unexpected error acquiring lease: {e}",
+                exc_info=True,
+                extra={"generation": self.browser_generation, "tab_id": self.conversation_id, "req_id": request_id}
+            )
             return None
         finally:
             if not self.lease_token:
@@ -117,7 +131,7 @@ class PersistentTab:
         Returns True if released, False if token mismatch or already released.
         """
         if not self._lock.locked() or self.lease_token != token:
-            logger.warning(f"Tab({self.conversation_id}): Rejected lease release attempt (Token Mismatch)")
+            logger.warning(f"Tab({self.conversation_id}): Rejected lease release attempt (Token Mismatch)", extra={"generation": self.browser_generation, "tab_id": self.conversation_id, "token": token})
             return False
 
         try:
@@ -129,7 +143,7 @@ class PersistentTab:
             self.owner_request_id = None
             self.leased_at = None
             self.last_accessed_at = time.monotonic() # Final access update
-            logger.info(f"Tab({self.conversation_id}): Lease released", extra={"token": token})
+            logger.info(f"Tab({self.conversation_id}): Lease released", extra={"token": token, "generation": self.browser_generation, "tab_id": self.conversation_id})
             return True
         finally:
             self._lock.release()
@@ -141,18 +155,24 @@ class PersistentTab:
 
     async def close(self):
         """Safely shuts down the tab and marks it as dead."""
-        if self.status == TabStatus.DEAD:
-            return
-        
-        self.status = TabStatus.INVALIDATING
-        try:
-            if not self.page.is_closed():
-                await self.page.close()
-        except Exception:
-            pass
-        finally:
-            self.status = TabStatus.DEAD
-            logger.debug(f"Tab({self.conversation_id}): Status set to DEAD")
+        async with self._lock:
+            if self.status == TabStatus.DEAD:
+                return
+            
+            self.status = TabStatus.INVALIDATING
+            try:
+                if not self.page.is_closed():
+                    await self.page.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug(
+                    f"Tab({self.conversation_id}): Best-effort page close failed: {e}",
+                    extra={"generation": self.browser_generation, "tab_id": self.conversation_id}
+                )
+            finally:
+                self.status = TabStatus.DEAD
+                logger.debug(f"Tab({self.conversation_id}): Status set to DEAD", extra={"generation": self.browser_generation, "tab_id": self.conversation_id})
 
 class ManagedPage:
     """
@@ -176,13 +196,14 @@ class ManagedPage:
         Ensures semaphore is returned and persistent tab is unlocked.
         FIX: Uses asyncio.shield to prevent lease/lock leak during cancellation.
         """
+        await asyncio.shield(self._do_close_safely())
+
+    async def _do_close_safely(self):
         async with self._lock:
             if self._released:
                 return
             self._released = True
-            
-            # Execute actual release logic in a shielded block
-            await asyncio.shield(self._do_close())
+            await self._do_close()
 
     async def _do_close(self):
         """Actual release implementation, shielded from cancellation."""
@@ -202,16 +223,43 @@ class ManagedPage:
                     
                     duration = time.monotonic() - self.acquired_at
                     logger.info(f"PersistentTab({self.persistent_tab.conversation_id}): Lease released.", 
-                                extra={"provider": self.session.name, "duration": f"{duration:.2f}s"})
+                                extra={
+                                    "provider": self.session.name, 
+                                    "duration": f"{duration:.2f}s",
+                                    "tab_id": self.persistent_tab.conversation_id,
+                                    "generation": self.session.engine.browser_generation
+                                })
                 else:
-                    logger.warning(f"PersistentTab({self.persistent_tab.conversation_id}): Ownership lost or already released.")
+                    logger.warning(
+                        f"PersistentTab({self.persistent_tab.conversation_id}): Ownership lost or already released.",
+                        extra={
+                            "provider": self.session.name,
+                            "tab_id": self.persistent_tab.conversation_id,
+                            "generation": self.session.engine.browser_generation
+                        }
+                    )
             else:
                 # One-off temporary tab: physical close
                 try:
                     if not self.page.is_closed():
                         await self.page.close()
-                    logger.info("Temporary tab closed.", extra={"provider": self.session.name})
-                except Exception:
-                    pass
+                    logger.info("Temporary tab closed.", extra={"provider": self.session.name, "generation": self.session.engine.browser_generation})
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.debug(
+                        f"ManagedPage: Best-effort temporary page close failed: {e}",
+                        extra={"provider": self.session.name, "generation": self.session.engine.browser_generation}
+                    )
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error(f"ManagedPage: Error during shielded release: {e}")
+            logger.error(
+                f"ManagedPage: Error during shielded release: {e}",
+                exc_info=True,
+                extra={
+                    "provider": self.session.name,
+                    "generation": self.session.engine.browser_generation,
+                    "tab_id": self.persistent_tab.conversation_id if self.persistent_tab else "temporary"
+                }
+            )

@@ -10,6 +10,7 @@ from playwright.async_api import Page, BrowserContext
 from app.logger import logger
 from app.config import CONFIG
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
+from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError
 
 if TYPE_CHECKING:
     from app.services.browser.engine import BrowserEngine
@@ -35,6 +36,7 @@ class ProviderSession:
         self.registry_lock = asyncio.Lock() # ONLY for trivial registry mutations
         self.state_lock = asyncio.Lock()  # For disk I/O
         self.submit_lock = asyncio.Lock() # For serializing prompt submission
+        self._recovery_task: Optional[asyncio.Task] = None
         
         # Conversation Registry (LRU-capable)
         self.conversation_registry: Dict[str, PersistentTab] = OrderedDict()
@@ -138,7 +140,7 @@ class ProviderSession:
         PHASE 2: Tab Lock Acquisition (Blocking, outside registry_lock)
         """
         if self.engine.is_shutting_down:
-            raise RuntimeError("BrowserEngine is shutting down")
+            raise BrowserShuttingDownError("BrowserEngine is shutting down")
 
         # 1. Bound total request concurrency
         await self.semaphore.acquire()
@@ -206,9 +208,13 @@ class ProviderSession:
             await self._setup_page_bridge(page)
             return ManagedPage(page, self)
 
-        except BaseException:
+        except BaseException as e:
             self.active_lease_count = max(0, self.active_lease_count - 1)
             self.semaphore.release()
+            logger.debug(
+                f"ProviderSession({self.name}): Aborted lease acquisition: {e}",
+                extra={"generation": self.engine.browser_generation}
+            )
             raise
 
     async def register_conversation(self, conversation_id: str, lease: ManagedPage) -> PersistentTab:
@@ -222,7 +228,7 @@ class ProviderSession:
         # 1. Pre-lock the tab before putting it in registry (Ownership Transfer)
         token = await tab.acquire_lease("internal_registration")
         if not token:
-            raise RuntimeError("Failed to lock new tab for registration")
+            raise LeaseInvalidatedError("Failed to lock new tab for registration")
         
         to_close = []
         async with self.registry_lock:
@@ -271,14 +277,14 @@ class ProviderSession:
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
         if self.engine.is_shutting_down:
-            raise RuntimeError("Browser engine is shutting down")
+            raise BrowserShuttingDownError("Browser engine is shutting down")
             
         async with self.init_lock:
             async with self.engine.management_lock:
                 await self.engine._ensure_healthy_browser()
 
             if self.engine.is_shutting_down:
-                raise RuntimeError("Browser engine is shutting down")
+                raise BrowserShuttingDownError("Browser engine is shutting down")
 
             # Atomic Purge on generation rollover
             if self.last_browser_generation != self.engine.browser_generation:
@@ -295,8 +301,11 @@ class ProviderSession:
                     else:
                         # ACTIVE PROBE: The authority for session liveness
                         await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
-                except (asyncio.TimeoutError, Exception):
-                    logger.warning(f"ProviderSession({self.name}) liveness probe failed. Re-initializing.")
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}) liveness probe failed: {e}. Re-initializing.",
+                        extra={"generation": self.last_browser_generation}
+                    )
                     await self._setup()
 
     async def _purge_all_tabs(self):
@@ -317,6 +326,28 @@ class ProviderSession:
             await t.close()
         logger.info(f"ProviderSession({self.name}): All tabs purged from registry.")
 
+    async def handle_session_failure(self):
+        """Authoritative recovery execution for session failures."""
+        if self._recovery_task and not self._recovery_task.done():
+            logger.debug(f"ProviderSession({self.name}): Recovery task already in progress, skipping duplicate request.")
+            return
+
+        # Synchronously create the recovery task (100% atomic in single-threaded event loop)
+        self._recovery_task = asyncio.create_task(self._do_session_recovery())
+
+    async def _do_session_recovery(self):
+        async with self.init_lock:
+            logger.warning(f"ProviderSession({self.name}): Handling escalated session failure.")
+            # 1. Purge the stale context state file
+            if os.path.exists(self.state_path):
+                try:
+                    os.remove(self.state_path)
+                except Exception as e:
+                    logger.debug(f"Failed to delete stale state file: {e}")
+            
+            # 2. Invalidate context to force re-setup on next ensure_healthy()
+            await self.close_resources(save_state=False)
+
     async def _setup(self):
         """Full re-initialization of the provider context."""
         await self.close_resources(save_state=False)
@@ -334,10 +365,12 @@ class ProviderSession:
             def safe_on_context_close(c):
                 try:
                     asyncio.get_running_loop().create_task(self._on_context_closed())
-                except RuntimeError:
+                except RuntimeError as e:
                     logger.debug(
-                        "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed.",
-                        self.name
+                        "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
+                        self.name,
+                        e,
+                        extra={"generation": self.last_browser_generation}
                     )
             self.context.on("close", safe_on_context_close)
             
@@ -353,9 +386,9 @@ class ProviderSession:
                 if not self.reaper_task or self.reaper_task.done():
                     self.reaper_task = asyncio.create_task(self._reaper_loop())
             
-            logger.info("provider_session_initialized", extra={"provider": self.name, "gen": self.last_browser_generation})
+            logger.info("provider_session_initialized", extra={"provider": self.name, "generation": self.last_browser_generation})
         except Exception as e:
-            logger.error(f"ProviderSession({self.name}): Setup failed: {e}")
+            logger.error(f"ProviderSession({self.name}): Setup failed: {e}", exc_info=True, extra={"generation": self.engine.browser_generation})
             await self.close_resources(save_state=False)
             raise
 
@@ -375,9 +408,24 @@ class ProviderSession:
                 await asyncio.sleep(60)
                 if self.is_alive:
                     await self.save_state()
-        except asyncio.CancelledError: pass
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error(f"ProviderSession({self.name}): Autosave loop error: {e}")
+            from app.services.browser.errors import WebAIRuntimeError
+            if isinstance(e, WebAIRuntimeError):
+                logger.error(
+                    f"ProviderSession({self.name}): Autosave loop encountered semantic error: {type(e).__name__} - {e}. Escalating to recovery.",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
+                asyncio.create_task(self.handle_session_failure())
+                raise
+            else:
+                logger.error(
+                    f"ProviderSession({self.name}): Autosave loop error: {e}",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
 
     async def _eviction_loop(self):
         """Deterministic eviction and stale lease recovery."""
@@ -385,6 +433,14 @@ class ProviderSession:
             while not self.engine.is_shutting_down:
                 await asyncio.sleep(30)
                 if self.engine.is_shutting_down: break
+                
+                # Ignore stale generation state and delegate recovery/teardown to rollover purge flow
+                if self.last_browser_generation != self.engine.browser_generation:
+                    logger.debug(
+                        "ProviderSession(%s): Generation mismatch detected (%s vs %s). Skipping eviction sweep.",
+                        self.name, self.last_browser_generation, self.engine.browser_generation
+                    )
+                    continue
                 
                 now = time.monotonic()
                 to_evict = []
@@ -411,14 +467,17 @@ class ProviderSession:
                     if tab_to_kill:
                         tab_to_kill.invalidate()
                         await tab_to_kill.close()
-                        logger.info(f"Idle eviction: {cid}", extra={"provider": self.name})
+                        logger.info(f"Idle eviction: {cid}", extra={"provider": self.name, "generation": self.last_browser_generation, "tab_id": cid})
 
                 for cid in stale_recovery:
                     tab_to_kill = None
                     async with self.registry_lock:
                         tab = self.conversation_registry.get(cid)
                         if tab and tab.status == TabStatus.LEASED:
-                            logger.warning(f"Stale lease recovery: {cid} (No heartbeat for {self.lease_timeout}s)")
+                            logger.warning(
+                                f"Stale lease recovery: {cid} (No heartbeat for {self.lease_timeout}s)",
+                                extra={"provider": self.name, "generation": self.last_browser_generation, "tab_id": cid}
+                            )
                             # ATOMIC INVALIDATION
                             tab_to_kill = self.conversation_registry.pop(cid, None)
 
@@ -426,7 +485,24 @@ class ProviderSession:
                         tab_to_kill.invalidate()
                         await tab_to_kill.close()
 
-        except asyncio.CancelledError: pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            from app.services.browser.errors import WebAIRuntimeError
+            if isinstance(e, WebAIRuntimeError):
+                logger.error(
+                    f"ProviderSession({self.name}): Eviction loop encountered semantic error: {type(e).__name__} - {e}. Escalating to recovery.",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
+                asyncio.create_task(self.handle_session_failure())
+                raise
+            else:
+                logger.error(
+                    f"ProviderSession({self.name}): Eviction loop crashed: {e}",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
 
     async def _reaper_loop(self):
         """Active liveness sweeper for IDLE persistent tabs."""
@@ -435,11 +511,20 @@ class ProviderSession:
                 await asyncio.sleep(30)
                 if self.engine.is_shutting_down: break
                 
+                # Ignore stale generation state and delegate liveness monitoring/recovery to authoritative flow
+                if self.last_browser_generation != self.engine.browser_generation:
+                    logger.debug(
+                        "ProviderSession(%s): Generation mismatch detected (%s vs %s). Skipping reaper sweep.",
+                        self.name, self.last_browser_generation, self.engine.browser_generation
+                    )
+                    continue
+
                 if not self.is_alive:
                     if not self.engine.is_shutting_down:
                         logger.warning(
                             "ProviderSession(%s): Unexpected liveness loss (Window closure). Triggering shutdown.",
-                            self.name
+                            self.name,
+                            extra={"generation": self.last_browser_generation}
                         )
                         self.engine._on_browser_disconnected()
                     break
@@ -471,8 +556,11 @@ class ProviderSession:
 
                         except asyncio.CancelledError:
                             raise
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                f"ProviderSession({self.name}): Reaper liveness probe failed for tab {t.conversation_id}: {e}",
+                                extra={"generation": self.last_browser_generation, "tab_id": t.conversation_id}
+                            )
 
                         return t.conversation_id
 
@@ -498,11 +586,29 @@ class ProviderSession:
                     for t in to_close:
                         await t.close()
                     if to_close:
-                        logger.info(f"Reaper purged {len(to_close)} dead tabs from registry ({self.name})")
+                        logger.info(
+                            f"Reaper purged {len(to_close)} dead tabs from registry ({self.name})",
+                            extra={"generation": self.last_browser_generation}
+                        )
 
-        except asyncio.CancelledError: pass
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error(f"Reaper loop crashed ({self.name}): {e}")
+            from app.services.browser.errors import WebAIRuntimeError
+            if isinstance(e, WebAIRuntimeError):
+                logger.error(
+                    f"ProviderSession({self.name}): Reaper loop encountered semantic error: {type(e).__name__} - {e}. Escalating to recovery.",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
+                asyncio.create_task(self.handle_session_failure())
+                raise
+            else:
+                logger.error(
+                    f"Reaper loop crashed ({self.name}): {e}",
+                    exc_info=True,
+                    extra={"generation": self.last_browser_generation}
+                )
 
     async def _on_context_closed(self):
         """Handler for BrowserContext.on('close')."""
@@ -523,10 +629,14 @@ class ProviderSession:
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(tmp_path, self.state_path)
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"ProviderSession({self.name}): Failed to save state: {e}",
+                    extra={"generation": self.last_browser_generation}
+                )
                 if os.path.exists(tmp_path):
                     try: os.remove(tmp_path)
-                    except: pass
+                    except OSError: pass
 
     async def close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
@@ -535,19 +645,25 @@ class ProviderSession:
         if self.autosave_task:
             self.autosave_task.cancel()
             try: await self.autosave_task
-            except: pass
+            except asyncio.CancelledError: pass
+            except Exception as e:
+                logger.debug(f"ProviderSession({self.name}): Error during autosave task cancellation: {e}", extra={"generation": self.last_browser_generation})
             self.autosave_task = None
 
         if self.eviction_task:
             self.eviction_task.cancel()
             try: await self.eviction_task
-            except: pass
+            except asyncio.CancelledError: pass
+            except Exception as e:
+                logger.debug(f"ProviderSession({self.name}): Error during eviction task cancellation: {e}", extra={"generation": self.last_browser_generation})
             self.eviction_task = None
 
         if self.reaper_task:
             self.reaper_task.cancel()
             try: await self.reaper_task
-            except: pass
+            except asyncio.CancelledError: pass
+            except Exception as e:
+                logger.debug(f"ProviderSession({self.name}): Error during reaper task cancellation: {e}", extra={"generation": self.last_browser_generation})
             self.reaper_task = None
 
         # Drain orphan cleanup tasks
@@ -565,12 +681,14 @@ class ProviderSession:
             try:
                 if not self.keepalive_page.is_closed():
                     await self.keepalive_page.close()
-            except Exception: pass
+            except Exception as e:
+                logger.debug(f"ProviderSession({self.name}): Best-effort keepalive page close failed: {e}", extra={"generation": self.last_browser_generation})
             self.keepalive_page = None
 
         if self.context:
             try: await self.context.close()
-            except Exception: pass
+            except Exception as e:
+                logger.debug(f"ProviderSession({self.name}): Best-effort context close failed: {e}", extra={"generation": self.last_browser_generation})
             self.context = None
 
     def _schedule_orphan_cleanup(self, tab: PersistentTab):

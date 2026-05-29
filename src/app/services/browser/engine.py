@@ -64,18 +64,22 @@ class BrowserEngine:
 
     async def _ensure_healthy_browser(self):
         if self.is_shutting_down:
-            logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.")
+            logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.", extra={"generation": self.browser_generation})
             return
 
         if not self.playwright or not self.browser or not self.browser.is_connected():
-            logger.info("BrowserEngine: Initializing Browser...")
+            logger.info("BrowserEngine: Initializing Browser...", extra={"generation": self.browser_generation})
             
             if self.browser:
-                try: await self.browser.close()
-                except: pass
+                try: 
+                    await self.browser.close()
+                except Exception as e:
+                    logger.debug(f"BrowserEngine: Best-effort browser close failed: {e}", extra={"generation": self.browser_generation})
             if self.playwright:
-                try: await self.playwright.stop()
-                except: pass
+                try: 
+                    await self.playwright.stop()
+                except Exception as e:
+                    logger.debug(f"BrowserEngine: Best-effort playwright stop failed: {e}", extra={"generation": self.browser_generation})
             
             try:
                 self.playwright = await async_playwright().start()
@@ -89,9 +93,9 @@ class BrowserEngine:
                 self.browser.on("disconnected", lambda b: self._on_browser_disconnected())
                 
                 self.browser_generation += 1
-                logger.info("BrowserEngine: New generation active.", extra={"gen": self.browser_generation})
+                logger.info("BrowserEngine: New generation active.", extra={"generation": self.browser_generation})
             except Exception as e:
-                logger.error(f"BrowserEngine: Failed to launch browser: {e}")
+                logger.error(f"BrowserEngine: Failed to launch browser: {e}", exc_info=True, extra={"generation": self.browser_generation})
                 self.browser = None
                 raise
 
@@ -101,12 +105,12 @@ class BrowserEngine:
             return
             
         self._disconnect_handled = True
-        logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).")
+        logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).", extra={"generation": self.browser_generation})
         # Fire-and-forget terminal shutdown to kill all background loops and prevent recreation
         try:
             asyncio.get_running_loop().create_task(self.close())
-        except RuntimeError:
-            logger.debug("BrowserEngine: Shutdown task scheduling skipped - event loop already closed.")
+        except RuntimeError as e:
+            logger.debug("BrowserEngine: Shutdown task scheduling skipped - event loop already closed.", exc_info=True, extra={"generation": self.browser_generation})
 
 
 
@@ -188,39 +192,39 @@ class BrowserEngine:
     async def close(self) -> None:
         async with self.management_lock:
             if self.is_shutting_down: 
-                logger.debug("BrowserEngine: Shutdown already in progress or complete.")
+                logger.debug("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
                 return
-            logger.info("BrowserEngine: Shutting down...")
+            logger.info("BrowserEngine: Shutting down...", extra={"generation": self.browser_generation})
             self.is_shutting_down = True
             
             drain_start = time.monotonic()
             drain_timeout = 15.0
             while self.active_pages > 0 and (time.monotonic() - drain_start) < drain_timeout:
-                logger.info(f"BrowserEngine: Waiting for {self.active_pages} active pages to drain...")
+                logger.info(f"BrowserEngine: Waiting for {self.active_pages} active pages to drain...", extra={"generation": self.browser_generation})
                 await asyncio.sleep(1.0)
             
             for session in list(self.sessions.values()):
-                logger.debug(f"BrowserEngine: Closing session resources for {session.name}")
+                logger.debug(f"BrowserEngine: Closing session resources for {session.name}", extra={"generation": self.browser_generation})
                 await session.close_resources(save_state=True)
             
             if self.browser:
                 try: 
-                    logger.debug("BrowserEngine: Closing browser process.")
+                    logger.debug("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
                     await self.browser.close()
                 except Exception as e:
-                    logger.warning(f"BrowserEngine: Error closing browser: {e}")
+                    logger.warning(f"BrowserEngine: Error closing browser: {e}", exc_info=True, extra={"generation": self.browser_generation})
             
             if self.playwright:
                 try: 
-                    logger.debug("BrowserEngine: Stopping playwright.")
+                    logger.debug("BrowserEngine: Stopping playwright.", extra={"generation": self.browser_generation})
                     await self.playwright.stop()
                 except Exception as e:
-                    logger.warning(f"BrowserEngine: Error stopping playwright: {e}")
+                    logger.warning(f"BrowserEngine: Error stopping playwright: {e}", exc_info=True, extra={"generation": self.browser_generation})
             
             self.sessions.clear()
             self.browser = None
             self.playwright = None
-            logger.info("BrowserEngine: Shutdown complete.")
+            logger.info("BrowserEngine: Shutdown complete.", extra={"generation": self.browser_generation})
 
 async def get_browser_engine() -> BrowserEngine:
     return await BrowserEngine.get_instance()
