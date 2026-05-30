@@ -2,7 +2,7 @@
 
 This document specifies the architectural governance, runtime contracts, and operational guidelines for WebAI-to-API. It is the authoritative guide for contributors and AI agents working on the browser-native runtime.
 
-> **Scope of this Document**: This file serves as a contributor governance guide. Detailed behavioral guarantees and technical invariants are codified in the [Runtime Contract Map](#6-runtime-contract-map) inside `docs/`, which remain the normative authority for the system. While the Playwright-based runtime is the authoritative architecture, legacy or fallback integrations (e.g., `g4f`, transitional provider paths) may still exist for compatibility purposes. The runtime contracts primarily govern the hardened Playwright runtime layer.
+> **Scope of this Document**: This file serves as a contributor governance guide. Detailed behavioral guarantees and technical invariants are codified in the [Runtime Contract Map](#6-runtime-contract-map) inside `docs/`, which remain the normative authority for the system. The runtime contracts primarily govern the hardened Playwright runtime layer.
 
 ## Mandatory Architectural Directives
 

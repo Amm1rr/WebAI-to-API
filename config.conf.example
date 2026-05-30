@@ -1,7 +1,6 @@
 # Configuration File for WebAI-to-API Server
 # -------------------------------------------
 # ⚠️ Note: This file is *only* used by the WebAI-to-API server.
-# It is NOT intended for use with gpt4free providers.
 
 # --- Browser Settings ---
 # Set the browser that will be used for any required operations.

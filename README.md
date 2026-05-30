@@ -9,7 +9,6 @@
 
 <p align="center">
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
-  <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
   <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
     <img src="./assets/ATLAS_CLOUD_LOGO_BLACK.png" alt="Atlas Cloud" height="160" />
   </a>
@@ -33,21 +32,7 @@ This project supports **three operational modes**:
 
    A direct API provider offering high-performance access to advanced models like MiniMax-M2. Ideal for developers seeking a reliable, low-latency cloud alternative with native OpenAI compatibility.
 
-3. **Fallback Web Server (gpt4free)**
-
-   > [gpt4free](https://github.com/xtekky/gpt4free)
-
-   A secondary server powered by the `gpt4free` library, offering broader access to multiple LLMs beyond Gemini, including:
-
-   - ChatGPT
-   - Claude
-   - DeepSeek
-   - Copilot
-   - HuggingFace Inference
-   - Grok
-   - ...and many more.
-
-This design provides both **speed and redundancy**, ensuring flexibility depending on your use case and available resources.
+This design provides both **speed and reliability**, ensuring flexibility depending on your use case and available resources.
 
 ---
 
@@ -200,65 +185,6 @@ Built for seamless integration with clients that expect the OpenAI API format.
 Provides access to the latest Google Generative AI models with standard Google API format including safety ratings and structured responses.
 
 ---
-
-### gpt4free Endpoints
-
-<details>
-  <summary>
-    <b>Available Endpoints (gpt4free API Layer)</b>
-  </summary>
-
-These endpoints follow the **OpenAI-compatible structure** and are powered by the `gpt4free` library.  
-For detailed usage and advanced customization, refer to the official documentation:
-
-- 📄 [Provider Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/selecting_a_provider.md)
-- 📄 [Model Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/providers-and-models.md)
-
-```
-GET  /                              # Health check
-GET  /v1                            # Version info
-GET  /v1/models                     # List all available models
-GET  /api/{provider}/models         # List models from a specific provider
-GET  /v1/models/{model_name}        # Get details of a specific model
-
-POST /v1/chat/completions           # Chat with default configuration
-POST /api/{provider}/chat/completions
-POST /api/{provider}/{conversation_id}/chat/completions
-
-POST /v1/responses                  # General response endpoint
-POST /api/{provider}/responses
-
-POST /api/{provider}/images/generations
-POST /v1/images/generations
-POST /v1/images/generate            # Generate images using selected provider
-
-POST /v1/media/generate             # Media generation (audio/video/etc.)
-
-GET  /v1/providers                  # List all providers
-GET  /v1/providers/{provider}       # Get specific provider info
-
-POST /api/{path_provider}/audio/transcriptions
-POST /v1/audio/transcriptions       # Audio-to-text
-
-POST /api/markitdown                # Markdown rendering
-
-POST /api/{path_provider}/audio/speech
-POST /v1/audio/speech               # Text-to-speech
-
-POST /v1/upload_cookies             # Upload session cookies (browser-based auth)
-
-GET  /v1/files/{bucket_id}          # Get uploaded file from bucket
-POST /v1/files/{bucket_id}          # Upload file to bucket
-
-GET  /v1/synthesize/{provider}      # Audio synthesis
-
-POST /json/{filename}               # Submit structured JSON data
-
-GET  /media/{filename}              # Retrieve media
-GET  /images/{filename}             # Retrieve images
-```
-
-</details>
 
 ---
 
