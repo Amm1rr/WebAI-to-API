@@ -12,6 +12,10 @@ from app.services.session_manager import get_translate_session_manager, get_gemi
 from app.utils.streaming import simulate_streaming_generator
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
+from models.gemini import resolve_model_name
+
+def is_unknown_model_error(error: ValueError) -> bool:
+    return "Unknown model name" in str(error)
 
 class GeminiProvider(BaseProvider):
     """
@@ -29,6 +33,8 @@ class GeminiProvider(BaseProvider):
 
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided.")
+
+        self._validate_model_name(request.model)
 
         # 1. Resolve or generate conversation_id securely
         cid = request.conversation_id
@@ -140,9 +146,24 @@ class GeminiProvider(BaseProvider):
                 
             return openai_response
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
+
+    def _validate_model_name(self, model: Optional[str]) -> None:
+        if not model:
+            return
+
+        from gemini_webapi.constants import Model
+
+        try:
+            Model.from_name(resolve_model_name(model))
+        except ValueError as e:
+            if is_unknown_model_error(e):
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            raise
 
     def serialize_session_state(self, session: Any) -> dict:
         return json.loads(serialize_session_state(session))

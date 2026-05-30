@@ -1,5 +1,6 @@
 import pytest
 import json
+from fastapi import HTTPException
 from app.services.providers.gemini import GeminiProvider
 
 @pytest.fixture
@@ -100,6 +101,54 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     )
     mock_manager.get_response_stateful.assert_called_once()
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_invalid_model_buffered_returns_400_before_session_use(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionRegistry
+
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mocker.Mock())
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3",
+        stream=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 400
+    assert "Unknown model name: gemini-3" in exc_info.value.detail
+    mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_invalid_model_streaming_returns_400_before_stream(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionRegistry
+
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mocker.Mock())
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3",
+        stream=True,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 400
+    assert "Unknown model name: gemini-3" in exc_info.value.detail
+    mock_registry.get_session.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -207,5 +256,4 @@ def test_default_metadata_leak_security_regression():
     # 2. Assert global DEFAULT_METADATA list remains pristine
     assert DEFAULT_METADATA[0] == ""
     assert DEFAULT_METADATA[1] == ""
-
 
