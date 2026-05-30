@@ -129,7 +129,8 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(tmp_path, mo
             )
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "The provided conversation_id was not found."
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ import pytest
 import json
 from types import SimpleNamespace
 from fastapi import HTTPException
+from gemini_webapi.exceptions import APIError
 from app.services.providers.gemini import GeminiProvider
 
 @pytest.fixture
@@ -211,6 +212,84 @@ async def test_chat_completions_with_conversation_id_fails_closed_when_auth_stat
 
     assert exc_info.value.status_code == 401
     mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_with_stale_conversation_id_returns_410(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionManager, SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+    mock_manager.get_response_stateful = mocker.AsyncMock(
+        side_effect=APIError(
+            "Failed to generate contents (stream). Unknown API error code: 1097. "
+            "This might be a temporary Google service issue."
+        )
+    )
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3-flash",
+        conversation_id="stale-conversation",
+        stream=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 410
+    assert exc_info.value.detail == (
+        "The provided conversation_id can no longer be recovered. Start a new conversation."
+    )
+    mock_registry.save_session_snapshot.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_error(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionManager, SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+    mock_manager.get_response_stateful = mocker.AsyncMock(
+        side_effect=APIError("Unknown API error code: 1097")
+    )
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.generate_opaque_token", return_value="new-conversation")
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "Hello"}],
+        model="gemini-3-flash",
+        stream=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 500
+    assert "Unknown API error code: 1097" in exc_info.value.detail
+    mock_registry.get_session.assert_called_once_with(
+        "new-conversation",
+        provider,
+        allow_create=True,
+        model="gemini-3-flash",
+        gem=None,
+    )
+    mock_registry.save_session_snapshot.assert_not_called()
 
 
 @pytest.mark.asyncio

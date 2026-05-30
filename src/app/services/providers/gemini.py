@@ -4,10 +4,11 @@ import time
 from typing import Any, List, Optional
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from gemini_webapi.exceptions import APIError
 from app.services.base import BaseProvider
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.base_repository import ProviderCapability
-from app.services.providers.exceptions import SessionRecoveryError, StateIntegrityError
+from app.services.providers.exceptions import SessionRecoveryError, SnapshotNotFoundError, StateIntegrityError
 from app.services.session_manager import get_translate_session_manager, get_gemini_chat_registry, generate_opaque_token
 from app.utils.streaming import simulate_streaming_generator
 from app.logger import logger
@@ -59,8 +60,13 @@ class GeminiProvider(BaseProvider):
                 model=request.model,
                 gem=request.gem,
             )
+        except SnapshotNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail="The provided conversation_id was not found.",
+            )
         except SessionRecoveryError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            raise HTTPException(status_code=409, detail=str(e)) from e
 
         # 3. Build tool-calling prompt
         tools_prompt = self._build_tools_prompt(request.tools) if request.tools else ""
@@ -149,6 +155,14 @@ class GeminiProvider(BaseProvider):
 
         except HTTPException:
             raise
+        except APIError as e:
+            if request.conversation_id and self._is_unrecoverable_conversation_error(e):
+                raise HTTPException(
+                    status_code=410,
+                    detail="The provided conversation_id can no longer be recovered. Start a new conversation.",
+                ) from e
+            logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
         except Exception as e:
             logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
@@ -180,6 +194,16 @@ class GeminiProvider(BaseProvider):
                 detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+    def _is_unrecoverable_conversation_error(self, error: APIError) -> bool:
+        error_code = (
+            getattr(error, "code", None)
+            or getattr(error, "error_code", None)
+            or getattr(error, "status_code", None)
+        )
+        if error_code is not None:
+            return str(error_code) == "1097"
+        return "1097" in str(error)
 
     def serialize_session_state(self, session: Any) -> dict:
         return json.loads(serialize_session_state(session))
