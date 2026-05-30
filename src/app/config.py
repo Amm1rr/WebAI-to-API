@@ -61,11 +61,14 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
             "lease_timeout": "180",
             "chunk_timeout": "90",
             "total_request_timeout": "120",
-            "auth_state_dir": get_default_auth_state_dir()
+            "auth_state_dir": get_default_auth_state_dir(),
+            "auth_lock_backend": "in_memory"
         }
     else:
         if "auth_state_dir" not in config["Playwright"]:
             config["Playwright"]["auth_state_dir"] = get_default_auth_state_dir()
+        if "auth_lock_backend" not in config["Playwright"]:
+            config["Playwright"]["auth_lock_backend"] = "in_memory"
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:

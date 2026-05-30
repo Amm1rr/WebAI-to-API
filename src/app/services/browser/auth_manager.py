@@ -24,6 +24,41 @@ class LoginState:
     IDLE = "IDLE"
     LOGIN_IN_PROGRESS = "LOGIN_IN_PROGRESS"
 
+class AuthCoordinationLock:
+    """
+    Abstract base interface for authentication coordination locking.
+    Defines the contract for multi-worker and distributed scaling.
+    """
+    def acquire(self) -> bool:
+        raise NotImplementedError
+
+    def release(self) -> None:
+        raise NotImplementedError
+
+    def is_locked(self) -> bool:
+        raise NotImplementedError
+
+class InMemoryAuthLock(AuthCoordinationLock):
+    """
+    Process-bound in-memory implementation of AuthCoordinationLock.
+    Note: Thread-safe within a single process.
+    Not multi-worker safe or distributed-safe.
+    """
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        return self._lock.acquire(blocking=False)
+
+    def release(self) -> None:
+        try:
+            self._lock.release()
+        except RuntimeError:
+            pass
+
+    def is_locked(self) -> bool:
+        return self._lock.locked()
+
 class AuthManager:
     """
     Centralized authentication status manager, login coordinator,
@@ -42,13 +77,48 @@ class AuthManager:
         if self._initialized:
             return
         self.login_lock = asyncio.Lock()
-        self._thread_lock = threading.Lock()
-        self.login_state = LoginState.IDLE
+        
+        # Resolve auth lock backend from configuration
+        backend_name = CONFIG["Playwright"].get("auth_lock_backend", "in_memory").strip().lower()
+        if backend_name != "in_memory":
+            logger.warning(
+                f"AuthManager: Configured auth lock backend '{backend_name}' is not implemented. "
+                "Falling back to default 'in_memory' backend. "
+                "Production multi-worker or SaaS deployments must utilize a distributed lock backend (e.g. Redis SET NX or Postgres advisory locks)."
+            )
+            backend_name = "in_memory"
+
+        # Check for multiple workers/processes under in-memory lock
+        self._check_multi_worker_warning(backend_name)
+
+        if backend_name == "in_memory":
+            self.coordination_lock = InMemoryAuthLock()
+
         self._cached_playwright_status = None
         self._cached_webapi_status = None
         self._last_validated = 0.0
         self._active_login_task: Optional[asyncio.Task] = None
         self._initialized = True
+
+    @property
+    def login_state(self) -> str:
+        if hasattr(self, 'coordination_lock') and self.coordination_lock.is_locked():
+            return LoginState.LOGIN_IN_PROGRESS
+        return LoginState.IDLE
+
+    def _check_multi_worker_warning(self, backend_name: str) -> None:
+        if backend_name == "in_memory":
+            workers = os.environ.get("WEB_CONCURRENCY") or os.environ.get("WORKERS")
+            if workers:
+                try:
+                    if int(workers) > 1:
+                        logger.warning(
+                            "AuthManager: Multiple workers detected under 'in_memory' lock backend. "
+                            "Concurrency protection is process-bound and not multi-worker or SaaS-safe. "
+                            "For multi-worker deployments, a distributed lock backend (e.g., Redis or Postgres) must be configured."
+                        )
+                except ValueError:
+                    pass
 
     @classmethod
     def get_instance(cls) -> 'AuthManager':
@@ -163,17 +233,16 @@ class AuthManager:
         Coordinates locks and active state machine.
 
         CONCURRENCY SAFETY:
-        Checking and transitioning the login state are protected by a synchronous thread lock
-        (`self._thread_lock`). This guarantees absolute atomicity and thread-safety even in
-        multithreaded execution environments (such as FastAPI running with multiple thread workers).
+        Checking and transitioning the login state are protected by the AuthCoordinationLock.
+        This provides a clear abstraction boundary so that future multi-worker or SaaS
+        deployments can swap the default InMemoryAuthLock for a distributed lock backend
+        (such as Redis SET NX or Postgres advisory locks).
         """
-        with self._thread_lock:
-            if self.login_state == LoginState.LOGIN_IN_PROGRESS or self.login_lock.locked():
-                raise ValueError("Authentication in progress.")
+        if not self.coordination_lock.acquire():
+            raise ValueError("Authentication in progress.")
 
-            self.login_state = LoginState.LOGIN_IN_PROGRESS
-            self._active_login_task = asyncio.create_task(self._run_login_task())
-            logger.info("AuthManager: Asynchronous login workflow successfully triggered.")
+        self._active_login_task = asyncio.create_task(self._run_login_task())
+        logger.info("AuthManager: Asynchronous login workflow successfully triggered.")
 
     async def _run_login_task(self) -> None:
         async with self.login_lock:
@@ -185,10 +254,9 @@ class AuthManager:
                 # Refresh playwright status (which might be EXPIRED_SESSION or NO_SESSION)
                 self.refresh_playwright_status_lightweight()
             finally:
-                with self._thread_lock:
-                    self.login_state = LoginState.IDLE
-                    self._active_login_task = None
+                self._active_login_task = None
                 self._last_validated = time.time()
+                self.coordination_lock.release()
 
     async def run_login_flow(self) -> None:
         """

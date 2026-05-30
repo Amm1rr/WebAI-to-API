@@ -10,7 +10,8 @@ def reset_provider_factory():
         auth_mgr = get_auth_manager()
         auth_mgr._cached_playwright_status = None
         auth_mgr._cached_webapi_status = None
-        auth_mgr.login_state = "IDLE"
+        if hasattr(auth_mgr, 'coordination_lock'):
+            auth_mgr.coordination_lock.release()
     except Exception:
         pass
     yield
@@ -20,6 +21,7 @@ def reset_provider_factory():
         auth_mgr = get_auth_manager()
         auth_mgr._cached_playwright_status = None
         auth_mgr._cached_webapi_status = None
-        auth_mgr.login_state = "IDLE"
+        if hasattr(auth_mgr, 'coordination_lock'):
+            auth_mgr.coordination_lock.release()
     except Exception:
         pass

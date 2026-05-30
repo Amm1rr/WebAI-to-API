@@ -76,9 +76,9 @@ class GeminiPlaywrightProvider(BaseProvider):
         backoff_delays = [1.0, 2.0, 4.0]
         
         try:
-            from app.services.browser.auth_manager import get_auth_manager, LoginState, AuthStatus
+            from app.services.browser.auth_manager import get_auth_manager, AuthStatus
             auth_mgr = get_auth_manager()
-            if auth_mgr.login_state == LoginState.LOGIN_IN_PROGRESS:
+            if auth_mgr.coordination_lock.is_locked():
                 raise HTTPException(status_code=503, detail="Authentication in progress.")
             
             if auth_mgr.refresh_playwright_status_lightweight() == AuthStatus.EXPIRED_SESSION:
