@@ -13,7 +13,9 @@ The `BrowserEngine` operates according to a strict state machine. Transitions in
 - **CLOSED**: All resources (browser, contexts, loops) have been released.
 
 ### State Rules:
-- **Terminal Shutdown**: Once `SHUTTING_DOWN` begins, `is_shutting_down` is set to `True`. This is irreversible.
+- **Terminal Shutdown / Decoupled Intent**: To prevent diagnostic race conditions and clean up cleanly, the engine decouples shutdown intention from execution:
+  - `is_shutting_down` (Public Boolean): Lifecycle intention flag. Declares the *intent* to terminate. Set immediately when any signal is captured or teardown begins to block concurrent work, prevent loop execution, and suppress connection warning logs during event loop closures. External signal handlers or parent process wrappers may choose to set `is_shutting_down = True` on the engine singleton. Such integrations must be validated against the application's shutdown lifecycle.
+  - `_shutdown_started` (Private Boolean): `close()` execution guard. Protects the physical teardown actions of closing browser processes and stopping Playwright. It must only be modified inside `close()` under the `management_lock`. Upstream or external systems must never mutate `_shutdown_started`.
 - **No Resurrection**: A `CLOSED` engine can never transition back to `HEALTHY`. A new process instance must be created.
 - **Enforcement**: Any call to `ensure_healthy()` during `SHUTTING_DOWN` or `CLOSED` must raise `RuntimeError("Browser engine is shutting down")`.
 
