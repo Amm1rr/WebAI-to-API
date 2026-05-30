@@ -40,6 +40,7 @@ class BrowserEngine:
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
         self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
+        self._shutdown_started = False
         self._disconnect_handled = False
         
         # Basic provider adapter registry mapping
@@ -203,14 +204,16 @@ class BrowserEngine:
 
     async def close(self) -> None:
         async with self.management_lock:
-            if self.is_shutting_down: 
+            if self._shutdown_started: 
                 logger.debug("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
                 return
             if getattr(self, "is_bootstrap", False):
                 logger.info("BrowserEngine: Shutting down isolated bootstrap engine...", extra={"generation": self.browser_generation})
             else:
                 logger.info("BrowserEngine: Shutting down singleton runtime engine...", extra={"generation": self.browser_generation})
+            
             self.is_shutting_down = True
+            self._shutdown_started = True
             
             drain_start = time.monotonic()
             drain_timeout = 15.0
