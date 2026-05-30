@@ -26,7 +26,7 @@ class ProviderSession:
         self.enable_persistence = enable_persistence
         self.context: Optional[BrowserContext] = None
         self.keepalive_page: Optional[Page] = None
-        self.last_browser_generation = -1
+        self.last_browser_generation: Optional[int] = None
         
         # Concurrency & Lifecycle
         self.max_pages = engine.max_pages
@@ -351,7 +351,7 @@ class ProviderSession:
                 raise BrowserShuttingDownError("Browser engine is shutting down")
 
             # Atomic Purge on generation rollover
-            if self.last_browser_generation != self.engine.browser_generation:
+            if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
                 logger.warning(f"Browser generation rollover ({self.last_browser_generation} -> {self.engine.browser_generation})")
                 await self._purge_all_tabs()
 
