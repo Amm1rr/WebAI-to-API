@@ -35,8 +35,4 @@ The system SHALL support a prioritized authentication loading hierarchy that gua
 - **AND** it SHALL expose the `migration_needed: true` status flag in the auth status payload
 - **AND** the system SHALL NOT write to the filesystem or trigger automatic background state file serialization
 
-## REMOVED Requirements
 
-### Requirement: Runtime Configuration-Backed Cookie Persistence
-**Reason**: Storing active authentication state in `config.conf` couples application configuration with dynamic auth tokens and violates file immutability boundaries.
-**Migration**: Transition all cookie reads and writes to `runtime/auth/gemini.json`. Read legacy config cookies solely as a deprecated fallback.
