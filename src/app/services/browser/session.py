@@ -53,6 +53,7 @@ class ProviderSession:
         self.reaper_task: Optional[asyncio.Task] = None
         self._orphan_cleanup_tasks = set()
         self.active_orphans = weakref.WeakSet()
+        self._intentional_context_closes = weakref.WeakValueDictionary()
         
         # Persistent state
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -430,7 +431,7 @@ class ProviderSession:
             
             def safe_on_context_close(c):
                 try:
-                    asyncio.get_running_loop().create_task(self._on_context_closed())
+                    asyncio.get_running_loop().create_task(self._on_context_closed(c))
                 except RuntimeError as e:
                     logger.debug(
                         "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
@@ -681,9 +682,23 @@ class ProviderSession:
                     extra={"generation": self.last_browser_generation}
                 )
 
-    async def _on_context_closed(self):
+    def _mark_intentional_context_close(self, context: BrowserContext) -> None:
+        self._intentional_context_closes[id(context)] = context
+
+    def _consume_intentional_context_close(self, context: BrowserContext) -> bool:
+        return self._intentional_context_closes.pop(id(context), None) is context
+
+    async def _on_context_closed(self, context: BrowserContext):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
+            return
+
+        if self._consume_intentional_context_close(context):
+            logger.debug(
+                "ProviderSession(%s): Ignoring intentional browser context close.",
+                self.name,
+                extra={"generation": self.last_browser_generation}
+            )
             return
         
         logger.warning(f"ProviderSession({self.name}): Context closed (Window manually closed or crash).")
@@ -796,10 +811,13 @@ class ProviderSession:
                 self.keepalive_page = None
     
             if self.context:
+                context_to_close = self.context
+                self._mark_intentional_context_close(context_to_close)
                 try: 
                     logger.info(f"ProviderSession({self.name}): Closing browser context...")
-                    await self.context.close()
+                    await context_to_close.close()
                 except Exception as e:
+                    self._consume_intentional_context_close(context_to_close)
                     logger.warning(
                         f"ProviderSession({self.name}): Failed to close browser context: {e}",
                         exc_info=True,
