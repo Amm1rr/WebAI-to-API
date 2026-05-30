@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from playwright.async_api import Page, BrowserContext
 
 from app.logger import logger
-from app.config import CONFIG
+from app.config import CONFIG, get_default_auth_state_dir
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
 from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
 
@@ -55,7 +55,7 @@ class ProviderSession:
         self.active_orphans = weakref.WeakSet()
         
         # Persistent state
-        auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", "auth_state")
+        auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
         self.state_path = os.path.join(auth_state_dir, f"{name}.json")

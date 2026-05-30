@@ -2,7 +2,7 @@
 import os
 import tempfile
 from models.gemini import MyGeminiClient
-from app.config import CONFIG
+from app.config import CONFIG, get_default_auth_state_dir
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 
@@ -22,11 +22,11 @@ _initialization_error = None
 
 def _load_playwright_cookies() -> tuple[dict | None, str | None, str | None]:
     """
-    Load __Secure-1PSID and __Secure-1PSIDTS from auth_state/gemini.json if it exists.
+    Load __Secure-1PSID and __Secure-1PSIDTS from the configured auth state if it exists.
     Returns (cookies_dict, secure_1psid, secure_1psidts) or (None, None, None).
     """
     import json
-    auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", "auth_state")
+    auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
     state_path = os.path.join(auth_state_dir, "gemini.json")
     
     if not os.path.exists(state_path):
@@ -237,4 +237,3 @@ def get_gemini_client():
         raise GeminiClientNotInitializedError(error_detail)
 
     return _gemini_client
-

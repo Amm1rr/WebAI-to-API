@@ -78,6 +78,8 @@ Key files:
 ├── Makefile                # Simplifies Docker CLI usage
 ```
 
+Runtime-generated files are persisted through `./runtime:/app/runtime`.
+
 ---
 
 ### ✅ Best Practices

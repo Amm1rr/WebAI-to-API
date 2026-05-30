@@ -62,6 +62,22 @@ async def test_repository_crud(tmp_path):
     assert deleted is None
 
 @pytest.mark.asyncio
+async def test_repository_initializes_nested_parent_directory(tmp_path):
+    db_file = tmp_path / "runtime" / "conversations" / "conversation_snapshots.db"
+    repo = SQLiteConversationRepository(db_path=str(db_file))
+
+    await repo.initialize()
+
+    assert db_file.exists()
+
+def test_repository_default_db_path_uses_runtime_dir(monkeypatch):
+    monkeypatch.setenv("RUNTIME_DIR", "custom_runtime")
+
+    repo = SQLiteConversationRepository()
+
+    assert repo.db_path == "custom_runtime/conversations/conversation_snapshots.db"
+
+@pytest.mark.asyncio
 async def test_repository_raises_state_integrity_error_for_corrupted_json(tmp_path):
     db_file = tmp_path / "test_snapshots.db"
     repo = SQLiteConversationRepository(db_path=str(db_file))

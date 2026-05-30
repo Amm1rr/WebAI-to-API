@@ -1,12 +1,29 @@
 # src/app/config.py
 import configparser
 import logging
+import os
 
 from app.env import load_local_env
 
 logger = logging.getLogger(__name__)
 
 load_local_env()
+
+
+def get_runtime_dir() -> str:
+    return os.environ.get("RUNTIME_DIR", "runtime")
+
+
+def get_default_auth_state_dir() -> str:
+    return os.path.join(get_runtime_dir(), "auth")
+
+
+def get_default_conversation_snapshot_db() -> str:
+    return os.path.join(get_runtime_dir(), "conversations", "conversation_snapshots.db")
+
+
+def get_default_playwright_cache_dir() -> str:
+    return os.path.join(get_runtime_dir(), "cache", "playwright")
 
 
 def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
@@ -44,11 +61,11 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
             "lease_timeout": "180",
             "chunk_timeout": "90",
             "total_request_timeout": "120",
-            "auth_state_dir": "auth_state"
+            "auth_state_dir": get_default_auth_state_dir()
         }
     else:
         if "auth_state_dir" not in config["Playwright"]:
-            config["Playwright"]["auth_state_dir"] = "auth_state"
+            config["Playwright"]["auth_state_dir"] = get_default_auth_state_dir()
 
     # Save changes to the configuration file, also with UTF-8 encoding.
     try:
@@ -71,7 +88,6 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     except Exception as e:
         logger.error(f"Error writing to config file: {e}")
 
-    import os
     env_auth_state_dir = os.environ.get("AUTH_STATE_DIR")
     if env_auth_state_dir:
         config["Playwright"]["auth_state_dir"] = env_auth_state_dir

@@ -2,8 +2,10 @@
 import sqlite3
 import json
 import asyncio
+import os
 from datetime import datetime
 from typing import Optional
+from app.config import get_default_conversation_snapshot_db
 from app.logger import logger
 from app.services.providers.base_repository import IConversationRepository, ConversationSnapshot
 from app.services.providers.exceptions import StateIntegrityError
@@ -14,10 +16,16 @@ class SQLiteConversationRepository(IConversationRepository):
     Uses WAL mode for high concurrency write transaction safety and runs blocking I/O
     inside thread pools to keep event loop unblocked.
     """
-    def __init__(self, db_path: str = "conversation_snapshots.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or get_default_conversation_snapshot_db()
+
+    def _ensure_parent_dir(self) -> None:
+        parent_dir = os.path.dirname(self.db_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
 
     def _execute_write(self, query: str, params: tuple = ()) -> None:
+        self._ensure_parent_dir()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=FULL;")
@@ -25,6 +33,7 @@ class SQLiteConversationRepository(IConversationRepository):
             conn.commit()
 
     def _execute_read_one(self, query: str, params: tuple = ()) -> Optional[tuple]:
+        self._ensure_parent_dir()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -36,6 +45,7 @@ class SQLiteConversationRepository(IConversationRepository):
 
     def initialize_sync(self) -> None:
         """Synchronously create database tables and set WAL mode."""
+        self._ensure_parent_dir()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=FULL;")
@@ -110,6 +120,7 @@ class SQLiteConversationRepository(IConversationRepository):
     async def prune_stale_snapshots(self, cutoff: datetime) -> int:
         """Delete snapshots older than cutoff and return the number of rows deleted."""
         def _prune():
+            self._ensure_parent_dir()
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("PRAGMA journal_mode=WAL;")
                 conn.execute("PRAGMA synchronous=FULL;")

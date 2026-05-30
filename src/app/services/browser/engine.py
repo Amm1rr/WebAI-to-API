@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 from collections import OrderedDict
 from playwright.async_api import async_playwright, Playwright, BrowserContext, Page, Browser, Error as PlaywrightError
 from app.logger import logger
-from app.config import CONFIG
+from app.config import CONFIG, get_default_playwright_cache_dir
 
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
 
@@ -30,7 +30,7 @@ class BrowserEngine:
         self.sessions: Dict[str, ProviderSession] = {}
         self.sessions_lock = asyncio.Lock()
         self.management_lock = asyncio.Lock()
-        self.user_data_dir = os.path.join(os.getcwd(), ".playwright_data")
+        self.user_data_dir = get_default_playwright_cache_dir()
         os.makedirs(self.user_data_dir, exist_ok=True)
         self.is_bootstrap = is_bootstrap
         if headless is not None:
