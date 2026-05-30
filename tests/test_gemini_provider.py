@@ -74,6 +74,7 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     
     mock_manager.get_response_stateful = mocker.AsyncMock(return_value=(mock_response, True))
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
     
     # Mock global client and session registry resolution
     mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
@@ -90,8 +91,15 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     assert result["conversation_id"] == "test_token_XYZ"
     assert result["reused_conversation"] is True
     assert result["choices"][0]["message"]["content"] == "Stateful response content"
-    mock_registry.get_session.assert_called_once_with("test_token_XYZ")
+    mock_registry.get_session.assert_called_once_with(
+        "test_token_XYZ",
+        provider,
+        allow_create=False,
+        model="gemini-3-flash",
+        gem=None,
+    )
     mock_manager.get_response_stateful.assert_called_once()
+    mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 @pytest.mark.asyncio
@@ -114,6 +122,7 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
 
     mock_manager.get_streaming_response_stateful = mock_generator
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
     
     mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
     mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
@@ -145,6 +154,7 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
     assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta content"
     assert chunk_data["conversation_id"] == "test_token_XYZ"
     assert chunk_data["reused_conversation"] is True
+    mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 def test_transform_messages_formatting():
@@ -197,6 +207,5 @@ def test_default_metadata_leak_security_regression():
     # 2. Assert global DEFAULT_METADATA list remains pristine
     assert DEFAULT_METADATA[0] == ""
     assert DEFAULT_METADATA[1] == ""
-
 
 

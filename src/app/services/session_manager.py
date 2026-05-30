@@ -2,14 +2,20 @@
 import asyncio
 import time
 import secrets
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Any, AsyncGenerator, List
 from app.logger import logger
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.providers.base_repository import ConversationSnapshot, IConversationRepository, ProviderCapability
+from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
 
 # Configuration constants
 MAX_SESSIONS = 500
 IDLE_TIMEOUT = 3600  # 60 minutes in seconds
 MAX_GENERATION_DURATION = 300  # 5 minutes in seconds
+SNAPSHOT_SCHEMA_VERSION = 1
+RETENTION_PERIOD_DAYS = int(os.getenv("CONVERSATION_RETENTION_DAYS", "90"))
 
 class SessionManager:
     def __init__(self, client):
@@ -175,13 +181,22 @@ class SessionRegistry:
     Manages a collection of SessionManager instances keyed by conversation_id.
     Implements atomic creation and active-stream aware pruning.
     """
-    def __init__(self, client):
+    def __init__(self, client, repository: Optional[IConversationRepository] = None):
         self.client = client
+        self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
-    async def get_session(self, conversation_id: str) -> SessionManager:
-        """Retrieve or create a session manager. Triggers passive cleanup."""
+    async def get_session(
+        self,
+        conversation_id: str,
+        provider_adapter: Optional[Any] = None,
+        *,
+        allow_create: bool = True,
+        model: Optional[Any] = None,
+        gem: Optional[Any] = None,
+    ) -> SessionManager:
+        """Retrieve, restore, or create a session manager. Triggers passive cleanup."""
         async with self._lock:
             # 1. Passive Cleanup if capacity exceeded
             if len(self._sessions) >= MAX_SESSIONS:
@@ -189,6 +204,11 @@ class SessionRegistry:
 
             # 2. Lookup or create
             if conversation_id not in self._sessions:
+                if not allow_create:
+                    manager = await self._restore_session(conversation_id, provider_adapter, model=model, gem=gem)
+                    self._sessions[conversation_id] = manager
+                    return manager
+
                 if len(self._sessions) >= MAX_SESSIONS:
                     from fastapi import HTTPException
                     raise HTTPException(
@@ -199,6 +219,92 @@ class SessionRegistry:
                 self._sessions[conversation_id] = SessionManager(self.client)
             
             return self._sessions[conversation_id]
+
+    async def save_session_snapshot(self, conversation_id: str, provider_adapter: Any, manager: SessionManager) -> None:
+        """
+        Persist a session snapshot synchronously after a successful turn.
+
+        Persistence is fail-closed by contract: repository or serialization errors
+        intentionally propagate so callers do not return a successful response with
+        stale durable state.
+        """
+        if not self.repository or not self._supports_persistent_recovery(provider_adapter):
+            return
+        if manager.session is None:
+            raise StateIntegrityError("Cannot persist an empty session.")
+        provider_name = self._provider_name(provider_adapter)
+
+        session_state = provider_adapter.serialize_session_state(manager.session)
+        if isinstance(session_state, str):
+            import json
+            session_state = json.loads(session_state)
+
+        snapshot = ConversationSnapshot(
+            conversation_id=conversation_id,
+            provider_name=provider_name,
+            session_state=session_state,
+            schema_version=SNAPSHOT_SCHEMA_VERSION,
+            updated_at=datetime.now(timezone.utc),
+        )
+        await self.repository.save_snapshot(snapshot)
+        manager.last_accessed = time.time()
+
+    async def prune_stale_snapshots(self) -> int:
+        """Prune inactive persistent snapshots using the configured retention period."""
+        if not self.repository:
+            return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_PERIOD_DAYS)
+        return await self.repository.prune_stale_snapshots(cutoff)
+
+    async def _restore_session(
+        self,
+        conversation_id: str,
+        provider_adapter: Optional[Any],
+        *,
+        model: Optional[Any] = None,
+        gem: Optional[Any] = None,
+    ) -> SessionManager:
+        if not self.repository:
+            raise SnapshotNotFoundError(f"Conversation snapshot not found: {conversation_id}")
+        if not self._supports_persistent_recovery(provider_adapter):
+            raise StateIntegrityError("Provider does not support persistent recovery.")
+
+        snapshot = await self.repository.get_snapshot(conversation_id)
+        if snapshot is None:
+            raise SnapshotNotFoundError(f"Conversation snapshot not found: {conversation_id}")
+        provider_name = self._provider_name(provider_adapter)
+        if snapshot.provider_name != provider_name:
+            raise StateIntegrityError("Snapshot provider does not match registry provider.")
+        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION:
+            raise StateIntegrityError(f"Unsupported snapshot schema version: {snapshot.schema_version}")
+
+        validated_state = provider_adapter.validate_session_recovery(
+            snapshot.session_state,
+            {"conversation_id": conversation_id, "model": model, "gem": gem},
+        )
+        session = provider_adapter.deserialize_session_state(
+            validated_state,
+            self.client,
+            model=model,
+            gem=gem,
+        )
+
+        manager = SessionManager(self.client)
+        manager.session = session
+        manager.model = model if model is not None else getattr(session, "model", None)
+        manager.gem = gem if gem is not None else getattr(session, "gem", None)
+        manager.last_accessed = time.time()
+        return manager
+
+    def _supports_persistent_recovery(self, provider_adapter: Optional[Any]) -> bool:
+        capabilities = getattr(provider_adapter, "capabilities", set()) if provider_adapter else set()
+        return ProviderCapability.PERSISTENT_RECOVERY in capabilities
+
+    def _provider_name(self, provider_adapter: Optional[Any]) -> str:
+        provider_name = getattr(provider_adapter, "provider_name", None) if provider_adapter else None
+        if not isinstance(provider_name, str) or not provider_name:
+            raise StateIntegrityError("Provider does not declare a valid provider_name.")
+        return provider_name
 
     def _prune_sessions(self):
         """Remove idle, unlocked, and unpinned sessions from the registry."""
@@ -238,8 +344,14 @@ def init_session_managers():
     global _translate_session_manager, _gemini_chat_registry
     try:
         client = get_gemini_client()
+        from app.services.providers.sqlite_repository import SQLiteConversationRepository
+
+        repository = SQLiteConversationRepository(
+            db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", "conversation_snapshots.db")
+        )
+        repository.initialize_sync()
         _translate_session_manager = SessionManager(client)
-        _gemini_chat_registry = SessionRegistry(client)
+        _gemini_chat_registry = SessionRegistry(client, repository=repository)
     except GeminiClientNotInitializedError:
         logger.warning("Session managers not initialized: Gemini client not available.")
 
@@ -293,4 +405,3 @@ def transform_messages(messages: list[dict], tools_prompt: str = "") -> list[str
             conversation_parts.append(f"Tool result [{tool_call_id}]: {content}")
     
     return conversation_parts
-
