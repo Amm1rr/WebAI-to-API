@@ -57,13 +57,20 @@ async def init_gemini_client() -> bool:
                 # We disable auto_refresh to maintain full control over the session and cookies
                 await client.init(verbose=True, auto_refresh=False)
                 
-                # Check if authenticated
-                if hasattr(client.client, 'account_status') and client.client.account_status.name != "AVAILABLE":
-                    logger.warning(f"Config cookies are unauthenticated (Status: {client.client.account_status.name}). Falling back to browser cookies...")
+                # Check if authenticated or in a supported guest mode.
+                # We explicitly retain both AVAILABLE and UNAUTHENTICATED clients because:
+                # 1. gemini-webapi supports Guest Mode for unauthenticated clients (limiting to BASIC_FLASH).
+                # 2. Generation requests can successfully execute in this state.
+                # 3. Docker environments lack host browser-cookie access, making this guest fallback critical.
+                if hasattr(client.client, 'account_status') and client.client.account_status.name not in ["AVAILABLE", "UNAUTHENTICATED"]:
+                    logger.warning(f"Config cookies are unauthenticated or blocked (Status: {client.client.account_status.name}). Falling back to browser cookies...")
                     await client.close()
                     client = None
                 else:
-                    logger.info("Gemini client initialized successfully with config cookies.")
+                    if hasattr(client.client, 'account_status') and client.client.account_status.name == "UNAUTHENTICATED":
+                        logger.info("Gemini client initialized successfully as guest-mode client retained with config cookies.")
+                    else:
+                        logger.info("Gemini client initialized successfully as authenticated client with config cookies.")
 
             # 2. Fallback to browser cookies if config cookies failed or were missing
             if client is None:
