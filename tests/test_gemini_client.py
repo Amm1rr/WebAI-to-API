@@ -19,9 +19,11 @@ async def test_init_gemini_client_available(mocker):
     mock_config.read_dict({
         "EnabledAI": {"gemini": "true"},
         "Proxy": {"http_proxy": ""},
-        "Cookies": {"__Secure-1PSID": "valid_psid", "__Secure-1PSIDTS": "valid_psidts"}
+        "Cookies": {"__Secure-1PSID": "valid_psid", "__Secure-1PSIDTS": "valid_psidts"},
+        "Playwright": {"auth_state_dir": "auth_state"}
     })
     mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.browser.auth_loader.CONFIG', mock_config)
 
     # Mock MyGeminiClient
     mock_client_instance = AsyncMock()

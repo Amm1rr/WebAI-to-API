@@ -269,6 +269,22 @@ class AuthManager:
         if not self._check_display_available():
             raise RuntimeError("Headful interactive sign-in is unsupported in this headless container environment.")
 
+        # Robust selectors for verification to prevent false-positives
+        SIGN_IN_SELECTORS = [
+            'a[href*="accounts.google.com"]',
+            'a:has-text("Sign in")',
+            'button:has-text("Sign in")',
+            'a[aria-label*="Sign in"]',
+            '.sign-in-button'
+        ]
+
+        AUTHENTICATED_SELECTORS = [
+            'a[href*="SignOutOptions"]',
+            'a[href*="myaccount.google.com"]',
+            'img[src*="googleusercontent.com"]',
+            '[aria-label*="Google Account"]'
+        ]
+
         bootstrap_engine = await get_browser_engine(headless=False, is_bootstrap=True)
         async with bootstrap_engine as engine:
             logger.info("AuthManager: Launching isolated bootstrap browser...")
@@ -279,20 +295,66 @@ class AuthManager:
             logger.info("AuthManager: Navigating to https://gemini.google.com/app...")
             await page.goto("https://gemini.google.com/app")
             
-            # Observe for visibility of the chat input box (SELECTORS["INPUT"])
             login_detected = False
+            last_state = None
             try:
                 # Poll every 2 seconds for a maximum of 5 minutes (150 iterations)
                 for _ in range(150):
                     if page.is_closed():
                         break
                     
-                    input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
-                    if input_exists:
+                    # 1. Check if the page is currently on a Google login/account URL
+                    current_url = page.url
+                    is_google_login = "accounts.google.com" in current_url
+                    
+                    # 2. Check for visible sign-in buttons on the page
+                    has_sign_in_button = False
+                    for selector in SIGN_IN_SELECTORS:
+                        try:
+                            if await page.locator(selector).first.is_visible():
+                                has_sign_in_button = True
+                                break
+                        except Exception:
+                            pass
+                    
+                    # 3. Check if the Gemini chat input box is visible
+                    input_visible = await page.locator(SELECTORS["INPUT"]).first.is_visible()
+                    
+                    # 4. Check for Google Account/profile avatar or menu indicators
+                    has_auth_indicator = False
+                    for selector in AUTHENTICATED_SELECTORS:
+                        try:
+                            if await page.locator(selector).first.is_visible():
+                                has_auth_indicator = True
+                                break
+                        except Exception:
+                            pass
+
+                    # 5. Determine active state
+                    if is_google_login:
+                        current_state = "sign_in_page_detected"
+                    elif input_visible and not has_sign_in_button and "gemini.google.com" in current_url:
+                        current_state = "authenticated_chat_detected"
+                    else:
+                        current_state = "waiting_for_user_login"
+
+                    # Log transitions between states
+                    if current_state != last_state:
+                        if current_state == "sign_in_page_detected":
+                            logger.info("AuthManager Status: sign_in_page_detected")
+                        elif current_state == "authenticated_chat_detected":
+                            logger.info("AuthManager Status: authenticated_chat_detected")
+                        elif current_state == "waiting_for_user_login":
+                            logger.info("AuthManager Status: waiting_for_user_login")
+                        last_state = current_state
+
+                    # If authentication is confirmed with strong evidence, save state and exit
+                    if current_state == "authenticated_chat_detected":
                         login_detected = True
                         await session.save_state()
                         logger.info("AuthManager: Success! Google sign-in detected and state saved atomically.")
                         break
+
                     await asyncio.sleep(2)
             except Exception as e:
                 logger.warning(f"AuthManager: Exception during login monitoring: {e}")
@@ -304,7 +366,12 @@ class AuthManager:
                         pass
             
             if not login_detected:
-                raise TimeoutError("Interactive sign-in timed out or was closed by user.")
+                if page.is_closed():
+                    logger.warning("AuthManager Status: user_closed_login_window")
+                    raise RuntimeError("Interactive sign-in was closed by user.")
+                else:
+                    logger.warning("AuthManager Status: login_timeout")
+                    raise TimeoutError("Interactive sign-in timed out.")
 
     def _check_display_available(self) -> bool:
         """
