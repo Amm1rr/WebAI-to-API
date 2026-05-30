@@ -718,128 +718,106 @@ class ProviderSession:
 
     async def close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
-        logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [ENTRY]")
         try:
-            logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() started...", extra={"generation": self.last_browser_generation})
-            if save_state: await self.save_state()
-    
-            def log_task_state(t_name: str, task: asyncio.Task, state: str):
-                done = task.done()
-                cancelled = task.cancelled()
-                cancelling = getattr(task, "cancelling", lambda: "N/A")() if hasattr(task, "cancelling") else "N/A"
-                logger.info(
-                    f"[SHUTDOWN-DEBUG] Task {t_name} {state} in ProviderSession({self.name}):\n"
-                    f"done={done}\n"
-                    f"cancelled={cancelled}\n"
-                    f"cancelling={cancelling}"
-                )
+            logger.info(
+                f"ProviderSession({self.name}): Closing session resources...",
+                extra={"generation": self.last_browser_generation}
+            )
+            if save_state: 
+                await self.save_state()
     
             if self.autosave_task:
-                log_task_state("autosave_task", self.autosave_task, "BEFORE cancellation")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [BEFORE-AUTOSAVE-TASK-CANCEL]")
-                logger.info(f"[SHUTDOWN-DEBUG] Cancelling autosave_task for session {self.name}...")
+                logger.info(f"ProviderSession({self.name}): Cancelling autosave_task...")
                 self.autosave_task.cancel()
                 try: 
                     await self.autosave_task
-                    logger.info(f"[SHUTDOWN-DEBUG] autosave_task awaited and completed normally.")
                 except asyncio.CancelledError: 
-                    logger.info(f"[SHUTDOWN-DEBUG] autosave_task CancelledError caught successfully.")
+                    pass
                 except Exception as e:
-                    logger.debug(f"ProviderSession({self.name}): Error during autosave task cancellation: {e}", extra={"generation": self.last_browser_generation})
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception awaiting autosave_task: {e}", exc_info=True)
-                log_task_state("autosave_task", self.autosave_task, "AFTER cancellation/await")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [AFTER-AUTOSAVE-TASK-CANCEL]")
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting autosave task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
                 self.autosave_task = None
-            else:
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): No autosave_task to clean up.")
     
             if self.eviction_task:
-                log_task_state("eviction_task", self.eviction_task, "BEFORE cancellation")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [BEFORE-EVICTION-TASK-CANCEL]")
-                logger.info(f"[SHUTDOWN-DEBUG] Cancelling eviction_task for session {self.name}...")
+                logger.info(f"ProviderSession({self.name}): Cancelling eviction_task...")
                 self.eviction_task.cancel()
                 try: 
                     await self.eviction_task
-                    logger.info(f"[SHUTDOWN-DEBUG] eviction_task awaited and completed normally.")
                 except asyncio.CancelledError: 
-                    logger.info(f"[SHUTDOWN-DEBUG] eviction_task CancelledError caught successfully.")
+                    pass
                 except Exception as e:
-                    logger.debug(f"ProviderSession({self.name}): Error during eviction task cancellation: {e}", extra={"generation": self.last_browser_generation})
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception awaiting eviction_task: {e}", exc_info=True)
-                log_task_state("eviction_task", self.eviction_task, "AFTER cancellation/await")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [AFTER-EVICTION-TASK-CANCEL]")
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting eviction task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
                 self.eviction_task = None
-            else:
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): No eviction_task to clean up.")
     
             if self.reaper_task:
-                log_task_state("reaper_task", self.reaper_task, "BEFORE cancellation")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [BEFORE-REAPER-TASK-CANCEL]")
-                logger.info(f"[SHUTDOWN-DEBUG] Cancelling reaper_task for session {self.name}...")
+                logger.info(f"ProviderSession({self.name}): Cancelling reaper_task...")
                 self.reaper_task.cancel()
                 try: 
                     await self.reaper_task
-                    logger.info(f"[SHUTDOWN-DEBUG] reaper_task awaited and completed normally.")
                 except asyncio.CancelledError: 
-                    logger.info(f"[SHUTDOWN-DEBUG] reaper_task CancelledError caught successfully.")
+                    pass
                 except Exception as e:
-                    logger.debug(f"ProviderSession({self.name}): Error during reaper task cancellation: {e}", extra={"generation": self.last_browser_generation})
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception awaiting reaper_task: {e}", exc_info=True)
-                log_task_state("reaper_task", self.reaper_task, "AFTER cancellation/await")
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [AFTER-REAPER-TASK-CANCEL]")
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting reaper task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
                 self.reaper_task = None
-            else:
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): No reaper_task to clean up.")
     
             # Drain orphan cleanup tasks
             if hasattr(self, "_orphan_cleanup_tasks"):
                 orphan_tasks = list(self._orphan_cleanup_tasks)
-                logger.info(f"[SHUTDOWN-DEBUG] Draining {len(orphan_tasks)} orphan cleanup task(s) for session {self.name}...")
                 for task in orphan_tasks:
                     if not task.done():
                         task.cancel()
                 if orphan_tasks:
                     await asyncio.gather(*orphan_tasks, return_exceptions=True)
-                logger.info(f"[SHUTDOWN-DEBUG] Orphan cleanup task(s) drained.")
     
-            logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): Purging all tabs...")
             await self._purge_all_tabs()
-            logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): Tabs purged.")
     
             if self.keepalive_page:
                 try:
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [BEFORE-KEEPALIVE-PAGE-CLOSE]")
                     if not self.keepalive_page.is_closed():
-                        logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): Closing keepalive page...")
+                        logger.info(f"ProviderSession({self.name}): Closing keepalive page...")
                         await self.keepalive_page.close()
-                        logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): keepalive page closed successfully.")
-                    else:
-                        logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): keepalive page was already closed.")
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [AFTER-KEEPALIVE-PAGE-CLOSE]")
                 except Exception as e:
-                    logger.debug(f"ProviderSession({self.name}): Best-effort keepalive page close failed: {e}", extra={"generation": self.last_browser_generation})
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception closing keepalive page for session {self.name}: {e}", exc_info=True)
+                    logger.warning(
+                        f"ProviderSession({self.name}): Failed to close keepalive page: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
                 self.keepalive_page = None
-            else:
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): No keepalive page to close.")
     
             if self.context:
                 try: 
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [BEFORE-BROWSER-CONTEXT-CLOSE]")
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): Closing browser context...")
+                    logger.info(f"ProviderSession({self.name}): Closing browser context...")
                     await self.context.close()
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): Browser context closed successfully.")
-                    logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [AFTER-BROWSER-CONTEXT-CLOSE]")
                 except Exception as e:
-                    logger.debug(f"ProviderSession({self.name}): Best-effort context close failed: {e}", extra={"generation": self.last_browser_generation})
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception closing browser context for session {self.name}: {e}", exc_info=True)
+                    logger.warning(
+                        f"ProviderSession({self.name}): Failed to close browser context: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
                 self.context = None
-            else:
-                logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}): No browser context to close.")
                 
-            logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() completed.", extra={"generation": self.last_browser_generation})
-        finally:
-            logger.info(f"[SHUTDOWN-DEBUG] ProviderSession({self.name}).close_resources() [EXIT]")
+            logger.info(
+                f"ProviderSession({self.name}): Session resources closed successfully.",
+                extra={"generation": self.last_browser_generation}
+            )
+        except Exception as e:
+            logger.error(
+                f"ProviderSession({self.name}): Session cleanup failed: {e}",
+                exc_info=True,
+                extra={"generation": self.last_browser_generation}
+            )
+            raise
 
     def _schedule_orphan_cleanup(self, tab: PersistentTab):
         """Schedules a detached physical close for a leased tab that was removed from registry."""

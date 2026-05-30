@@ -203,17 +203,11 @@ class BrowserEngine:
                 logger.warning(f"BrowserEngine: Eviction failed for {tab.conversation_id} (Status: {tab.status})")
 
     async def close(self) -> None:
-        logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [ENTRY]")
         try:
             async with self.management_lock:
-                logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [LOCK-ACQUIRED]")
                 if self._shutdown_started: 
-                    logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() early return - shutdown already in progress or complete.")
-                    logger.debug("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
+                    logger.info("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
                     return
-                
-                # F: Logging when BrowserEngine.close() starts
-                logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() started inside lock.", extra={"generation": self.browser_generation})
                 
                 if getattr(self, "is_bootstrap", False):
                     logger.info("BrowserEngine: Shutting down isolated bootstrap engine...", extra={"generation": self.browser_generation})
@@ -223,71 +217,53 @@ class BrowserEngine:
                 self.is_shutting_down = True
                 self._shutdown_started = True
                 
-                logger.info("[SHUTDOWN-DEBUG] decoupled_flags_set: is_shutting_down=True, _shutdown_started=True")
-                
                 drain_start = time.monotonic()
                 drain_timeout = 15.0
-                logger.info(f"[SHUTDOWN-DEBUG] Starting active pages drain sweep (timeout: {drain_timeout}s)...")
                 try:
                     while self.active_pages > 0 and (time.monotonic() - drain_start) < drain_timeout:
                         logger.info(f"BrowserEngine: Waiting for {self.active_pages} active pages to drain...", extra={"generation": self.browser_generation})
                         await asyncio.sleep(1.0)
-                    logger.info(f"[SHUTDOWN-DEBUG] Active pages drain sweep finished. Active pages remaining: {self.active_pages}")
                 except Exception as e:
-                    logger.error(f"[SHUTDOWN-DEBUG] Exception during active pages drain: {e}", exc_info=True)
+                    logger.error(f"BrowserEngine: Exception during active pages drain: {e}", exc_info=True)
                     raise
                 
-                logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [BEFORE-SESSION-CLOSE]")
-                logger.info(f"[SHUTDOWN-DEBUG] Closing {len(self.sessions)} provider session(s)...")
+                logger.info(f"BrowserEngine: Closing {len(self.sessions)} provider session(s)...", extra={"generation": self.browser_generation})
                 for session in list(self.sessions.values()):
-                    logger.info(f"[SHUTDOWN-DEBUG] Closing session resources for: {session.name}")
                     try:
-                        logger.debug(f"BrowserEngine: Closing session resources for {session.name}", extra={"generation": self.browser_generation})
+                        logger.info(f"BrowserEngine: Closing session resources for {session.name}", extra={"generation": self.browser_generation})
                         await session.close_resources(save_state=True)
-                        logger.info(f"[SHUTDOWN-DEBUG] Session resources for {session.name} closed successfully.")
+                        logger.info(f"BrowserEngine: Session resources for {session.name} closed successfully.", extra={"generation": self.browser_generation})
                     except Exception as e:
-                        logger.error(f"[SHUTDOWN-DEBUG] Exception closing session resources for {session.name}: {e}", exc_info=True)
+                        logger.error(f"BrowserEngine: Exception closing session resources for {session.name}: {e}", exc_info=True)
                         raise
-                logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [AFTER-SESSION-CLOSE]")
                 
                 if self.browser:
                     try: 
-                        logger.info("[SHUTDOWN-DEBUG] Closing browser process...")
-                        logger.debug("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
-                        logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [BEFORE-BROWSER-CLOSE]")
+                        logger.info("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
                         await self.browser.close()
-                        logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [AFTER-BROWSER-CLOSE]")
-                        logger.info("[SHUTDOWN-DEBUG] Browser process closed successfully.")
+                        logger.info("BrowserEngine: Browser process closed successfully.", extra={"generation": self.browser_generation})
                     except Exception as e:
                         logger.warning(f"BrowserEngine: Error closing browser: {e}", exc_info=True, extra={"generation": self.browser_generation})
-                        logger.error(f"[SHUTDOWN-DEBUG] Exception closing browser process: {e}", exc_info=True)
                 else:
-                    logger.info("[SHUTDOWN-DEBUG] No browser process to close.")
+                    logger.info("BrowserEngine: No browser process to close.", extra={"generation": self.browser_generation})
                 
                 if self.playwright:
                     try: 
-                        logger.info("[SHUTDOWN-DEBUG] Stopping playwright instance...")
-                        logger.debug("BrowserEngine: Stopping playwright.", extra={"generation": self.browser_generation})
-                        logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [BEFORE-PLAYWRIGHT-STOP]")
+                        logger.info("BrowserEngine: Stopping playwright.", extra={"generation": self.browser_generation})
                         await self.playwright.stop()
-                        logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [AFTER-PLAYWRIGHT-STOP]")
-                        logger.info("[SHUTDOWN-DEBUG] Playwright instance stopped successfully.")
+                        logger.info("BrowserEngine: Playwright instance stopped successfully.", extra={"generation": self.browser_generation})
                     except Exception as e:
                         logger.warning(f"BrowserEngine: Error stopping playwright: {e}", exc_info=True, extra={"generation": self.browser_generation})
-                        logger.error(f"[SHUTDOWN-DEBUG] Exception stopping playwright: {e}", exc_info=True)
                 else:
-                    logger.info("[SHUTDOWN-DEBUG] No playwright instance to stop.")
+                    logger.info("BrowserEngine: No playwright instance to stop.", extra={"generation": self.browser_generation})
                 
                 self.sessions.clear()
                 self.browser = None
                 self.playwright = None
                 logger.info("BrowserEngine: Shutdown complete.", extra={"generation": self.browser_generation})
-                logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() completed.", extra={"generation": self.browser_generation})
         except Exception as e:
-            logger.error(f"[SHUTDOWN-DEBUG] BrowserEngine.close() failed midway: {e}", exc_info=True)
+            logger.error(f"BrowserEngine: Shutdown failed midway: {e}", exc_info=True)
             raise
-        finally:
-            logger.info("[SHUTDOWN-DEBUG] BrowserEngine.close() [EXIT]")
 
 async def get_browser_engine(headless: Optional[bool] = None, is_bootstrap: bool = False) -> BrowserEngine:
     if is_bootstrap:
