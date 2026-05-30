@@ -161,12 +161,13 @@ class AuthManager:
         Lightweight check for gemini-webapi connection status.
         """
         try:
-            from app.services.gemini_client import _gemini_client
-            if _gemini_client is None:
+            import app.services.gemini_client as gc
+            client_instance = gc._gemini_client
+            if client_instance is None:
                 self._cached_webapi_status = AuthStatus.INVALID
                 return AuthStatus.INVALID
 
-            status_name = _gemini_client.client.account_status.name if hasattr(_gemini_client.client, 'account_status') else "UNKNOWN"
+            status_name = client_instance.client.account_status.name if hasattr(client_instance.client, 'account_status') else "UNKNOWN"
             if status_name == "AVAILABLE":
                 self._cached_webapi_status = AuthStatus.AUTHENTICATED
             elif status_name == "UNAUTHENTICATED":
@@ -249,6 +250,30 @@ class AuthManager:
             try:
                 await self.run_login_flow()
                 self._cached_playwright_status = AuthStatus.VALID_SESSION
+                
+                # Re-initialize the direct gemini-webapi client with the newly saved cookies
+                try:
+                    from app.services.gemini_client import init_gemini_client
+                    from app.services.session_manager import init_session_managers
+                    from app.services.factory import ProviderFactory
+                    
+                    logger.info("AuthManager: Clearing and closing registered providers in ProviderFactory...")
+                    await ProviderFactory.close_all()
+
+                    logger.info("AuthManager: Re-initializing direct Gemini WebAPI client...")
+                    init_success = await init_gemini_client()
+                    if not init_success:
+                        raise RuntimeError("Gemini direct client initialization returned False.")
+                    
+                    logger.info("AuthManager: Re-initializing session managers with new client...")
+                    init_session_managers()
+                    
+                    logger.info("AuthManager: Instantly refreshing local authentication statuses...")
+                    self.refresh_status()
+                except Exception as e:
+                    logger.error(f"AuthManager: Direct Gemini WebAPI client re-initialization failed: {e}")
+                    self._cached_webapi_status = AuthStatus.INVALID
+                    self.refresh_playwright_status_lightweight()
             except Exception as e:
                 logger.error(f"AuthManager: Background login flow failed: {e}")
                 # Refresh playwright status (which might be EXPIRED_SESSION or NO_SESSION)
@@ -296,11 +321,13 @@ class AuthManager:
             await page.goto("https://gemini.google.com/app")
             
             login_detected = False
+            user_closed = False
             last_state = None
             try:
                 # Poll every 2 seconds for a maximum of 5 minutes (150 iterations)
                 for _ in range(150):
                     if page.is_closed():
+                        user_closed = True
                         break
                     
                     # 1. Check if the page is currently on a Google login/account URL
@@ -359,14 +386,14 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"AuthManager: Exception during login monitoring: {e}")
             finally:
-                if page_wrapper and not page.is_closed():
+                if page_wrapper:
                     try:
                         await page_wrapper.close()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"AuthManager: page wrapper cleanup ignored: {e}")
             
             if not login_detected:
-                if page.is_closed():
+                if user_closed:
                     logger.warning("AuthManager Status: user_closed_login_window")
                     raise RuntimeError("Interactive sign-in was closed by user.")
                 else:
