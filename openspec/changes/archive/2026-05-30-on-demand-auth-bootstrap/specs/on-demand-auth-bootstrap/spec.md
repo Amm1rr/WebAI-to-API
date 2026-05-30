@@ -29,19 +29,24 @@ The system SHALL provide an API-driven, controlled login workflow that replaces 
 ---
 
 ### Requirement: Authentication Concurrency Coordination
-The `AuthManager` SHALL implement a global authentication coordination lock and state machine to protect the login flow. The coordinator MUST prevent duplicate bootstrap attempts, concurrent login window popups, login storms under load, and concurrent file writes, while maintaining strict order boundaries.
+The `AuthManager` SHALL implement the `AuthCoordinationLock` abstraction to coordinate active logins. The system SHALL support process-bound in-memory locking (`InMemoryAuthLock`) as the default, and SHALL support swapping the backend via configuration (`auth_lock_backend = in_memory` under `[Playwright]`) to a distributed lock backend (such as Redis or Postgres) in multi-worker or scaled SaaS environments.
 
-#### Scenario: Concurrent login requests debounced
+#### Scenario: Concurrent login requests debounced via coordination lock
 - **WHEN** multiple concurrent API requests trigger the login workflow simultaneously
-- **THEN** `AuthManager` SHALL check if the state is `LOGIN_IN_PROGRESS`
+- **THEN** `AuthManager` SHALL check if `AuthCoordinationLock` is acquired
 - **AND** the system SHALL fail subsequent concurrent triggers immediately with a conflict message (HTTP 409)
 
-#### Scenario: Normal chat requests blocked only during active login
-- **WHEN** a normal chat request `/v1/chat/completions` arrives while `AuthManager` state is `LOGIN_IN_PROGRESS`
+#### Scenario: Multi-worker warning when using in-memory lock
+- **WHEN** `AuthManager` is initialized with `auth_lock_backend = in_memory`
+- **AND** multiple workers are detected via the environment variables `WEB_CONCURRENCY` or `WORKERS` (value > 1)
+- **THEN** `AuthManager` SHALL log a clear warning explaining that `InMemoryAuthLock` is not multi-worker safe and that a distributed backend must be used in production
+
+#### Scenario: Normal chat requests blocked only during active login lock
+- **WHEN** a normal chat request `/v1/chat/completions` arrives while `AuthCoordinationLock` is locked
 - **THEN** the system SHALL fail-fast the chat request immediately with an authentication-in-progress message (HTTP 503)
 
 #### Scenario: Chat requests fail-fast on expired auth only when authenticated state is required
-- **WHEN** a chat request `/v1/chat/completions` arrives while `AuthManager` state is `IDLE` and Playwright status is `EXPIRED_SESSION`
+- **WHEN** a chat request `/v1/chat/completions` arrives while `AuthCoordinationLock` is not active and Playwright status is `EXPIRED_SESSION`
 - **AND** the request target provider/configuration requires an authenticated state (e.g. Playwright provider, or stateful `gemini-chat` requests requiring conversation history continuation)
 - **THEN** the system SHALL immediately reject the request with an unauthenticated message (HTTP 401)
 - **BUT WHEN** the request target allows an unauthenticated guest session (e.g. standard `gemini-webapi` chat request without history tracking)

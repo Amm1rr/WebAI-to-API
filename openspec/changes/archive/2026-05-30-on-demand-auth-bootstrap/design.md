@@ -50,10 +50,13 @@ We will introduce `AuthManager` as a service class inside `src/app/services/brow
 - **Rationale**: Placing `run_login_flow` completely inside `AuthManager` keeps `BrowserEngine` stateless regarding the active sign-in orchestration, preventing code pollution of the core driver.
 
 ### Decision 3: Concurrency Coordination & Locks
-To prevent login storms, auth thrashing, and concurrent writes, `AuthManager` enforces:
-1. **Trigger Debouncing**: If `AuthManager.state` is `LOGIN_IN_PROGRESS`, subsequent calls to `POST /v1/auth/login` fail-fast with HTTP 409 (Conflict).
-2. **Standard Route Protection**: If a chat request (`/v1/chat/completions`) is processed while `AuthManager.state` is `LOGIN_IN_PROGRESS`, it fails-fast with HTTP 503 (Service Unavailable: Login in progress).
-3. **Expired Auth Routing**: If the state is `IDLE` but the cache is `EXPIRED_SESSION`, `/v1/chat/completions` immediately returns HTTP 401 (Unauthenticated) *only* if the request requires an authenticated session. Guest-compatible requests (e.g. unauthenticated `gemini-webapi` chat requests without history tracking) are allowed to proceed to support flexible fallbacks.
+To prevent login storms, auth thrashing, and concurrent writes across multi-worker or scaled SaaS environments, `AuthManager` implements the **`AuthCoordinationLock`** abstraction:
+1. **`AuthCoordinationLock` Interface**: Defines the `acquire()`, `release()`, and `is_locked()` lock lifecycle contract, allowing the concurrency coordination layer to scale beyond a single Python process in the future.
+2. **Process-Bound In-Memory Lock (`InMemoryAuthLock`)**: The default MVP implementation uses a localized `threading.Lock` wrapper. This is thread-safe within a single Python process, but is explicitly documented as **not multi-worker safe** (i.e. it does not protect across multiple Uvicorn/Gunicorn workers or distributed nodes).
+3. **Production Scalability Backend (`auth_lock_backend`)**: Exposes a clear configuration boundary (`auth_lock_backend = in_memory` under `[Playwright]`) allowing seamless transition to distributed lock backends (e.g., Redis `SET NX` with TTL, Postgres advisory locks, or database-backed lease rows) for production SaaS or multi-worker environments.
+4. **Active Multi-Worker Detection**: If the configuration is set to `in_memory` but multiple workers are detected via environment variables (`WEB_CONCURRENCY` or `WORKERS` > 1), `AuthManager` logs a clear operational warning indicating that in-memory locking is not safe for concurrent workers.
+5. **Standard Route Protection**: If a chat request (`/v1/chat/completions`) is processed while the coordination lock is locked (`auth_mgr.coordination_lock.is_locked()`), it fails-fast with HTTP 503 (Service Unavailable: Authentication in progress).
+6. **Expired Auth Routing**: If the coordination lock is not active but the status is `EXPIRED_SESSION`, `/v1/chat/completions` immediately returns HTTP 401 (Unauthenticated) *only* if the request requires an authenticated session. Guest-compatible requests (e.g. unauthenticated `gemini-webapi` chat requests without history tracking) are allowed to proceed to support flexible fallbacks.
 
 ### Decision 4: Minimal API Surface
 We will expose exactly two endpoints under `app.endpoints.auth`:

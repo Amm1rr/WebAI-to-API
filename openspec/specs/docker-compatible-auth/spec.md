@@ -19,7 +19,7 @@ The system SHALL support a configurable directory path named `auth_state_dir` fo
 ---
 
 ### Requirement: Session State Persistence Boundaries
-The system SHALL enforce the guarantee that no automatic persistent Playwright storage state rewrites occur during normal request execution. The runtime API service is permitted to mutate in-memory Playwright browser contexts during request execution, but it SHALL NOT automatically overwrite or mutate the persistent state files on disk during active API requests. The manual bootstrap utility SHALL act as the primary writer of the persistent state files. Any runtime-triggered state saving SHALL be classified as infrastructure used only by the manual bootstrap utility, and the runtime API service does not execute background persistence tasks.
+The system SHALL enforce the guarantee that no automatic persistent Playwright storage state rewrites occur during normal request execution. The runtime API service is permitted to mutate in-memory Playwright browser contexts during request execution, but it SHALL NOT automatically overwrite or mutate the persistent state files on disk during active API requests (such as `/v1/chat/completions`). The on-demand login service and the manual bootstrap utility SHALL act as the exclusive writers of the persistent state files. Any runtime-triggered state saving SHALL be executed only inside explicit, isolated login workflows or manual bootstrap, and normal request execution paths MUST NOT execute background or active persistence tasks.
 
 #### Scenario: In-memory context mutation without persistent rewrite
 - **WHEN** a client completions request is processed and performs in-memory modifications (such as page creation or session cookie adjustments in browser memory)
@@ -32,12 +32,10 @@ The system SHALL enforce the guarantee that no automatic persistent Playwright s
 - **AND** the provider adapters SHALL NOT directly perform state loading, write operations, or file mutations
 
 #### Scenario: Safe atomic state serialization
-- **WHEN** the manual bootstrap utility or shared session infrastructure layer writes the session state to disk
+- **WHEN** the manual bootstrap utility, on-demand login service, or shared session infrastructure layer writes the session state to disk
 - **THEN** it SHALL write the JSON payload to `{provider}.json.tmp` inside the `auth_state_dir`
 - **AND** it SHALL execute a physical `fsync` on the file descriptor
 - **AND** it SHALL atomically replace the target `{provider}.json` file using an atomic rename operation
-
----
 
 ### Requirement: Decoupled Manual Bootstrap Utility
 The system SHALL provide a reusable manual bootstrap utility initially targeting Gemini. The utility SHALL launch a local browser in headful mode, guide the user through manual sign-in on the provider's web application, extract the resulting pre-authenticated persistent Playwright storage state payload, and write it atomically as a JSON state file inside the configured `auth_state_dir`.

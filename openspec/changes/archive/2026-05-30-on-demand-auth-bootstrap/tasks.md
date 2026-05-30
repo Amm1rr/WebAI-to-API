@@ -9,9 +9,11 @@
 ## 2. Concurrency Coordination & Locks
 
 - [x] 2.1 Implement `login_lock` and the active state machine (`IDLE`, `LOGIN_IN_PROGRESS`) inside the `AuthManager` service class.
-- [x] 2.2 Add debouncing validation inside the login trigger to check for `LOGIN_IN_PROGRESS` and immediately reject overlapping triggers with HTTP 409.
-- [x] 2.3 Add a check in standard completions `/v1/chat/completions` to fail-fast with HTTP 503 *only* during active `LOGIN_IN_PROGRESS`.
-- [x] 2.4 Ensure standard completions immediately return HTTP 401 on expired auth *only* when the target request requires an authenticated session, allowing guest fallback for other requests.
+- [x] 2.2 Define the `AuthCoordinationLock` abstract base class and implement a thread-safe process-bound concrete `InMemoryAuthLock` as the MVP default.
+- [x] 2.3 Add configuration boundary `auth_lock_backend = in_memory` under `[Playwright]` with warning logs triggered if non-implemented backends are requested.
+- [x] 2.4 Implement process-concurrency warning checks inside `AuthManager` to log an honest warning if multiple workers (`WEB_CONCURRENCY` or `WORKERS` > 1) are detected under `in_memory`.
+- [x] 2.5 Add coordination lock checks in standard completions `/v1/chat/completions` (delegating to `auth_mgr.coordination_lock.is_locked()`) to fail-fast with HTTP 503 during active logins.
+- [x] 2.6 Ensure standard completions immediately return HTTP 401 on expired auth *only* when the target request requires an authenticated session, allowing guest fallback for other requests.
 
 ## 3. On-Demand Interactive Login Workflow
 
