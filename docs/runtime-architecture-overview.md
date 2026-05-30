@@ -22,7 +22,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 
 ### 2. Browser Engine (`BrowserEngine`)
 - **Active Lifecycle Orchestration:** A global singleton managing the active Chromium process and coordinating cross-provider synchronization. Recovery is valid only within an active engine lifecycle; it is NOT a resurrection authority after terminal shutdown begins.
-- **Generation Invalidation:** Tracks browser process generations to automatically invalidate stale contexts, `PersistentTab` objects, active leases, cached page references, and request-scoped bridge state after a process restart or fatal disconnect.
+- **Generation Invalidation:** Tracks browser process generations to automatically invalidate stale contexts, `PersistentTab` objects, active leases, cached page references, and request-scoped bridge state after a process restart or fatal disconnect. Newly created sessions are not associated with any generation until their first successful context initialization.
 - **Terminal Shutdown Authority:** The authoritative coordinator for irreversible shutdown. It ensures all background activity is halted and requests are drained before process termination.
 
 ### 3. Managed Resource Lifecycle

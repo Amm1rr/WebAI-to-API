@@ -5,10 +5,11 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 ## 1. Startup & Generations
 
 ### 1.1 Generation Rollover & Invalidation
-- **Generation ID**: The engine maintains a `browser_generation` counter. 
+- **Generation ID**: The engine maintains a `browser_generation` counter.
 - **Trigger**: Every new browser process launch increments this counter.
-- **Propagation**: Sessions track `last_browser_generation`. If a mismatch is detected, the session MUST purge all registry tabs immediately.
+- **Initialization State**: A newly created session starts with `last_browser_generation = None` and is not associated with any browser generation until its first context initialization.- **Propagation**: Sessions track `last_browser_generation`. A generation rollover is detected only after the session has been initialized (`last_browser_generation is not None`) and the tracked generation differs from the engine generation. On rollover detection, the session MUST purge all registry tabs immediately.
 - **Invalidation Invariant**: A generation rollover permanently invalidates all existing `PersistentTab` leases. Old tabs/pages from previous generations are stale and MUST NEVER be reused.
+
 
 ### 1.2 Recovery Authority Boundaries
 - **Provider Role**: Providers may only **identify** and **escalate** recovery requests.

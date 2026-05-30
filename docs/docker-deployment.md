@@ -1,6 +1,6 @@
 # Docker Deployment Model
 
-This document outlines the containerized execution environment, multi-stage runtime configuration, environment-specific orchestration policies, and persistent storage structure for the WebAI-to-API runtime.
+This document outlines the containerized execution environment, production-only orchestration policies, and persistent storage structure for the WebAI-to-API runtime.
 
 > **Status:** Production Hardening  
 > **Scope:** Containerization, Environment Orchestration, and Volume Persistence  
@@ -12,7 +12,7 @@ This document outlines the containerized execution environment, multi-stage runt
 The **Docker Deployment Model** provides environment parity across development, testing, and production phases. By encapsulating dependencies, Playwright-native system packages, and web automation drivers inside a standard container runtime, the deployment layer enforces process isolation and provides a clean environment for browser operations.
 
 - **Container Configuration**: Standardizes execution runtime, Python path structures, and logging pipelines.
-- **Orchestration Boundaries**: Manages differences between development (hot-reload, source synchronization) and production (detached multi-worker, automated recovery) runtimes.
+- **Orchestration Boundaries**: Manages production-hardened process execution, port exposures, and automatic recovery boundaries.
 - **Persistence Policies**: Standardizes volume mounts to ensure browser session profiles survive container lifecycles.
 
 ---
@@ -32,22 +32,27 @@ The containerized environment operates under defined technical constraints to en
 
 ---
 
-## 3. Orchestration & Environments
+## 3. Orchestration & Production Execution
 
-The system supports two execution paths governed by the `.env` variable `ENVIRONMENT`.
+The WebAI-to-API server is orchestrated strictly for production execution using Docker Compose.
 
-### 3.1 Development Mode (`ENVIRONMENT=development`)
-- **Interactive Execution**: Runs in the foreground, projecting real-time stack traces and console outputs.
-- **Compose Watch Synchronization**: When supported by the installed Docker Compose version (v2.24+) and local host setup, `compose watch` syncs local source directories with the container filesystem:
-  - `./src` maps to `/app/src`
-  - `./app` maps to `/app/app`
-  - `./requirements.txt` maps to `/app/requirements.txt`
-- **Dynamic Reloading**: Uvicorn monitors mapped paths inside the container and performs restarts on change.
+### 3.1 Production Service Configuration
 
-### 3.2 Production Mode (`ENVIRONMENT=production`)
-- **Detached Execution**: Executes as a background daemon process (`docker compose up -d`) to prevent execution interruption from terminal closures.
-- **Container Restart Policy**: Enforces `restart: always` to automatically recover from unhandled process termination or host reboot.
-- **Multi-Worker Execution**: If configured with multiple workers (e.g. by setting `--workers` in the Uvicorn start command or specifying replica counts in the Docker Compose configuration), requests are load-balanced to handle concurrency.
+The service is defined in `docker-compose.yml` for production execution:
+
+- **Detached Execution**: The service is typically run using `docker-compose up -d` to prevent interruption from terminal closures.
+- **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
+- **Port Exposure**: Maps host port `6969` to container port `6969`.
+- **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH`, `ENVIRONMENT`, and `PLAYWRIGHT_HEADLESS`.
+- **Persistent Authentication State**: Mounts `./auth_state` into the container to preserve browser authentication and session data across container restarts and redeployments.
+
+### 3.2 Runtime Topology
+
+The current deployment model operates in a single-worker configuration:
+
+- **Single Process Topology**: Uvicorn runs with `--workers 1`.
+- **No Dynamic Reloading**: The container runs without source watching or `--reload` mode.
+- **Static Container Image**: Application source code is baked into the image at build time and is not bind-mounted into the running container.
 
 ---
 
@@ -73,9 +78,9 @@ The included `Makefile` provides operational targets for managing the container 
 | :--- | :--- | :--- |
 | `make build` | `docker build -t cornatul/webai.ai:latest .` | Builds the local Docker image using the default cache. |
 | `make build-fresh` | `docker build --no-cache -t cornatul/webai.ai:latest .` | Rebuilds the container from scratch, ignoring cached layers. |
-| `make up` | `docker compose up` or `docker compose up -d` | Launches the container in interactive mode (if `ENVIRONMENT=development`) or background mode (if `ENVIRONMENT=production`). |
-| `make stop` | `docker compose down` | Stops and removes active container instances and associated networks. |
-| `make down` | `docker compose down` | Stops and removes container allocations (identical to `make stop`). |
+| `make up` | Docker Compose launch | Launches the production container using the project's Docker Compose configuration. |
+| `make stop` | `docker-compose down` | Stops and removes active container instances and associated networks. |
+| `make down` | `docker-compose down` | Stops and removes container allocations (identical to `make stop`). |
 
 ---
 
@@ -100,9 +105,8 @@ docker logs -f web_ai_server
 ## 7. Operational Notes
 
 ### 7.1 Image Rebuild
-To maintain optimal container state, follow these build guidelines:
-- **`docker compose up`**: Sufficient for standard daily operations where only Python source files (`.py`) under `src/` or `app/` have changed, and dependencies remain unchanged.
-- **`docker compose up --build` or `make build`**: Required whenever there are changes in system packages, the `Dockerfile`, or Python dependencies in `requirements.txt`.
+Because the production-only container maps only persistent browser data directories (`./auth_state`) and does not bind-mount source code directories, any modification to Python source files (`.py` under `src/` or `app/`) requires an image rebuild to be projected into the active container runtime:
+- **`docker-compose up --build` or `make build`**: Required whenever there are changes to Python source code, system packages, the `Dockerfile`, or Python dependencies in `requirements.txt`.
 - **`make build-fresh`**: Recommended when troubleshooting package mismatch issues, resetting cached layers, or performing a clean verification of the dependency tree.
 
 ### 7.2 Version Alignment
