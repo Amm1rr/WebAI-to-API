@@ -98,6 +98,7 @@ class AuthManager:
         self._cached_webapi_status = None
         self._last_validated = 0.0
         self._active_login_task: Optional[asyncio.Task] = None
+        self._legacy_fallback_active = False
         self._initialized = True
 
     @property
@@ -135,33 +136,25 @@ class AuthManager:
         Lightweight check for Playwright session status.
         Does NOT launch Playwright or perform any network navigations.
 
-        NOTE: This only performs a structural and syntax check of the 'gemini.json'
-        file on disk. It validates JSON integrity and checks for necessary cookie schemas.
+        NOTE: This only performs a structural and syntax check of the authentication state.
+        It validates JSON integrity and checks for necessary cookie schemas.
         It does NOT execute any DOM-level or server-side active authentication checks,
         which are deferred to runtime request routing to maintain zero-latency status endpoints.
         """
-        # If we have an active EXPIRED_SESSION or INVALID_STATE cached, preserve it
-        # unless manual file updates occurred.
-        state_path = self.get_state_path()
-        if not os.path.exists(state_path) or os.path.getsize(state_path) == 0:
-            self._cached_playwright_status = AuthStatus.NO_SESSION
-            return AuthStatus.NO_SESSION
+        from app.services.browser.auth_loader import GeminiAuthStateLoader
+        
+        # Resolve authentication utilizing prioritized hierarchy in GeminiAuthStateLoader
+        auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+        
+        if auth_data:
+            self._cached_playwright_status = AuthStatus.VALID_SESSION
+            self._legacy_fallback_active = is_legacy
+            return AuthStatus.VALID_SESSION
 
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict) or "cookies" not in data:
-                self._cached_playwright_status = AuthStatus.INVALID_STATE
-                return AuthStatus.INVALID_STATE
-            
-            # If currently marked as NO_SESSION or INVALID_STATE, restore to VALID_SESSION
-            if self._cached_playwright_status in [AuthStatus.NO_SESSION, AuthStatus.INVALID_STATE, None]:
-                self._cached_playwright_status = AuthStatus.VALID_SESSION
-        except Exception:
-            self._cached_playwright_status = AuthStatus.INVALID_STATE
-            return AuthStatus.INVALID_STATE
-
-        return self._cached_playwright_status
+        # Neither present
+        self._cached_playwright_status = AuthStatus.NO_SESSION
+        self._legacy_fallback_active = False
+        return AuthStatus.NO_SESSION
 
     def refresh_webapi_status_lightweight(self) -> str:
         """
@@ -206,7 +199,7 @@ class AuthManager:
         if self._cached_playwright_status is None or self._cached_webapi_status is None:
             self.refresh_status()
 
-        return {
+        status_payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "login_state": self.login_state,
             "gemini_webapi": {
@@ -219,6 +212,13 @@ class AuthManager:
                 "validation_details": "Lightweight syntax check only. Active browser/DOM validation is deferred to runtime request execution to preserve zero-latency performance."
             }
         }
+
+        # Expose legacy fallback and migration needed metrics if legacy cookies are active
+        if getattr(self, "_legacy_fallback_active", False):
+            status_payload["playwright"]["legacy_fallback_active"] = True
+            status_payload["playwright"]["migration_needed"] = True
+
+        return status_payload
 
     def mark_expired(self):
         """

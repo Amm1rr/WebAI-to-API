@@ -70,26 +70,7 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         if "auth_lock_backend" not in config["Playwright"]:
             config["Playwright"]["auth_lock_backend"] = "in_memory"
 
-    # Save changes to the configuration file, also with UTF-8 encoding.
-    try:
-        import asyncio
-        from app.utils.config_utils import save_config_atomic
-        try:
-            # We try to use the atomic save if an event loop is running.
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                # We can't easily wait for it here without making load_config async,
-                # which would be a huge breaking change. 
-                # For initial load, blocking I/O is actually acceptable as it happens during startup.
-                # However, for consistency, we'll keep the blocking write here but use the same logic.
-                with open(config_file, "w", encoding="utf-8") as f:
-                    config.write(f)
-        except RuntimeError:
-            # No event loop, normal blocking write.
-            with open(config_file, "w", encoding="utf-8") as f:
-                config.write(f)
-    except Exception as e:
-        logger.error(f"Error writing to config file: {e}")
+
 
     env_auth_state_dir = os.environ.get("AUTH_STATE_DIR")
     if env_auth_state_dir:

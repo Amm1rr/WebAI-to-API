@@ -423,8 +423,14 @@ class ProviderSession:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
 
-        if self._validate_state_file():
-            context_args["storage_state"] = self.state_path
+        if self.name == "gemini":
+            from app.services.browser.auth_loader import GeminiAuthStateLoader
+            auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+            if auth_data:
+                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(auth_data)
+        else:
+            if self._validate_state_file():
+                context_args["storage_state"] = self.state_path
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)

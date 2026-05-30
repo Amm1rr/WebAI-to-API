@@ -30,56 +30,15 @@ class MyGeminiClient:
         self._gems_cache = None
 
     async def init(self, **kwargs) -> None:
-        """Initialize the Gemini client and persist any rotated cookies."""
+        """Initialize the Gemini client."""
         await self.client.init(**kwargs)
-        await self._persist_cookies()
 
     async def _persist_cookies(self) -> None:
-        """Persist rotated cookies back to config.conf while preserving other cookies."""
-        config_path = "config.conf"
-        if not os.path.exists(config_path):
-            return
-        try:
-            # Get current session cookies
-            current_session_cookies = self.client.cookies
-            psid = current_session_cookies.get("__Secure-1PSID")
-            psidts = current_session_cookies.get("__Secure-1PSIDTS")
-            
-            if not psid:
-                return
-
-            # Read existing config
-            cfg = configparser.ConfigParser()
-            cfg.optionxform = str
-            cfg.read(config_path, encoding="utf-8")
-            
-            if "Cookies" not in cfg:
-                cfg["Cookies"] = {}
-            
-            # Update only if changed to avoid unnecessary writes
-            changed = False
-            
-            if cfg["Cookies"].get("__Secure-1PSID") != psid:
-                cfg["Cookies"]["__Secure-1PSID"] = psid
-                changed = True
-            
-            if psidts and cfg["Cookies"].get("__Secure-1PSIDTS") != psidts:
-                cfg["Cookies"]["__Secure-1PSIDTS"] = psidts
-                changed = True
-            
-            # Also sync any other cookies that might have been rotated by the library
-            # but preserve all original cookies that were already there
-            for key, value in current_session_cookies.items():
-                if cfg["Cookies"].get(key) != value:
-                    cfg["Cookies"][key] = value
-                    changed = True
-
-            if changed:
-                from app.utils.config_utils import save_config_atomic
-                if await save_config_atomic(cfg, config_path):
-                    logger.info("Cookies rotated and persisted to config.conf atomically.")
-        except Exception as e:
-            logger.warning(f"Failed to persist cookies: {e}")
+        """
+        No-op under unified-auth-state architecture.
+        Runtime configuration cookie updates are strictly prohibited.
+        """
+        pass
 
     async def generate_content(
         self,
