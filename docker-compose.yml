@@ -18,7 +18,3 @@ services:
       - PLAYWRIGHT_HEADLESS=true
     volumes:
       - ./auth_state:/app/auth_state
-    command: >
-      sh -c "
-        uvicorn app.main:app --host 0.0.0.0 --port 6969 --workers 1 --log-level info;
-      "
