@@ -10,12 +10,20 @@ from app.logger import logger
 # Import endpoint routers
 from app.endpoints import gemini, chat, google_generative
 
+import os
+import signal
+import threading
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
     Initializes services on startup.
     """
+    # A: FastAPI lifespan startup log
+    logger.info("FastAPI application lifespan startup executing.")
+
     # Initialize Gemini client in server process
     init_result = await init_gemini_client()
     if init_result:
@@ -31,6 +39,30 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Session managers not initialized: {e}")
 
     yield
+
+    # B: FastAPI lifespan shutdown log
+    logger.info("FastAPI application lifespan shutdown executing.")
+
+    # Restore temporary shutdown task-dump diagnostics at DEBUG level for investigation
+    try:
+        tasks = asyncio.all_tasks()
+        curr_task = asyncio.current_task()
+        logger.debug(f"[SHUTDOWN-DEBUG] [TASK-DUMP] Total asyncio tasks: {len(tasks)}")
+
+        for idx, task in enumerate(tasks):
+            if task is curr_task:
+                continue
+            cancelling_val = getattr(task, "cancelling", lambda: "N/A")() if hasattr(task, "cancelling") else "N/A"
+            logger.debug(
+                f"[SHUTDOWN-DEBUG] [TASK-DUMP] Task {idx + 1}:\n"
+                f"name={task.get_name()}\n"
+                f"done={task.done()}\n"
+                f"cancelled={task.cancelled()}\n"
+                f"cancelling={cancelling_val}\n"
+                f"repr={repr(task)}"
+            )
+    except Exception as e:
+        logger.error(f"[SHUTDOWN-DEBUG] Error during task inspection: {e}", exc_info=True)
 
     # Shutdown logic
     logger.info("Gracefully closing BrowserEngine during application shutdown...")

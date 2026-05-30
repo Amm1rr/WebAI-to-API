@@ -26,7 +26,7 @@ class ProviderSession:
         self.enable_persistence = enable_persistence
         self.context: Optional[BrowserContext] = None
         self.keepalive_page: Optional[Page] = None
-        self.last_browser_generation = -1
+        self.last_browser_generation: Optional[int] = None
         
         # Concurrency & Lifecycle
         self.max_pages = engine.max_pages
@@ -351,7 +351,7 @@ class ProviderSession:
                 raise BrowserShuttingDownError("Browser engine is shutting down")
 
             # Atomic Purge on generation rollover
-            if self.last_browser_generation != self.engine.browser_generation:
+            if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
                 logger.warning(f"Browser generation rollover ({self.last_browser_generation} -> {self.engine.browser_generation})")
                 await self._purge_all_tabs()
 
@@ -718,56 +718,106 @@ class ProviderSession:
 
     async def close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
-        if save_state: await self.save_state()
-
-        if self.autosave_task:
-            self.autosave_task.cancel()
-            try: await self.autosave_task
-            except asyncio.CancelledError: pass
-            except Exception as e:
-                logger.debug(f"ProviderSession({self.name}): Error during autosave task cancellation: {e}", extra={"generation": self.last_browser_generation})
-            self.autosave_task = None
-
-        if self.eviction_task:
-            self.eviction_task.cancel()
-            try: await self.eviction_task
-            except asyncio.CancelledError: pass
-            except Exception as e:
-                logger.debug(f"ProviderSession({self.name}): Error during eviction task cancellation: {e}", extra={"generation": self.last_browser_generation})
-            self.eviction_task = None
-
-        if self.reaper_task:
-            self.reaper_task.cancel()
-            try: await self.reaper_task
-            except asyncio.CancelledError: pass
-            except Exception as e:
-                logger.debug(f"ProviderSession({self.name}): Error during reaper task cancellation: {e}", extra={"generation": self.last_browser_generation})
-            self.reaper_task = None
-
-        # Drain orphan cleanup tasks
-        if hasattr(self, "_orphan_cleanup_tasks"):
-            orphan_tasks = list(self._orphan_cleanup_tasks)
-            for task in orphan_tasks:
-                if not task.done():
-                    task.cancel()
-            if orphan_tasks:
-                await asyncio.gather(*orphan_tasks, return_exceptions=True)
-
-        await self._purge_all_tabs()
-
-        if self.keepalive_page:
-            try:
-                if not self.keepalive_page.is_closed():
-                    await self.keepalive_page.close()
-            except Exception as e:
-                logger.debug(f"ProviderSession({self.name}): Best-effort keepalive page close failed: {e}", extra={"generation": self.last_browser_generation})
-            self.keepalive_page = None
-
-        if self.context:
-            try: await self.context.close()
-            except Exception as e:
-                logger.debug(f"ProviderSession({self.name}): Best-effort context close failed: {e}", extra={"generation": self.last_browser_generation})
-            self.context = None
+        try:
+            logger.info(
+                f"ProviderSession({self.name}): Closing session resources...",
+                extra={"generation": self.last_browser_generation}
+            )
+            if save_state: 
+                await self.save_state()
+    
+            if self.autosave_task:
+                logger.info(f"ProviderSession({self.name}): Cancelling autosave_task...")
+                self.autosave_task.cancel()
+                try: 
+                    await self.autosave_task
+                except asyncio.CancelledError: 
+                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting autosave task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
+                self.autosave_task = None
+    
+            if self.eviction_task:
+                logger.info(f"ProviderSession({self.name}): Cancelling eviction_task...")
+                self.eviction_task.cancel()
+                try: 
+                    await self.eviction_task
+                except asyncio.CancelledError: 
+                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting eviction task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
+                self.eviction_task = None
+    
+            if self.reaper_task:
+                logger.info(f"ProviderSession({self.name}): Cancelling reaper_task...")
+                self.reaper_task.cancel()
+                try: 
+                    await self.reaper_task
+                except asyncio.CancelledError: 
+                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}): Error awaiting reaper task: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
+                self.reaper_task = None
+    
+            # Drain orphan cleanup tasks
+            if hasattr(self, "_orphan_cleanup_tasks"):
+                orphan_tasks = list(self._orphan_cleanup_tasks)
+                for task in orphan_tasks:
+                    if not task.done():
+                        task.cancel()
+                if orphan_tasks:
+                    await asyncio.gather(*orphan_tasks, return_exceptions=True)
+    
+            await self._purge_all_tabs()
+    
+            if self.keepalive_page:
+                try:
+                    if not self.keepalive_page.is_closed():
+                        logger.info(f"ProviderSession({self.name}): Closing keepalive page...")
+                        await self.keepalive_page.close()
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}): Failed to close keepalive page: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
+                self.keepalive_page = None
+    
+            if self.context:
+                try: 
+                    logger.info(f"ProviderSession({self.name}): Closing browser context...")
+                    await self.context.close()
+                except Exception as e:
+                    logger.warning(
+                        f"ProviderSession({self.name}): Failed to close browser context: {e}",
+                        exc_info=True,
+                        extra={"generation": self.last_browser_generation}
+                    )
+                self.context = None
+                
+            logger.info(
+                f"ProviderSession({self.name}): Session resources closed successfully.",
+                extra={"generation": self.last_browser_generation}
+            )
+        except Exception as e:
+            logger.error(
+                f"ProviderSession({self.name}): Session cleanup failed: {e}",
+                exc_info=True,
+                extra={"generation": self.last_browser_generation}
+            )
+            raise
 
     def _schedule_orphan_cleanup(self, tab: PersistentTab):
         """Schedules a detached physical close for a leased tab that was removed from registry."""
