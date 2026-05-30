@@ -91,3 +91,36 @@ AI Agents working on lifecycle or recovery logic must adhere to these strict con
 3. **Respect Authority Boundaries**: Never bypass the `BrowserEngine` or `ProviderSession` for process/context creation.
 4. **Converge Recoveries**: Ensure all recovery logic is guarded by locks and converges into a single path; never allow parallel context recreation.
 5. **Fail terminal**: If `ensure_healthy` cannot restore structural invariants, escalate to terminal shutdown rather than entering a recovery loop.
+
+## 7. Gemini Conversation Sessions
+
+### 7.1 Purpose of SessionRegistry
+The `SessionRegistry` is a global in-memory container protected by asyncio synchronization primitives and is safe within the application's single-event-loop execution model. It maps cryptographically secure opaque tokens (`conversation_id`) generated via `secrets.token_urlsafe(16)` to persistent chat sessions, enabling isolated conversation tracking when each client utilizes a unique `conversation_id`.
+
+
+### 7.2 conversation_id Lifecycle
+1. **Creation**: When a completions request is submitted without a `conversation_id`, the system generates a secure opaque token.
+2. **Registry Mapping**: The token maps to a dedicated `SessionManager` in memory, which lazily instantiates a `ChatSession`.
+3. **API Return**: The `conversation_id` token is returned as a top-level key in the standard OpenAI-compatible completions response body.
+4. **Client Preservation**: Subsequent requests by the same client present this token in the request body to continue the thread.
+
+### 7.3 SessionManager Reuse Behavior
+If the registry finds an active `SessionManager` for the given token, it reuses the session if and only if the requested model and gem match. The manager acts as a long-lived state container, bypassing the initialization overhead of the client and retaining history natively.
+
+### 7.4 Session Bootstrap and Self-Healing
+* **Bootstrapping**: On the first request of a new session, the provider concatenates the entire conversation history from `messages` to bootstrap the thread on Google's backend.
+* **Self-Healing**: If a session is lost (e.g. pruned due to TTL or after a server restart), the `SessionRegistry` creates a fresh `SessionManager` under the existing token. Since the active memory is lost, the system self-heals on the next request by automatically concatenating the complete history from the incoming `messages` array, reconstructing the thread context on Google's servers transparently.
+* **Memory-Residency Limitation**: Session state is strictly memory-resident and is not persisted across process restarts or container recycling. Clients must assume that after a restart, the local in-memory context is destroyed, prompting the system to fall back on self-healing (reconstruction via `messages` history).
+
+
+### 7.5 Model and Gem Switching
+If a stateful request switches models (e.g. from `gemini-3-flash` to `gemini-3-pro`) or changes the gem ID:
+* The `SessionManager._ensure_session()` detects the mismatch.
+* It invalidates the old `ChatSession` and instantiates a new one.
+* This resets the in-memory state and triggers a full prompt concatenation on the current request to rebuild the history context for the new model/gem.
+
+### 7.6 Session Pruning Policy
+To protect server memory, the `SessionRegistry` passively prunes idle sessions when the cache capacity exceeds `MAX_SESSIONS = 500`.
+* **Prunability Invariant**: A session can ONLY be pruned if it is unlocked (`manager.lock` is not locked) and has `active_streams == 0` (no active progressive stream tasks).
+* **TTL Policy**: Stale sessions are evicted if their idle time exceeds `IDLE_TIMEOUT = 3600` (60 minutes).
+

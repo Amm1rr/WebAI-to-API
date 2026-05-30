@@ -125,3 +125,26 @@ AI Agents working on provider implementations must adhere to these strict constr
 3. **No Orphan Tasks**: Providers may only own request-scoped tasks; never bypass session authority.
 4. **No Recovery Loops**: Never introduce provider-level recovery loops that bypass the engine/session lifecycle authority.
 5. **Deterministic Cleanup**: Always follow the documented teardown ordering.
+
+## 11. Gemini API Conversation Contract
+
+This section documents the specific fields added to the chat completions API to support stateful Gemini conversations.
+
+### 11.1 Input / Output Fields
+
+#### conversation_id
+* **Type**: `str` (Opaque, URL-safe token)
+* **Presence**: Optional request field.
+* **Behavior**: 
+  * If omitted in the request, the system automatically generates a new cryptographically secure `conversation_id` and bootstraps a fresh session.
+  * If provided, the system attempts to lookup and reuse the corresponding active session.
+* **Response**: Always returned in the top-level response payload to allow the client to persist the thread context.
+
+#### reused_conversation
+* **Type**: `bool`
+* **Presence**: Always present in the response payload.
+* **Behavior**: 
+  * Returns `true` if an existing, active `SessionManager` mapped to the provided `conversation_id` was successfully reused.
+  * Returns `false` to indicate that no reusable in-memory session existed for the supplied `conversation_id` (either because the field was omitted in the request, the session was pruned/expired due to TTL, the process was restarted, or the requested model/gem was switched) and a new `SessionManager` had to be initialized.
+
+

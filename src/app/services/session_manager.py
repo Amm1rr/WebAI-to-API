@@ -81,6 +81,86 @@ class SessionManager:
                 self.active_streams -= 1
                 self.last_accessed = time.time()
 
+    async def get_response_stateful(self, model, messages, tools_prompt, files=None, gem=None):
+        """
+        Thread-safe stateful response execution.
+        Resolves whether to reuse or bootstrap the session within the lock.
+        """
+        async with self.lock:
+            try:
+                self.last_accessed = time.time()
+                is_reused = (self.session is not None and self.model == model and self.gem == gem)
+                
+                self._ensure_session(model, gem)
+                
+                if is_reused:
+                    prompt = messages[-1].get("content", "")
+                else:
+                    conversation_parts = transform_messages(messages, tools_prompt)
+                    prompt = "\n\n".join(conversation_parts)
+                
+                response = await self.session.send_message(prompt=prompt, files=files)
+                return response, is_reused
+            except Exception as e:
+                logger.error(f"Error in stateful session get_response: {e}", exc_info=True)
+                raise
+            finally:
+                self.last_accessed = time.time()
+
+    async def get_streaming_response_stateful(self, model, messages, tools_prompt, files=None, gem=None) -> AsyncGenerator[Any, None]:
+        """
+        Thread-safe stateful progressive streaming response execution.
+        Safely increments active streams and yields chunks with locked timeout protection.
+        """
+        self.active_streams += 1
+        interrupted_sent = False
+        
+        async with self.lock:
+            try:
+                self.last_accessed = time.time()
+                is_reused = (self.session is not None and self.model == model and self.gem == gem)
+                
+                self._ensure_session(model, gem)
+                
+                if is_reused:
+                    prompt = messages[-1].get("content", "")
+                else:
+                    conversation_parts = transform_messages(messages, tools_prompt)
+                    prompt = "\n\n".join(conversation_parts)
+                
+                try:
+                    async with asyncio.timeout(MAX_GENERATION_DURATION):
+                        async for chunk in self.session.send_message_stream(prompt=prompt, files=files):
+                            yield {
+                                "type": "chunk",
+                                "text_delta": getattr(chunk, 'text_delta', ""),
+                                "is_reused": is_reused
+                            }
+                except asyncio.TimeoutError:
+                    logger.warning("Stream exceeded MAX_GENERATION_DURATION, interrupting.")
+                    interrupted_sent = True
+                    yield {
+                        "type": "interrupt",
+                        "interrupted": True,
+                        "reason": "timeout",
+                        "is_reused": is_reused
+                    }
+            except (asyncio.CancelledError, GeneratorExit):
+                logger.info("Client disconnected or generator closed.")
+                raise
+            except Exception as e:
+                logger.error(f"Error in stateful session streaming: {e}", exc_info=True)
+                if not interrupted_sent:
+                    yield {
+                        "type": "interrupt",
+                        "interrupted": True,
+                        "reason": str(e),
+                        "is_reused": is_reused
+                    }
+            finally:
+                self.active_streams -= 1
+                self.last_accessed = time.time()
+
     def _ensure_session(self, model, gem):
         """Internal helper to start or switch session if needed. Must be called inside self.lock."""
         if self.session is None or self.model != model or self.gem != gem:
@@ -88,6 +168,7 @@ class SessionManager:
             self.session = self.client.start_chat(model=model_value, gem=gem)
             self.model = model
             self.gem = gem
+
 
 class SessionRegistry:
     """
@@ -167,3 +248,49 @@ def get_translate_session_manager():
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry
+
+
+def transform_messages(messages: list[dict], tools_prompt: str = "") -> list[str]:
+    """
+    Format list of OpenAI messages into standard Gemini prompt lines.
+    """
+    conversation_parts = []
+    messages_copy = [msg.copy() for msg in messages]
+    
+    system_msg_index = -1
+    for i, msg in enumerate(messages_copy):
+        if msg.get("role") == "system":
+            system_msg_index = i
+            break
+
+    if tools_prompt:
+        if system_msg_index != -1:
+            orig_content = messages_copy[system_msg_index].get("content") or ""
+            messages_copy[system_msg_index]["content"] = f"{orig_content}\n\n{tools_prompt}".strip()
+        else:
+            conversation_parts.append(tools_prompt)
+
+    for msg in messages_copy:
+        role = msg.get("role", "user")
+        content = msg.get("content") or ""
+
+        if role == "system":
+            conversation_parts.append(f"System: {content}")
+        elif role == "user":
+            conversation_parts.append(f"User: {content}")
+        elif role == "assistant":
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    conversation_parts.append(
+                        f"Assistant called tool {fn.get('name')}: {fn.get('arguments', '')}"
+                    )
+            elif content:
+                conversation_parts.append(f"Assistant: {content}")
+        elif role == "tool":
+            tool_call_id = msg.get("tool_call_id", "")
+            conversation_parts.append(f"Tool result [{tool_call_id}]: {content}")
+    
+    return conversation_parts
+

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from app.services.base import BaseProvider
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.session_manager import get_translate_session_manager
+from app.services.session_manager import get_translate_session_manager, get_gemini_chat_registry, generate_opaque_token
 from app.utils.streaming import simulate_streaming_generator
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
@@ -26,35 +26,46 @@ class GeminiProvider(BaseProvider):
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided.")
 
-        # 1. Build tool-calling prompt
-        tools_prompt = self._build_tools_prompt(request.tools) if request.tools else ""
-        
-        # 2. Transform messages to Gemini conversation format
-        conversation_parts = self._transform_messages(request.messages, tools_prompt)
-        if not conversation_parts:
-            raise HTTPException(status_code=400, detail="No valid messages found.")
+        # 1. Resolve or generate conversation_id securely
+        cid = request.conversation_id
+        if cid:
+            if len(cid) > 64:
+                raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
+        else:
+            cid = generate_opaque_token()
 
-        final_prompt = "\n\n".join(conversation_parts)
+        # 2. Retrieve stateful SessionManager from SessionRegistry
+        registry = get_gemini_chat_registry()
+        if not registry:
+            raise HTTPException(status_code=503, detail="Session registry is not initialized.")
+        
+        session_manager = await registry.get_session(cid)
+
+        # 3. Build tool-calling prompt
+        tools_prompt = self._build_tools_prompt(request.tools) if request.tools else ""
         is_stream = request.stream if request.stream is not None else False
 
         try:
-            # 3. Progressive Streaming Path (only if no tools are used)
+            # 4. Progressive Streaming Path (only if no tools are used)
             if is_stream and not request.tools:
                 async def sse_generator():
                     from app.utils.streaming import format_sse_chunk, get_done_chunk
                     try:
-                        async for chunk in await gemini_client.generate_content_stream(
-                            message=final_prompt,
+                        async for chunk in session_manager.get_streaming_response_stateful(
                             model=request.model,
+                            messages=request.messages,
+                            tools_prompt=tools_prompt,
                             files=None,
                             gem=request.gem
                         ):
-                            if chunk.text_delta:
+                            if chunk.get("type") == "chunk" and chunk.get("text_delta"):
                                 openai_chunk = self._convert_to_openai_format(
-                                    chunk.text_delta,
+                                    chunk["text_delta"],
                                     request.model or "unknown",
                                     stream=True
                                 )
+                                openai_chunk["conversation_id"] = cid
+                                openai_chunk["reused_conversation"] = chunk.get("is_reused", False)
                                 yield await format_sse_chunk(openai_chunk)
                     except (asyncio.CancelledError, GeneratorExit):
                         # Client disconnected or generator closed, propagate to stop upstream
@@ -75,18 +86,19 @@ class GeminiProvider(BaseProvider):
                     }
                 )
 
-            # 4. Buffered Path (for non-streaming or tool-calling)
-            response = await gemini_client.generate_content(
-                message=final_prompt, 
-                model=request.model, 
-                files=None, 
+            # 5. Buffered Path (for non-streaming or tool-calling)
+            response, is_reused = await session_manager.get_response_stateful(
+                model=request.model,
+                messages=request.messages,
+                tools_prompt=tools_prompt,
+                files=None,
                 gem=request.gem
             )
             
-            # 5. Parse tool calls if necessary
+            # 6. Parse tool calls if necessary
             tool_call = self._parse_tool_call(response.text) if request.tools else None
             
-            # 6. Normalize response to OpenAI format
+            # 7. Normalize response to OpenAI format
             openai_response = self._convert_to_openai_format(
                 response.text, 
                 request.model or "unknown", 
@@ -94,7 +106,12 @@ class GeminiProvider(BaseProvider):
                 tool_call
             )
             
+            # Inject stateful conversation identifiers
+            openai_response["conversation_id"] = cid
+            openai_response["reused_conversation"] = is_reused
+            
             if is_stream:
+                from app.utils.streaming import simulate_streaming_generator
                 return StreamingResponse(
                     simulate_streaming_generator(openai_response), 
                     media_type="text/event-stream",
@@ -110,6 +127,7 @@ class GeminiProvider(BaseProvider):
         except Exception as e:
             logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
+
 
     async def list_models(self) -> List[dict]:
         from gemini_webapi.constants import Model
@@ -162,48 +180,6 @@ class GeminiProvider(BaseProvider):
                     pass
         return None
 
-    def _transform_messages(self, messages: List[dict], tools_prompt: str) -> List[str]:
-        conversation_parts = []
-        # Work on a shallow copy to avoid mutating the original request messages
-        messages_copy = [msg.copy() for msg in messages]
-        
-        # Merge tools prompt with system message if possible, otherwise prepend it
-        system_msg_index = -1
-        for i, msg in enumerate(messages_copy):
-            if msg.get("role") == "system":
-                system_msg_index = i
-                break
-
-        if tools_prompt:
-            if system_msg_index != -1:
-                orig_content = messages_copy[system_msg_index].get("content") or ""
-                messages_copy[system_msg_index]["content"] = f"{orig_content}\n\n{tools_prompt}".strip()
-            else:
-                conversation_parts.append(tools_prompt)
-
-        for msg in messages_copy:
-            role = msg.get("role", "user")
-            content = msg.get("content") or ""
-
-            if role == "system":
-                conversation_parts.append(f"System: {content}")
-            elif role == "user":
-                conversation_parts.append(f"User: {content}")
-            elif role == "assistant":
-                tool_calls = msg.get("tool_calls")
-                if tool_calls:
-                    for tc in tool_calls:
-                        fn = tc.get("function", {})
-                        conversation_parts.append(
-                            f"Assistant called tool {fn.get('name')}: {fn.get('arguments', '')}"
-                        )
-                elif content:
-                    conversation_parts.append(f"Assistant: {content}")
-            elif role == "tool":
-                tool_call_id = msg.get("tool_call_id", "")
-                conversation_parts.append(f"Tool result [{tool_call_id}]: {content}")
-        
-        return conversation_parts
 
     def _convert_to_openai_format(self, response_text: str, model: str, stream: bool = False, tool_call: Optional[dict] = None):
         ts = int(time.time())

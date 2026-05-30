@@ -151,4 +151,11 @@ class MyGeminiClient:
         # Note: Gem resolution might need to be async if we want to support name resolution here
         # For now, we'll assume gem is passed as ID or already resolved if possible
         # but the underlying library might expect a Gem object.
-        return self.client.start_chat(model=resolved_model, gem=gem)
+        session = self.client.start_chat(model=resolved_model, gem=gem)
+        
+        # Prevent the global DEFAULT_METADATA list from being mutated by copying it.
+        from gemini_webapi.constants import DEFAULT_METADATA
+        session._ChatSession__metadata = list(DEFAULT_METADATA)
+        
+        return session
+

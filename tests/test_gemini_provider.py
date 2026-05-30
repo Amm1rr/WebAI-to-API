@@ -56,3 +56,147 @@ def test_convert_to_openai_format_with_tool_call(provider):
     assert result["choices"][0]["finish_reason"] == "tool_calls"
     assert result["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "test_tool"
     assert json.loads(result["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]) == {"arg": 1}
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stateful_buffered(mocker, provider):
+    """Verify chat_completions retrieves SessionManager and executes stateful buffered response."""
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionManager, SessionRegistry
+    
+    mock_client = mocker.Mock()
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+    
+    # Mock return values for registry and manager
+    mock_response = mocker.Mock()
+    mock_response.text = "Stateful response content"
+    
+    mock_manager.get_response_stateful = mocker.AsyncMock(return_value=(mock_response, True))
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    
+    # Mock global client and session registry resolution
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "I am Ali. What is my name?"}],
+        model="gemini-3-flash",
+        conversation_id="test_token_XYZ"
+    )
+    
+    result = await provider.chat_completions(request)
+    
+    assert result["conversation_id"] == "test_token_XYZ"
+    assert result["reused_conversation"] is True
+    assert result["choices"][0]["message"]["content"] == "Stateful response content"
+    mock_registry.get_session.assert_called_once_with("test_token_XYZ")
+    mock_manager.get_response_stateful.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stateful_streaming(mocker, provider):
+    """Verify chat_completions retrieves SessionManager and executes stateful streaming response with SSE format."""
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionManager, SessionRegistry
+    
+    mock_client = mocker.Mock()
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+    
+    # Mock generator yielding chunks in our defined stateful format
+    async def mock_generator(*args, **kwargs):
+        yield {
+            "type": "chunk",
+            "text_delta": "Stateful delta content",
+            "is_reused": True
+        }
+
+    mock_manager.get_streaming_response_stateful = mock_generator
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "I am Ali. What is my name?"}],
+        model="gemini-3-flash",
+        stream=True,
+        conversation_id="test_token_XYZ"
+    )
+    
+    response = await provider.chat_completions(request)
+    assert response is not None
+    
+    # Verify it is indeed a StreamingResponse
+    from fastapi.responses import StreamingResponse
+    assert isinstance(response, StreamingResponse)
+    
+    # Consume the SSE generator and verify chunk parsing, conversation_id and reused_conversation keys
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk)
+        
+    assert len(chunks) == 2
+    assert chunks[0].startswith("data: ")
+    assert chunks[1] == "data: [DONE]\n\n"
+    
+    chunk_data = json.loads(chunks[0][6:-2])
+    assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta content"
+    assert chunk_data["conversation_id"] == "test_token_XYZ"
+    assert chunk_data["reused_conversation"] is True
+
+
+def test_transform_messages_formatting():
+    """Verify transform_messages formatting behavior for different roles and tools."""
+    from app.services.session_manager import transform_messages
+    
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+        {"role": "assistant", "tool_calls": [{"function": {"name": "get_weather", "arguments": '{"loc": "SF"}'}}]},
+        {"role": "tool", "tool_call_id": "123", "content": "Sunny"}
+    ]
+    
+    result = transform_messages(messages, tools_prompt="Tools list")
+    
+    # Verify role line conversion
+    assert "System: You are a helpful assistant.\n\nTools list" in result[0]
+    assert "User: Hello" in result
+    assert "Assistant: Hi there!" in result
+    assert "Assistant called tool get_weather: {\"loc\": \"SF\"}" in result
+    assert "Tool result [123]: Sunny" in result
+
+
+def test_default_metadata_leak_security_regression():
+    """Verify that multiple ChatSession creations do not leak metadata and DEFAULT_METADATA remains pristine."""
+    from gemini_webapi.constants import DEFAULT_METADATA
+    from models.gemini import MyGeminiClient
+    
+    client = MyGeminiClient(secure_1psid="test", secure_1psidts="test")
+    
+    session_a = client.start_chat(model="gemini-3-flash")
+    session_b = client.start_chat(model="gemini-3-flash")
+    
+    # Verify initial empty state
+    assert session_a.cid == ""
+    assert session_b.cid == ""
+    
+    # Update metadata on session A exactly as Google response parsing does
+    mock_google_metadata = ["thread_A_123", "reply_A_456", "rcid_A_789", None, None, None, None, None, None, "context_A"]
+    session_a.metadata = mock_google_metadata
+    
+    # Assert session A has the correct values
+    assert session_a.cid == "thread_A_123"
+    
+    # CRITICAL SECURITY CHECKS:
+    # 1. Assert session B was NOT contaminated and is still empty
+    assert session_b.cid == ""
+    
+    # 2. Assert global DEFAULT_METADATA list remains pristine
+    assert DEFAULT_METADATA[0] == ""
+    assert DEFAULT_METADATA[1] == ""
+
+
+

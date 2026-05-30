@@ -88,3 +88,41 @@ AI Agents working on the concurrency or locking logic must adhere to these stric
 4. **No Silent Reuse**: Never attempt to reuse a lease after it has been invalidated by crash or rollover.
 5. **No Unmanaged Mutations**: Never mutate a leased tab from a background task unless it is a terminal shutdown.
 6. **Fail-Fast Ownership**: Verify lease ownership before every lease-sensitive operation, tab mutation, or release.
+
+## 6. Gemini Conversation Sessions
+
+### 6.1 Per-Session Locking via SessionManager.lock
+Each `SessionManager` utilizes an internal `asyncio.Lock` (`self.lock`) to serialize all stateful completion and streaming operations under the same `conversation_id`. Every request accessing a specific conversation must acquire this lock before mutating the session or sending messages.
+
+### 6.2 Serialization of Requests Sharing the same conversation_id
+Because stateful chats depend on maintaining sequential and consistent message history on the model provider backend, concurrent requests requesting the same `conversation_id` are strictly serialized. One request must fully complete (or its stream must fully close and release the lock) before the next request in line can acquire the lock and execute.
+
+### 6.3 Asyncio/Session-Safety Constraints of Google's ChatSession
+Concurrent requests must not execute simultaneously on the same Gemini `ChatSession`. The underlying Google client library's `ChatSession` maintains mutable internal state (history, sequence markers). Concurrent execution on the same session violates sequence ordering and can lead to internal state corruption, race conditions, or protocol failures on the Google backend.
+
+### 6.4 Streaming Behavior and active_streams Tracking
+Progressive streaming requests track their active count using `active_streams`.
+* **State tracking**: When a stream request starts, it increments `self.active_streams` before acquiring `self.lock`.
+* **Cleanup**: On stream closure, error, or client cancellation, the stream decrements `self.active_streams` inside a `finally` block.
+This ensures that long-lived streaming tasks remain registered as active even during lock-wait states or slow-generation phases.
+
+### 6.5 Session Pruning Interaction with active_streams
+The passive pruning mechanism in `SessionRegistry` evaluates active streams to prevent premature eviction of active clients:
+* **Active Stream Pinning**: A session manager is pinned in memory if `self.active_streams > 0` or if its lock is currently acquired (`self.lock.locked()`).
+* **Prunability**: The registry is prohibited from evicting any session that is currently processing a request or has active stream generator references, avoiding dangling stream references and runtime errors.
+
+### 6.6 Multi-Tab / Multi-Agent Limitation
+The design enforces a strict 1-to-1 relationship between an active `conversation_id` and a single logical client. The system does not support a multi-tab or multi-agent paradigm where multiple independent actors concurrently interact with the exact same thread.
+
+### 6.7 Branching Conversation Corruption Risk
+If multiple clients concurrently reuse the same `conversation_id` and send differing messages:
+* Because they are serialized, their messages will interleave sequentially rather than branching.
+* There is a high risk of branching conversation corruption since there is no server-side history branching mechanism. The model will treat interleaving requests as one linear history, poisoning the context for all participating clients.
+
+### 6.8 Asyncio Execution Assumptions
+The lock safety and event-loop-safe guarantees of this concurrency model depend on the cooperative multitasking model of `asyncio`.
+* Within the supported deployment model, SessionRegistry and SessionManager execute inside a single asyncio event loop per worker process.
+* The atomic update of `active_streams` and lock acquisition relies on the fact that context switches only occur at explicit `await` boundaries.
+* **Important**: This model assumes a single-event-loop execution environment. It is not designed or proven as a universal guarantee across arbitrary multi-threaded or multi-worker systems running without proper IPC/distributed locking.
+
+
