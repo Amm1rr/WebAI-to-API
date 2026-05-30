@@ -80,6 +80,7 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 - **[Streaming Pipeline](streaming-pipeline.md)**: Event flow, normalization, and rewrite-resilience.
 - **[Error Policy](error-policy.md)**: Runtime error semantics, classification boundaries, and recovery authority.
 - **[Lifecycle and Recovery](lifecycle-and-recovery.md)**: State transitions, generations, and authoritative recovery.
+- **[Docker Deployment Model](docker-deployment.md)**: Containerization, environment modes, and volume persistence guarantees.
 
 ---
 
