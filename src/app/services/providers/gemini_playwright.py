@@ -289,7 +289,21 @@ class GeminiPlaywrightProvider(BaseProvider):
             raise
         except Exception as e:
             req_id = state.request_id if state else request_id
-            logger.exception("Error in chat_completions", extra={"request_id": req_id})
+            expected_recoverable_errors = (
+                SessionNotAliveError,
+                BrowserGenerationMismatchError,
+                TransientSessionError,
+            )
+            if isinstance(e, expected_recoverable_errors):
+                logger.warning(
+                    "Recoverable chat_completions failure: %s",
+                    e,
+                    extra={"request_id": req_id},
+                )
+            elif isinstance(e, BrowserDisconnectedError):
+                logger.exception("Browser disconnected during chat_completions", extra={"request_id": req_id})
+            else:
+                logger.exception("Error in chat_completions", extra={"request_id": req_id})
             from playwright.async_api import Error as PlaywrightError
             
             poison_session_errors = (
