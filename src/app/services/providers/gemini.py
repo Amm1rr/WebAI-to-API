@@ -161,6 +161,17 @@ class GeminiProvider(BaseProvider):
             raise
         except APIError as e:
             if request.conversation_id and self._is_unrecoverable_conversation_error(e):
+                # NOTE:
+                # gemini_webapi retries APIError internally via @running(retry=5).
+                # For unrecoverable recovered conversations (e.g. API 1097),
+                # this may introduce additional latency before HTTP 410 is returned.
+                #
+                # No public per-call retry override currently exists in gemini_webapi.
+                # Avoid relying on internal decorator parameters such as current_retry,
+                # as they are implementation details and may change without notice.
+                #
+                # TODO(#77): Investigate an official per-request retry override for
+                # recovered conversations.
                 raise HTTPException(
                     status_code=410,
                     detail="The provided conversation_id can no longer be recovered. Start a new conversation.",
