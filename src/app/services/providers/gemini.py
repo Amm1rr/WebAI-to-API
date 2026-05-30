@@ -15,6 +15,10 @@ from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 from models.gemini import resolve_model_name
 
+UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
+    "1097",
+}
+
 def is_unknown_model_error(error: ValueError) -> bool:
     return "Unknown model name" in str(error)
 
@@ -202,8 +206,11 @@ class GeminiProvider(BaseProvider):
             or getattr(error, "status_code", None)
         )
         if error_code is not None:
-            return str(error_code) == "1097"
-        return "1097" in str(error)
+            return str(error_code) in UNRECOVERABLE_CONVERSATION_ERROR_CODES
+
+        # Provider-specific conversation recovery failures. Add new codes only
+        # after observed provider behavior or upstream documentation confirms them.
+        return any(code in str(error) for code in UNRECOVERABLE_CONVERSATION_ERROR_CODES)
 
     def serialize_session_state(self, session: Any) -> dict:
         return json.loads(serialize_session_state(session))
