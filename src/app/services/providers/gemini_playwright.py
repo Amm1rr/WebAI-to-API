@@ -76,6 +76,18 @@ class GeminiPlaywrightProvider(BaseProvider):
         backoff_delays = [1.0, 2.0, 4.0]
         
         try:
+            from app.services.browser.auth_manager import get_auth_manager, LoginState, AuthStatus
+            auth_mgr = get_auth_manager()
+            if auth_mgr.login_state == LoginState.LOGIN_IN_PROGRESS:
+                raise HTTPException(status_code=503, detail="Authentication in progress.")
+            
+            if auth_mgr.refresh_playwright_status_lightweight() == AuthStatus.EXPIRED_SESSION:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication expired.",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+
             engine = await get_browser_engine()
             session = await engine.get_session("gemini")
             adapter = GeminiProviderAdapter()
@@ -315,6 +327,11 @@ class GeminiPlaywrightProvider(BaseProvider):
                 await session.handle_session_failure()
             
             if isinstance(e, SessionNotAliveError):
+                try:
+                    from app.services.browser.auth_manager import get_auth_manager
+                    get_auth_manager().mark_expired()
+                except Exception:
+                    pass
                 raise HTTPException(
                     status_code=401,
                     detail="Authentication expired.",
