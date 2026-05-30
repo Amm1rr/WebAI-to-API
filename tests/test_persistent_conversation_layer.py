@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from fastapi import HTTPException
 
 from app.schemas.request import OpenAIChatRequest
@@ -36,6 +37,9 @@ class MockChatSession:
 class MockGeminiClient:
     def __init__(self, initial_metadata_factory=None):
         self.sessions = []
+        self.client = SimpleNamespace(
+            account_status=SimpleNamespace(name="AVAILABLE")
+        )
         self.initial_metadata_factory = initial_metadata_factory or (
             lambda: ["", "", "", None, None, None, None, None, None, ""]
         )

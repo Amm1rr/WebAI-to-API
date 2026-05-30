@@ -1,5 +1,6 @@
 import pytest
 import json
+from types import SimpleNamespace
 from fastapi import HTTPException
 from app.services.providers.gemini import GeminiProvider
 
@@ -66,6 +67,7 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     from app.services.session_manager import SessionManager, SessionRegistry
     
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     
@@ -152,12 +154,73 @@ async def test_chat_completions_invalid_model_streaming_returns_400_before_strea
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_with_conversation_id_requires_authenticated_client(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "UNAUTHENTICATED"
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3-flash",
+        conversation_id="existing-conversation",
+        stream=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == (
+        "The provided conversation_id requires an authenticated Gemini session. "
+        "Please sign in and try again."
+    )
+    assert exc_info.value.headers["WWW-Authenticate"] == "Bearer"
+    mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_with_conversation_id_fails_closed_when_auth_status_unknown(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.session_manager import SessionRegistry
+
+    mock_client = SimpleNamespace(
+        client=SimpleNamespace(account_status=SimpleNamespace())
+    )
+    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3-flash",
+        conversation_id="existing-conversation",
+        stream=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 401
+    mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_stateful_streaming(mocker, provider):
     """Verify chat_completions retrieves SessionManager and executes stateful streaming response with SSE format."""
     from app.schemas.request import OpenAIChatRequest
     from app.services.session_manager import SessionManager, SessionRegistry
     
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     
@@ -256,4 +319,3 @@ def test_default_metadata_leak_security_regression():
     # 2. Assert global DEFAULT_METADATA list remains pristine
     assert DEFAULT_METADATA[0] == ""
     assert DEFAULT_METADATA[1] == ""
-

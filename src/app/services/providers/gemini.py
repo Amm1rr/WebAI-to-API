@@ -35,6 +35,7 @@ class GeminiProvider(BaseProvider):
             raise HTTPException(status_code=400, detail="No messages provided.")
 
         self._validate_model_name(request.model)
+        self._require_authenticated_conversation_recovery(request.conversation_id, gemini_client)
 
         # 1. Resolve or generate conversation_id securely
         cid = request.conversation_id
@@ -164,6 +165,21 @@ class GeminiProvider(BaseProvider):
             if is_unknown_model_error(e):
                 raise HTTPException(status_code=400, detail=str(e)) from e
             raise
+
+    def _require_authenticated_conversation_recovery(self, conversation_id: Optional[str], gemini_client: Any) -> None:
+        if not conversation_id:
+            return
+
+        client = getattr(gemini_client, "client", None)
+        account_status = getattr(client, "account_status", None)
+        status_name = getattr(account_status, "name", None)
+
+        if status_name != "AVAILABLE":
+            raise HTTPException(
+                status_code=401,
+                detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     def serialize_session_state(self, session: Any) -> dict:
         return json.loads(serialize_session_state(session))
