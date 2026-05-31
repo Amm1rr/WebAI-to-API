@@ -107,10 +107,11 @@ The `SessionRegistry` is a global in-memory container protected by asyncio synch
 ### 7.3 SessionManager Reuse Behavior
 If the registry finds an active `SessionManager` for the given token, it reuses the session if and only if the requested model and gem match. The manager acts as a long-lived state container, bypassing the initialization overhead of the client and retaining history natively.
 
-### 7.4 Session Bootstrap and Self-Healing
+### 7.4 Session Bootstrap and Persistent Recovery
 * **Bootstrapping**: On the first request of a new session, the provider concatenates the entire conversation history from `messages` to bootstrap the thread on Google's backend.
-* **Self-Healing**: If a session is lost (e.g. pruned due to TTL or after a server restart), the `SessionRegistry` creates a fresh `SessionManager` under the existing token. Since the active memory is lost, the system self-heals on the next request by automatically concatenating the complete history from the incoming `messages` array, reconstructing the thread context on Google's servers transparently.
-* **Memory-Residency Limitation**: Session state is strictly memory-resident and is not persisted across process restarts or container recycling. Clients must assume that after a restart, the local in-memory context is destroyed, prompting the system to fall back on self-healing (reconstruction via `messages` history).
+* **Persistent Recovery**: The system utilizes a SQLite-backed repository to persist session snapshots. If a session is lost from memory (e.g., pruned due to TTL or after a server restart), the `SessionRegistry` can automatically restore the session state from the database using the supplied `conversation_id`.
+* **Durable Continuity**: Unlike volatile in-memory-only systems, this architecture ensures that long-running threads remain continuous across process restarts or container recycling, provided the `conversation_id` is preserved by the client.
+* **Fallback Self-Healing**: If both memory and persistent snapshots are unavailable, the system falls back on self-healing by reconstructing the thread context via the complete history from the incoming `messages` array.
 
 
 ### 7.5 Model and Gem Switching

@@ -28,13 +28,15 @@ The system operates according to a strict ownership hierarchy and state machine.
 ### 2.1 Component Hierarchy
 1. **BrowserEngine**: Global singleton. Authoritative orchestrator for the core Chromium process and coordinator for terminal shutdown.
 2. **ProviderSession**: Created per provider (Gemini, etc.). Authoritative owner of the `BrowserContext`, the `keepalive_page`, and session-scoped recovery logic (context recreation, tab invalidation).
-3. **ManagedPage**: Request-scoped resource container. Authoritatively owns exactly one semaphore permit and one `PersistentTab` lease.
-4. **PersistentTab**: Long-lived browser page in the session registry. Owns its individual `_lock` and internal state.
+3. **AuthManager**: Provider-agnostic orchestrator for authentication lifecycle, concurrency locks, and background login tasks.
+4. **ManagedPage**: Request-scoped resource container. Authoritatively owns exactly one semaphore permit and one `PersistentTab` lease.
+5. **PersistentTab**: Long-lived browser page in the session registry. Owns its individual `_lock` and internal state.
 
 ### 2.2 Lifecycle & Ownership
 - **Generation Invalidation**: Tracks browser process generations to automatically invalidate stale contexts, `PersistentTab` objects, active leases, cached references, and request-scoped bridge state after a browser generation rollover or fatal disconnect.
 - **Terminal Shutdown**: Once `BrowserEngine` initiates shutdown, the active engine lifecycle cannot be resurrected. Runtime components must fail fast and may never re-initialize the browser after terminal shutdown begins.
 - **Deterministic Teardown**: Request cleanup MUST follow a strict sequence (Observers -> Tasks -> Callbacks -> Queues -> Leases) to prevent late-event races.
+- **Auth Separation**: Provider-specific authentication logic (URLs, selectors, recovery hooks) is encapsulated in dedicated strategy classes (e.g., `GeminiAuthStrategy`) and registered with the `AuthManager`.
 
 ---
 
@@ -121,5 +123,5 @@ AI Agents working on this runtime MUST adhere to these strict constraints:
 
 ### 8.2 Core Commands
 - **Run Server**: `poetry run python src/run.py`
-- **Verify Login**: `poetry run python verify_login.py` (authoritative setup)
+- **Modern Auth**: `curl -X POST http://localhost:6969/v1/auth/login` (Recommended setup)
 - **Run Tests**: `PYTHONPATH=src pytest`

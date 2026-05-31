@@ -88,13 +88,18 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 ## Operational Guide
 
 ### 1. Manual Authentication (Session Setup)
-The API requires an authenticated browser session for browser-native providers. Run the verifier to log in:
+The API requires an authenticated browser session for browser-native execution. While the server can often retrieve cookies from a local browser automatically, you can explicitly trigger a headful login workflow via the API:
+
 ```bash
-poetry run python verify_login.py
+# Trigger the browser-based login workflow
+curl -X POST http://localhost:6969/v1/auth/login
+
+# Monitor the login status
+curl http://localhost:6969/v1/auth/status
 ```
 
 ### 2. Using the API
-By default, the `gemini` provider uses the `webapi` backend. To force browser-native execution, use the `playwright/` model prefix:
+By default, the `gemini` provider uses the `webapi` execution adapter. To force browser-native execution, use the `playwright/` model prefix:
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
   -H "Content-Type: application/json" \

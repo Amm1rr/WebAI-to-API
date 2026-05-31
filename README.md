@@ -290,10 +290,17 @@ src/
 │   ├── services/              # Business logic and provider systems.
 │   │   ├── base.py            # Lightweight provider interface contract.
 │   │   ├── factory.py         # Static provider registry (lazy initialization).
-│   │   ├── providers/         # Encapsulated backend implementations.
-│   │   │   ├── gemini.py      # Browser-based session & prompt emulation.
-│   │   │   └── atlas.py       # Stateless HTTP-native integration.
-│   │   ├── gemini_client.py   # Gemini low-level client initialization.
+│   │   ├── providers/         # Encapsulated logical provider implementations.
+│   │   │   ├── gemini/        # Google Gemini logical provider package.
+│   │   │   │   ├── provider.py        # Gemini provider entry point & logic.
+│   │   │   │   ├── client.py          # Authoritative Gemini client manager.
+│   │   │   │   ├── auth.py            # Gemini-specific auth strategy.
+│   │   │   │   ├── session_manager.py # Persistent chat session orchestration.
+│   │   │   │   └── ...
+│   │   │   └── atlas/         # Atlas Cloud logical provider package.
+│   │   │       ├── provider.py        # Atlas provider implementation.
+│   │   │       └── ...
+│   │   ├── gemini_client.py   # [DEPRECATED] Compatibility shim for Gemini client.
 │   │   └── ...
 │   └── utils/
 │       ├── config_utils.py    # Atomic, non-blocking config persistence.

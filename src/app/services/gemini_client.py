@@ -1,7 +1,13 @@
 # src/app/services/gemini_client.py
 """
-Compatibility shim for the Gemini client manager.
-The authoritative implementation has moved to app.services.providers.gemini.client.
+[DEPRECATED] Compatibility shim for the Gemini client manager.
+
+The authoritative implementation has been moved to:
+app.services.providers.gemini.client
+
+All new components should import from the authoritative path. 
+This shim is maintained for backward compatibility with legacy endpoints 
+and existing test mocks.
 """
 
 from app.services.providers.gemini.client import (
@@ -10,7 +16,6 @@ from app.services.providers.gemini.client import (
     get_gemini_client
 )
 
-# TODO:Remove gemini_client compatibility shim after all internal imports and tests migrate to providers.gemini.client
 # For backward compatibility with components or tests accessing private members
 import app.services.providers.gemini.client as _client_module
 
