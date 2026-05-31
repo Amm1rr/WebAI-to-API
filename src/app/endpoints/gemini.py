@@ -13,7 +13,12 @@ from typing import Union, List, Optional
 
 router = APIRouter()
 
-@router.post("/gemini")
+@router.post(
+    "/gemini",
+    deprecated=True,
+    summary="Legacy Stateless Gemini",
+    description="Legacy stateless Gemini endpoint retained for backward compatibility. New integrations should prefer the OpenAI-compatible `/v1/chat/completions` endpoint."
+)
 async def gemini_generate(request: GeminiRequest):
     try:
         gemini_client = get_gemini_client()
@@ -55,7 +60,12 @@ async def gemini_generate(request: GeminiRequest):
         logger.error(f"Error in /gemini endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generating content: {str(e)}")
 
-@router.post("/gemini-chat")
+@router.post(
+    "/gemini-chat",
+    deprecated=True,
+    summary="Legacy In-Memory Conversation",
+    description="Legacy conversation-oriented Gemini endpoint. Conversation state is maintained in memory only and does not survive server restarts. For persistent conversations, use `/v1/chat/completions` with `conversation_id`."
+)
 async def gemini_chat(request: GeminiRequest):
     try:
         gemini_client = get_gemini_client()
