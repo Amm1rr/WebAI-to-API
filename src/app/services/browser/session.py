@@ -199,7 +199,7 @@ class ProviderSession:
                             async with self.registry_lock:
                                 self.conversation_registry.move_to_end(conversation_id)
                             logger.info(f"Reusing persistent tab: {conversation_id}")
-                            return ManagedPage(tab.page, self, persistent_tab=tab, lease_token=token, request_id=request_id)
+                            return ManagedPage(tab.page, self, persistent_tab=tab, lease_token=token, request_id=request_id, reserved_conversation_id=conversation_id)
                         else:
                             # Generation rollover during acquisition
                             await tab.release_lease(token)
@@ -222,7 +222,7 @@ class ProviderSession:
             await self.engine.enforce_soft_cap()
             page = await asyncio.wait_for(self.context.new_page(), timeout=10.0)
             await self._setup_page_bridge(page)
-            return ManagedPage(page, self, request_id=request_id)
+            return ManagedPage(page, self, request_id=request_id, reserved_conversation_id=conversation_id)
 
         except BaseException as e:
             if acquired_semaphore:

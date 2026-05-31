@@ -182,12 +182,14 @@ class ManagedPage:
     def __init__(self, page: Page, session: Any, 
                  persistent_tab: Optional[PersistentTab] = None,
                  lease_token: Optional[str] = None,
-                 request_id: str = "default"):
+                 request_id: str = "default",
+                 reserved_conversation_id: Optional[str] = None):
         self.page = page
         self.session = session
         self.persistent_tab = persistent_tab
         self.lease_token = lease_token
         self.request_id = request_id
+        self.reserved_conversation_id = reserved_conversation_id
         self._released = False
         self._lock = asyncio.Lock()
         self.acquired_at = time.monotonic()
@@ -216,15 +218,20 @@ class ManagedPage:
         """
         try:
             # 0. Active Conversation Ownership Release with Stale-Finalizer Protection (Zero-Await)
+            target_cids = set()
             if self.persistent_tab:
-                cid = self.persistent_tab.conversation_id
-                async def safe_ownership_release():
+                target_cids.add(self.persistent_tab.conversation_id)
+            if self.reserved_conversation_id:
+                target_cids.add(self.reserved_conversation_id)
+
+            for cid in target_cids:
+                async def safe_ownership_release(target_cid):
                     async with self.session.conversation_lock:
                         # Conditional Release & Stale-Finalizer Protection
-                        if self.session.active_conversations.get(cid) == self.request_id:
-                            self.session.active_conversations.pop(cid, None)
+                        if self.session.active_conversations.get(target_cid) == self.request_id:
+                            self.session.active_conversations.pop(target_cid, None)
                 try:
-                    await safe_ownership_release()
+                    await safe_ownership_release(cid)
                 except Exception as ownership_err:
                     logger.error(
                         f"Failed to release ownership for conversation {cid}: {ownership_err}",
