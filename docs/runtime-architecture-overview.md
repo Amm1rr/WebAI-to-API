@@ -60,12 +60,12 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - [x] Multi-tab concurrency management via `ManagedPage`.
 
 ### Phase 2: Provider Expansion (Medium-Term)
-- **New Adapters:** Native support for ChatGPT Web, Claude Web, and Grok.
+- **New Adapters:** Native support for ChatGPT Web, Claude Web, and Grok via specialized browser-native adapters.
 - **Multi-Account Pooling:** Support for cycling through multiple authenticated sessions per provider.
 - **Session Persistence:** Full integration of `conversation_id` to maintain chat history across API calls.
 
 ### Phase 3: Infrastructure (Long-Term)
-- **Universal Provider SDK:** A unified framework for adding new web-based AI models.
+- **Universal Provider SDK:** A unified framework for adding new logical providers and adapters.
 - **Distributed Browser Farm:** Ability to offload browser contexts to separate nodes.
 - **Auto-Auth Solvers:** Automated handling of common login challenges and "What's new" popups.
 
@@ -76,7 +76,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 This document provides a high-level strategic overview. Detailed behavioral guarantees and implementation invariants are codified in the following specifications. **The runtime contracts are authoritative; if this overview conflicts with a detailed contract, the specific contract document takes precedence.**
 
 - **[Concurrency Model](concurrency-model.md)**: Semaphore ownership, lock hierarchy, and cancellation safety.
-- **[Provider Contract](provider-contract.md)**: Ownership boundaries, poisoning rules, and escalation semantics.
+- **[Provider Contract](provider-contract.md)**: Ownership boundaries for logical providers and their technical adapters, poisoning rules, and escalation semantics.
 - **[Streaming Pipeline](streaming-pipeline.md)**: Event flow, normalization, and rewrite-resilience.
 - **[Error Policy](error-policy.md)**: Runtime error semantics, classification boundaries, and recovery authority.
 - **[API Contract](api-contract.md)**: Authoritative API surface definitions, persistence guarantees, and endpoint classifications.
@@ -88,13 +88,13 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 ## Operational Guide
 
 ### 1. Manual Authentication (Session Setup)
-The API requires an authenticated browser session. Run the verifier to log in:
+The API requires an authenticated browser session for browser-native providers. Run the verifier to log in:
 ```bash
 poetry run python verify_login.py
 ```
 
 ### 2. Using the API
-Requests use the `playwright/` model prefix. Each request opens a new tab in the shared window:
+By default, the `gemini` provider uses the `webapi` backend. To force browser-native execution, use the `playwright/` model prefix:
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
   -H "Content-Type: application/json" \

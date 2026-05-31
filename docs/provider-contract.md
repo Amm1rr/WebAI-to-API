@@ -1,17 +1,19 @@
 # Provider Contract
 
-This document specifies the interface and responsibilities for browser-based provider implementations.
+This document specifies the interface and responsibilities for logical provider implementations and their execution adapters.
 
 ## 1. Ownership Boundaries
 
 - **The Engine owns**: The browser process, context lifecycle, and global synchronization.
-- **The Provider owns**: The request-scoped logic, page-level event listeners, observer injection, and prompt emulation.
+- **The Provider (Logical Identity) owns**: Vendor-specific logic, prompt transformation, tool-call parsing, and orchestration of execution adapters.
+- **The Adapter (Execution Strategy) owns**: The technical implementation of a specific backend (e.g., Playwright or WebAPI).
+- **The Browser-Native Adapter owns**: Request-scoped browser logic, page-level event listeners, observer injection, and prompt emulation.
 
 ### Forbidden Behaviors:
-- Providers must NEVER call `browser.close()` or `context.close()` directly.
-- Providers must NEVER recreate `BrowserContext` or sessions directly; they must escalate to the authoritative session layer.
-- Providers must NEVER bypass `ProviderSession.acquire_lease()` to obtain pages.
-- Providers must NEVER manipulate `is_shutting_down` or other engine state flags.
+- Providers/Adapters must NEVER call `browser.close()` or `context.close()` directly.
+- Providers/Adapters must NEVER recreate `BrowserContext` or sessions directly; they must escalate to the authoritative session layer.
+- Browser-native Adapters must NEVER bypass `ProviderSession.acquire_lease()` to obtain pages.
+- Providers/Adapters must NEVER manipulate `is_shutting_down` or other engine state flags.
 
 ## 2. Page Poisoning Contract
 

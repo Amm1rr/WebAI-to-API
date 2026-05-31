@@ -12,7 +12,7 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 
 
 ### 1.2 Recovery Authority Boundaries
-- **Provider Role**: Providers may only **identify** and **escalate** recovery requests.
+- **Provider/Adapter Role**: Providers and their adapters may only **identify** and **escalate** recovery requests.
 - **Session Authority**: `ProviderSession` owns authoritative session-scoped recovery logic (context recreation, tab invalidation, and recovery coordination).
 - **Engine Authority**: `BrowserEngine` is the authoritative lifecycle orchestrator and terminal shutdown authority. It manages process-level state transitions but does NOT act as a recreation mechanism after shutdown has been initiated.
 
