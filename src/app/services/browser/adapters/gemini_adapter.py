@@ -13,6 +13,9 @@ class GeminiProviderAdapter(BaseProviderAdapter):
     Implements only the minimal DOM selectors, form inputs, URL parsing,
     and authentication heuristics, with zero changes to orchestration.
     """
+    def __init__(self, ui_wait_timeout: int = 15000):
+        self.ui_wait_timeout = ui_wait_timeout
+
     @property
     def provider_name(self) -> str:
         return "gemini"
@@ -64,7 +67,7 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         if await submit_button.count() == 0:
             submit_button = page.locator(SELECTORS["SEND_BUTTON"]).first
 
-        await submit_button.wait_for(state="visible", timeout=5000)
+        await submit_button.wait_for(state="visible", timeout=self.ui_wait_timeout)
         
         if not await submit_button.is_enabled():
             await page.keyboard.press("Space")

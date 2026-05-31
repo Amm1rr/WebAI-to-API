@@ -47,6 +47,10 @@ class GeminiProvider(BaseProvider):
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided.")
 
+        # Apply default model if none provided
+        if not request.model:
+            request.model = CONFIG["Gemini"].get("default_model", "gemini-3-flash")
+
         validate_model_name(request.model)
 
         # 1. Resolve or generate conversation_id securely
