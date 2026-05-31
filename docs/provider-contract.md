@@ -128,7 +128,7 @@ AI Agents working on provider implementations must adhere to these strict constr
 
 ## 11. Gemini API Conversation Contract
 
-This section documents the specific fields added to the chat completions API to support stateful Gemini conversations.
+This section provides a summary of the specific fields added to the chat completions API to support stateful Gemini conversations. For authoritative definitions and persistence guarantees, see **[API Contract](api-contract.md)**.
 
 ### 11.1 Input / Output Fields
 

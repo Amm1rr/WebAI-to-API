@@ -79,6 +79,7 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 - **[Provider Contract](provider-contract.md)**: Ownership boundaries, poisoning rules, and escalation semantics.
 - **[Streaming Pipeline](streaming-pipeline.md)**: Event flow, normalization, and rewrite-resilience.
 - **[Error Policy](error-policy.md)**: Runtime error semantics, classification boundaries, and recovery authority.
+- **[API Contract](api-contract.md)**: Authoritative API surface definitions, persistence guarantees, and endpoint classifications.
 - **[Lifecycle and Recovery](lifecycle-and-recovery.md)**: State transitions, generations, and authoritative recovery.
 - **[Docker Deployment Model](docker-deployment.md)**: Containerization, environment modes, and volume persistence guarantees.
 

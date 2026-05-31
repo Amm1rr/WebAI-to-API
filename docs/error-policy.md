@@ -148,5 +148,6 @@ This document complements and is supported by the other authoritative specificat
 - **[Concurrency Model](concurrency-model.md)**: Defines the locks and permits that must be safely released during error handling.
 - **[Provider Contract](provider-contract.md)**: Defines the poisoning and escalation rules for provider implementations.
 - **[Streaming Pipeline](streaming-pipeline.md)**: Defines the integrity rules for event-driven data flow.
+- **[API Contract](api-contract.md)**: Defines the authoritative API surface and persistence guarantees.
 - **[Lifecycle and Recovery](lifecycle-and-recovery.md)**: Defines the state transitions triggered by the classifications in this policy.
 - **[Architecture Overview](runtime-architecture-overview.md)**: Provides the high-level vision for the hardened runtime.

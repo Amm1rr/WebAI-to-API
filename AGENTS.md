@@ -91,6 +91,7 @@ Authoritative technical invariants and behavioral guarantees are codified in the
 - **[Provider Contract](docs/provider-contract.md)**: Governs provider adapter responsibilities, page poisoning rules, page ownership boundaries, and escalation semantics.
 - **[Streaming Pipeline](docs/streaming-pipeline.md)**: Governs SSE ordering guarantees, rewrite-resilient normalization, bridge callback lifecycle, and queue overflow semantics.
 - **[Error Policy](docs/error-policy.md)**: Governs runtime error semantics, classification boundaries, authoritative recovery, and cancellation-safe cleanup.
+- **[API Contract](docs/api-contract.md)**: Governs authoritative API contracts, endpoint classifications (Primary vs Legacy), persistence guarantees, and compatibility boundaries.
 - **[Architecture Overview](docs/runtime-architecture-overview.md)**: High-level strategic vision, architectural principles, component relationships, and strategic roadmap.
 - **[Docker Deployment Model](docs/docker-deployment.md)**: Governs the containerized execution environment, environment orchestration, and volume persistence policies.
 
