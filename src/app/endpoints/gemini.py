@@ -15,6 +15,7 @@ router = APIRouter()
 
 @router.post(
     "/gemini",
+    tags=["Legacy"],
     deprecated=True,
     summary="Legacy Stateless Gemini",
     description="Legacy stateless Gemini endpoint retained for backward compatibility. New integrations should prefer the OpenAI-compatible `/v1/chat/completions` endpoint."
@@ -62,6 +63,7 @@ async def gemini_generate(request: GeminiRequest):
 
 @router.post(
     "/gemini-chat",
+    tags=["Legacy"],
     deprecated=True,
     summary="Legacy In-Memory Conversation",
     description="Legacy conversation-oriented Gemini endpoint. Conversation state is maintained in memory only and does not survive server restarts. For persistent conversations, use `/v1/chat/completions` with `conversation_id`."

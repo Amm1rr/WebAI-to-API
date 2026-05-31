@@ -13,7 +13,12 @@ from app.services.factory import ProviderFactory
 router = APIRouter()
 
 
-@router.get("/v1/gems")
+@router.get(
+    "/v1/gems",
+    tags=["Utilities"],
+    summary="List Available Gems",
+    description="Returns available Gemini Gems associated with the account. Can be used to apply specific personas in chat requests."
+)
 async def list_gems():
     try:
         gemini_client = get_gemini_client()
@@ -40,6 +45,7 @@ async def list_gems():
 
 @router.post(
     "/translate",
+    tags=["Translation"],
     summary="Translate Extension Compatibility",
     description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, does not support conversation_id isolation, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
 )
@@ -60,7 +66,12 @@ async def translate_chat(request: GeminiRequest):
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
 
 
-@router.get("/v1/models")
+@router.get(
+    "/v1/models",
+    tags=["Chat"],
+    summary="List Available Models",
+    description="Returns available models from all registered providers. Includes provider-prefixed models used for discovery and routing."
+)
 async def list_models():
     all_models = []
     # Collect models from all registered providers in the registry
@@ -76,7 +87,12 @@ async def list_models():
     }
 
 
-@router.post("/v1/chat/completions")
+@router.post(
+    "/v1/chat/completions",
+    tags=["Chat"],
+    summary="OpenAI-Compatible Chat Completions",
+    description="Primary OpenAI-compatible chat endpoint. Supports streaming responses, conversation_id-based conversations, and provider routing. This is the recommended API for new integrations."
+)
 async def chat_completions(request: OpenAIChatRequest):
     # Resolve provider and model name via the static factory
     provider, resolved_model = ProviderFactory.get_provider(request)

@@ -97,7 +97,12 @@ def _make_google_response(response_text: str, tools=None) -> dict:
     }
 
 
-@router.post("/v1beta/models/{model_path:path}")
+@router.post(
+    "/v1beta/models/{model_path:path}",
+    tags=["Compatibility"],
+    summary="Google Generative AI Compatibility Endpoint",
+    description="Compatibility endpoint that accepts Google Generative AI style requests and returns Google-style responses. Intended for integration compatibility and not guaranteed to provide full protocol parity with official Google SDKs."
+)
 async def google_generative_generate(model_path: str, request: GoogleGenerativeRequest):
     try:
         gemini_client = get_gemini_client()
