@@ -373,7 +373,7 @@ def test_transform_messages_formatting():
 def test_default_metadata_leak_security_regression():
     """Verify that multiple ChatSession creations do not leak metadata and DEFAULT_METADATA remains pristine."""
     from gemini_webapi.constants import DEFAULT_METADATA
-    from models.gemini import MyGeminiClient
+    from app.services.providers.gemini.webapi_client import MyGeminiClient
     
     client = MyGeminiClient(secure_1psid="test", secure_1psidts="test")
     

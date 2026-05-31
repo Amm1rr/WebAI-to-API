@@ -3,7 +3,7 @@ import os
 import tempfile
 import asyncio
 import inspect
-from models.gemini import MyGeminiClient
+from .webapi_client import MyGeminiClient
 from app.config import CONFIG, get_default_auth_state_dir
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser

@@ -1,6 +1,4 @@
-import configparser
 import logging
-import os
 from typing import Optional, List, Union, Any
 from pathlib import Path
 from gemini_webapi import GeminiClient as WebGeminiClient
@@ -117,4 +115,3 @@ class MyGeminiClient:
         session._ChatSession__metadata = list(DEFAULT_METADATA)
         
         return session
-

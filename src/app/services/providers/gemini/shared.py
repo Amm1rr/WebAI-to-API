@@ -4,7 +4,7 @@ from typing import Optional, List, Any, Union
 from pathlib import Path
 from fastapi import HTTPException
 from app.logger import logger
-from models.gemini import resolve_model_name
+from .webapi_client import resolve_model_name
 
 # Unrecoverable conversation error codes for Gemini API
 UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
