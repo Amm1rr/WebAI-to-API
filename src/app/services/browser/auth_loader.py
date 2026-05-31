@@ -56,7 +56,22 @@ class GeminiAuthStateLoader:
     @classmethod
     def load_auth_state_with_fallback(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
         """
-        Deprecated compatibility path for legacy callers.
+        Deprecated compatibility helper.
+
+        This function historically combined discovery and source-selection logic.
+        Primary runtime selection now lives in GeminiAuthSelector.
+
+        New code should use:
+
+            GeminiAuthSelector.iter_candidates()
+
+        or:
+
+            GeminiAuthSelector.first_playwright_storage_candidate()
+
+        depending on use case.
+
+        Retained only for backward compatibility.
 
         Loads authentication cookies utilizing the prioritized hierarchy.
         Priority 1: Load from [Gemini] section in config.conf (canonical format).
@@ -73,6 +88,14 @@ class GeminiAuthStateLoader:
         This loader does NOT perform authentication validation - that happens later
         when Gemini WebAPI initializes or makes authenticated requests.
         """
+        # NOTE:
+        # Retained for compatibility and legacy tests.
+        #
+        # Do not add new production call sites.
+        #
+        # Future removal requires:
+        #     - verification of external consumers
+        #     - migration of remaining compatibility tests
         # Priority 1: [Gemini] section (canonical provider-scoped format)
         if "Gemini" in CONFIG:
             gemini_config = dict(CONFIG["Gemini"])
