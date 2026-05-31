@@ -38,6 +38,13 @@ gemini_cookie_1psidts =
 [EnabledAI]
 gemini = true
 
+# --- Gemini Execution Strategy ---
+# Choose the backend adapter for Gemini execution.
+# - webapi:    Lightweight, fast, uses unofficial API wrappers.
+# - playwright: Browser-native runtime (Chromium). Most resilient.
+[Gemini]
+backend = webapi
+
 # --- Proxy Configuration ---
 # The app, use this proxy to connect gemini servers.
 # Its usefull to fix errors like 403 or restricted connections

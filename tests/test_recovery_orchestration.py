@@ -4,7 +4,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock
 from app.services.browser.session import ProviderSession
 from app.services.browser.errors import TransientSessionError
 from app.services.browser.engine import BrowserEngine
-from app.services.providers.gemini_playwright import GeminiPlaywrightProvider
+from app.services.providers.gemini.provider import GeminiProvider
 from app.schemas.request import OpenAIChatRequest
 from fastapi import HTTPException
 
@@ -84,7 +84,7 @@ async def test_transient_auth_failure_retry_and_lease_release(monkeypatch):
     # Mock get_browser_engine
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     # Mock page and locator
     mock_page = MagicMock()
@@ -121,7 +121,7 @@ async def test_transient_auth_failure_retry_and_lease_release(monkeypatch):
     async def mock_check_authentication(*args, **kwargs):
         raise TransientSessionError("Mock transient auth failure")
         
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication", mock_check_authentication)
     
     # Mock asyncio.sleep to record sleep delays and bypass actual sleeping
     original_sleep = asyncio.sleep
@@ -132,10 +132,10 @@ async def test_transient_auth_failure_retry_and_lease_release(monkeypatch):
             await original_sleep(0)
         else:
             await original_sleep(delay)
-    monkeypatch.setattr("app.services.providers.gemini_playwright.asyncio.sleep", mock_sleep)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.asyncio.sleep", mock_sleep)
     
     # 3. Create provider and request
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -278,7 +278,7 @@ async def test_post_submission_no_retry(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     mock_page = MagicMock()
     mock_page.url = "https://gemini.google.com/app"
@@ -313,7 +313,7 @@ async def test_post_submission_no_retry(monkeypatch):
     async def mock_check_authentication(*args, **kwargs):
         return True
         
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication", mock_check_authentication)
     
     # Mock submit_prompt to deliberately raise an exception to simulate post-submission failure
     submit_calls = 0
@@ -322,7 +322,7 @@ async def test_post_submission_no_retry(monkeypatch):
         submit_calls += 1
         raise RuntimeError("Post-submission failure")
         
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.submit_prompt", mock_submit_prompt)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.submit_prompt", mock_submit_prompt)
     
     # Mock state.js_ready.set() to trigger instantly when evaluate is called for the observer script
     async def mock_evaluate(script, *args, **kwargs):
@@ -332,7 +332,7 @@ async def test_post_submission_no_retry(monkeypatch):
             
     mock_page.evaluate = mock_evaluate
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -368,7 +368,7 @@ async def test_observer_leak_prevention(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     mock_page = MagicMock()
     mock_page.url = "https://gemini.google.com/app"
@@ -409,7 +409,7 @@ async def test_observer_leak_prevention(monkeypatch):
     async def mock_check_authentication(*args, **kwargs):
         return True
         
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication", mock_check_authentication)
     
     # Patch asyncio.sleep to not actually wait during retry backoff
     original_sleep = asyncio.sleep
@@ -418,7 +418,7 @@ async def test_observer_leak_prevention(monkeypatch):
             await original_sleep(0)
         else:
             await original_sleep(delay)
-    monkeypatch.setattr("app.services.providers.gemini_playwright.asyncio.sleep", mock_sleep)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.asyncio.sleep", mock_sleep)
     
     # Patch asyncio.timeout to timeout instantly
     class InstantTimeout:
@@ -429,9 +429,9 @@ async def test_observer_leak_prevention(monkeypatch):
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
             
-    monkeypatch.setattr("app.services.providers.gemini_playwright.asyncio.timeout", InstantTimeout)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.asyncio.timeout", InstantTimeout)
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -464,7 +464,7 @@ async def test_auth_expired_maps_to_401(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     mock_page = MagicMock()
     mock_page.url = "https://gemini.google.com/app"
@@ -489,9 +489,9 @@ async def test_auth_expired_maps_to_401(monkeypatch):
     # Mock adapter check_authentication to return False (auth expired)
     async def mock_check_authentication(*args, **kwargs):
         return False
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication", mock_check_authentication)
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -521,7 +521,7 @@ async def test_transient_failure_maps_to_503(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     mock_page = MagicMock()
     mock_page.url = "https://gemini.google.com/app"
@@ -547,15 +547,15 @@ async def test_transient_failure_maps_to_503(monkeypatch):
     async def mock_check_authentication(*args, **kwargs):
         from app.services.browser.errors import TransientSessionError
         raise TransientSessionError("Mock transient error")
-    monkeypatch.setattr("app.services.providers.gemini_playwright.GeminiProviderAdapter.check_authentication", mock_check_authentication)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication", mock_check_authentication)
     
     # Bypass retry sleep
     original_sleep = asyncio.sleep
     async def mock_sleep(delay):
         await original_sleep(0)
-    monkeypatch.setattr("app.services.providers.gemini_playwright.asyncio.sleep", mock_sleep)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.asyncio.sleep", mock_sleep)
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -581,7 +581,7 @@ async def test_timeout_maps_to_504(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     mock_page = MagicMock()
     mock_page.url = "https://gemini.google.com/app"
@@ -596,7 +596,7 @@ async def test_timeout_maps_to_504(monkeypatch):
         raise asyncio.TimeoutError()
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -622,14 +622,14 @@ async def test_unknown_exception_maps_to_500(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     # Make acquire_lease raise an unexpected exception
     async def mock_acquire_lease(conversation_id, request_id):
         raise ValueError("Secret database password failed")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -652,9 +652,9 @@ async def test_exception_before_retry_loop_initializes_state(monkeypatch):
     """
     async def mock_get_browser_engine():
         raise RuntimeError("Failure before retry loop")
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -681,13 +681,13 @@ async def test_browser_disconnected_error_poisons_session(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     async def mock_acquire_lease(conversation_id, request_id):
         raise BrowserDisconnectedError("Process died")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -715,13 +715,13 @@ async def test_browser_generation_mismatch_error_poisons_session(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     async def mock_acquire_lease(conversation_id, request_id):
         raise BrowserGenerationMismatchError("Mismatch occurred")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -748,13 +748,13 @@ async def test_playwright_closed_page_error_maps_to_503(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     async def mock_acquire_lease(conversation_id, request_id):
         raise PlaywrightError("Target page, context or browser has been closed")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -780,13 +780,13 @@ async def test_generic_playwright_error_maps_to_502(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     async def mock_acquire_lease(conversation_id, request_id):
         raise PlaywrightError("Failed to click element due to overlap")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],
@@ -813,13 +813,13 @@ async def test_www_authenticate_header_exists_on_401(monkeypatch):
     
     async def mock_get_browser_engine():
         return mock_engine
-    monkeypatch.setattr("app.services.providers.gemini_playwright.get_browser_engine", mock_get_browser_engine)
+    monkeypatch.setattr("app.services.providers.gemini.playwright_adapter.get_browser_engine", mock_get_browser_engine)
     
     async def mock_acquire_lease(conversation_id, request_id):
         raise SessionNotAliveError("Expired session cookies")
     mock_session.acquire_lease = mock_acquire_lease
     
-    provider = GeminiPlaywrightProvider()
+    provider = GeminiProvider()
     request = OpenAIChatRequest(
         model="playwright/gemini",
         messages=[{"role": "user", "content": "Hello"}],

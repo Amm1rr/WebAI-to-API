@@ -81,6 +81,18 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         is_headless = env_headless.strip().lower() in ("1", "true", "yes", "on")
         config["Playwright"]["headless"] = "true" if is_headless else "false"
 
+    if "Gemini" not in config:
+        config["Gemini"] = {
+            "backend": "webapi"
+        }
+    
+    # Validate Gemini backend
+    gemini_backend = config["Gemini"].get("backend", "webapi").lower().strip()
+    if gemini_backend not in ("webapi", "playwright"):
+        raise ValueError(f"Invalid Gemini backend configured: '{gemini_backend}'. Supported values: 'webapi', 'playwright'.")
+    
+    config["Gemini"]["backend"] = gemini_backend
+
     return config
 
 

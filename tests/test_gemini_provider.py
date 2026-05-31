@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 from fastapi import HTTPException
 from gemini_webapi.exceptions import APIError
-from app.services.providers.gemini import GeminiProvider
+from app.services.providers.gemini.provider import GeminiProvider
 
 @pytest.fixture
 def provider():
@@ -81,8 +81,8 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     mock_registry.save_session_snapshot = mocker.AsyncMock()
     
     # Mock global client and session registry resolution
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "I am Ali. What is my name?"}],
@@ -111,10 +111,10 @@ async def test_chat_completions_invalid_model_buffered_returns_400_before_sessio
     from app.schemas.request import OpenAIChatRequest
     from app.services.session_manager import SessionRegistry
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mocker.Mock())
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
@@ -135,10 +135,10 @@ async def test_chat_completions_invalid_model_streaming_returns_400_before_strea
     from app.schemas.request import OpenAIChatRequest
     from app.services.session_manager import SessionRegistry
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mocker.Mock())
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
@@ -161,11 +161,11 @@ async def test_chat_completions_with_conversation_id_requires_authenticated_clie
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "UNAUTHENTICATED"
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
 
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
@@ -194,11 +194,11 @@ async def test_chat_completions_with_conversation_id_fails_closed_when_auth_stat
     mock_client = SimpleNamespace(
         client=SimpleNamespace(account_status=SimpleNamespace())
     )
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
 
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
@@ -232,8 +232,8 @@ async def test_chat_completions_with_stale_conversation_id_returns_410(mocker, p
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
     mock_registry.save_session_snapshot = mocker.AsyncMock()
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
@@ -267,9 +267,9 @@ async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_err
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
     mock_registry.save_session_snapshot = mocker.AsyncMock()
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
-    mocker.patch("app.services.providers.gemini.generate_opaque_token", return_value="new-conversation")
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="new-conversation")
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
@@ -315,8 +315,8 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
     mock_registry.save_session_snapshot = mocker.AsyncMock()
     
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=mock_client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=mock_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "I am Ali. What is my name?"}],

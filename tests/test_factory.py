@@ -1,7 +1,7 @@
 import pytest
 from app.services.factory import ProviderFactory
 from app.schemas.request import OpenAIChatRequest
-from app.services.providers.gemini import GeminiProvider
+from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.atlas import AtlasProvider
 
 def test_get_provider_default():

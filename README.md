@@ -311,10 +311,10 @@ src/
 
 The project is built on a modular architecture designed for scalability and ease of maintenance. Its primary components are:
 
-- **app/endpoints/chat.py**: Acts as a thin orchestrator that resolves the correct provider via the `ProviderFactory` and delegates the completion request.
-- **app/services/factory.py**: A static registry that lazily initializes provider instances based on model prefixes or explicit provider flags.
-- **app/services/providers/**: Encapsulates provider-specific logic. Each provider (e.g., `GeminiProvider`) is responsible for its own request mapping, response normalization, and streaming mechanics.
-- **app/utils/config_utils.py**: Ensures operational safety by providing atomic, non-blocking configuration persistence for volatile state like rotated cookies.
+- **app/endpoints/chat.py**: Acts as a thin orchestrator that resolves the correct logical provider via the `ProviderFactory` and delegates the completion request.
+- **app/services/factory.py**: A static registry that lazily initializes logical provider instances based on model prefixes or explicit provider flags.
+- **app/services/providers/**: Encapsulates provider-specific logic. Each logical provider (e.g., `GeminiProvider`) represents an LLM vendor and owns its shared logic (tool parsing, prompt transformation) while orchestrating one or more technical execution **Adapters** (e.g., Playwright vs. WebAPI).
+- **app/utils/config_utils.py**: Ensures operational safety by providing atomic, non-blocking configuration persistence.
 
 ### How It Works
 

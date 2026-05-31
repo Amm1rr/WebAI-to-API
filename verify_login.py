@@ -7,7 +7,7 @@ import re
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
 from app.services.browser.engine import get_browser_engine
-from app.services.providers.gemini_playwright_scripts import SELECTORS
+from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
 from playwright.async_api import Error as PlaywrightError
 from app.logger import logger
 

@@ -2,7 +2,7 @@
 import pytest
 import json
 from app.services.providers.exceptions import StateIntegrityError
-from app.services.providers.gemini import serialize_session_state, deserialize_session_state
+from app.services.providers.gemini.persistence import serialize_session_state, deserialize_session_state
 
 class MockGem:
     def __init__(self, gem_id):

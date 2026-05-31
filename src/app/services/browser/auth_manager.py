@@ -288,7 +288,7 @@ class AuthManager:
         Orchestrate the headful login workflow using core BrowserEngine primitives.
         """
         from app.services.browser.engine import get_browser_engine
-        from app.services.providers.gemini_playwright_scripts import SELECTORS
+        from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
         
         # 1. Perform environment checks
         if not self._check_display_available():

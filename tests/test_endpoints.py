@@ -2,7 +2,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.factory import ProviderFactory
-from app.services.providers.gemini import GeminiProvider
+from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.atlas import AtlasProvider
 
 @pytest.mark.asyncio
