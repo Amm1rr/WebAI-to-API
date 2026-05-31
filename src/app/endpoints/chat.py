@@ -38,7 +38,11 @@ async def list_gems():
         raise HTTPException(status_code=500, detail=f"Error fetching gems: {str(e)}")
 
 
-@router.post("/translate")
+@router.post(
+    "/translate",
+    summary="Translate Extension Compatibility",
+    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, does not support conversation_id isolation, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
+)
 async def translate_chat(request: GeminiRequest):
     try:
         gemini_client = get_gemini_client()

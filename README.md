@@ -202,7 +202,12 @@ A lightweight implementation intended for integrations expecting the Google Gene
 
 > `POST /translate`
 
-Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension. It functions similarly to `/gemini-chat` but is optimized for translation tasks.
+Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
+- **Shared Session**: Uses a shared global in-memory session (no isolation).
+- **Transient**: Does not survive server restarts.
+- **Non-Streaming**: Buffered responses only.
+- **Requirement**: The client must provide translation instructions in the prompt.
+- **Recommendation**: For isolated or persistent translation workflows, prefer `/v1/chat/completions`.
 
 > `GET /v1/gems`
 
