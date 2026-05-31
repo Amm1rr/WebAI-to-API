@@ -2,8 +2,15 @@ import os
 import json
 import pytest
 from app.config import CONFIG
+import app.services.browser.auth_loader as auth_loader_module
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.browser.auth_manager import get_auth_manager, AuthStatus
+
+
+@pytest.fixture(autouse=True)
+def reset_legacy_gemini_cookie_warning():
+    auth_loader_module._legacy_gemini_cookie_warning_emitted = False
+
 
 def test_validate_state_structure():
     # Valid structure
@@ -266,6 +273,69 @@ def test_gemini_legacy_format(mocker, caplog):
 
     # Verify deprecation warning IS logged for legacy format
     assert any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
+
+
+def test_legacy_warning_emitted_once_for_repeated_source_use(mocker, caplog):
+    """
+    Repeated legacy source discovery during startup should not duplicate the deprecation warning.
+    """
+    mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
+
+    mock_config = {
+        "Gemini": {},
+        "Cookies": {
+            "gemini_cookie_1psid": '"legacy_psid"',
+            "gemini_cookie_1psidts": "legacy_psidts"
+        },
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    first_loaded, first_is_legacy = GeminiAuthStateLoader.get_legacy_cookie_source()
+    second_loaded, second_is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+    third_loaded, third_is_legacy = GeminiAuthStateLoader.get_legacy_cookie_source()
+
+    assert first_loaded is not None
+    assert second_loaded is not None
+    assert third_loaded is not None
+    assert first_is_legacy is True
+    assert second_is_legacy is True
+    assert third_is_legacy is True
+
+    warnings = [
+        record.message
+        for record in caplog.records
+        if "Legacy Gemini cookie configuration" in record.message
+    ]
+    assert warnings == [
+        "Legacy Gemini cookie configuration detected in [Cookies]. "
+        "Please move cookies to the [Gemini] section. "
+        "Support will be removed in a future release."
+    ]
+
+
+def test_gemini_config_source_emits_no_legacy_warning(mocker, caplog):
+    """
+    Canonical [Gemini] discovery should not emit legacy deprecation warnings.
+    """
+    mock_config = {
+        "Gemini": {
+            "__Secure-1PSID": '"canonical_psid"',
+            "__Secure-1PSIDTS": "canonical_psidts"
+        },
+        "Cookies": {
+            "gemini_cookie_1psid": '"legacy_psid"',
+            "gemini_cookie_1psidts": "legacy_psidts"
+        },
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    loaded, is_legacy = GeminiAuthStateLoader.get_gemini_config_source()
+
+    assert loaded is not None
+    assert is_legacy is False
+    assert not any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
 
 
 def test_fallback_priority_gemini_empty_to_cookies(mocker):

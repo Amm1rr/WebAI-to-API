@@ -5,6 +5,22 @@ from typing import Dict, List, Any, Optional, Tuple
 from app.config import CONFIG, get_default_auth_state_dir
 from app.logger import logger
 
+_legacy_gemini_cookie_warning_emitted = False
+
+
+def _warn_legacy_gemini_cookie_config_once() -> None:
+    global _legacy_gemini_cookie_warning_emitted
+    if _legacy_gemini_cookie_warning_emitted:
+        return
+
+    logger.warning(
+        "Legacy Gemini cookie configuration detected in [Cookies]. "
+        "Please move cookies to the [Gemini] section. "
+        "Support will be removed in a future release."
+    )
+    _legacy_gemini_cookie_warning_emitted = True
+
+
 class GeminiAuthStateLoader:
     """
     Stateless loader and translator for Gemini authentication and session state.
@@ -93,11 +109,7 @@ class GeminiAuthStateLoader:
                 psid_val = psid_val.strip('"')
                 psidts_val = psidts_val.strip('"')
 
-                logger.warning(
-                    "Legacy Gemini cookie configuration detected in [Cookies]. "
-                    "Please move cookies to the [Gemini] section. "
-                    "Support will be removed in a future release."
-                )
+                _warn_legacy_gemini_cookie_config_once()
                 reconstructed_cookies = [
                     {
                         "name": "__Secure-1PSID",
@@ -181,11 +193,7 @@ class GeminiAuthStateLoader:
             psid_val = psid_val.strip('"')
             psidts_val = psidts_val.strip('"')
 
-            logger.warning(
-                "Legacy Gemini cookie configuration detected in [Cookies]. "
-                "Please move cookies to the [Gemini] section. "
-                "Support will be removed in a future release."
-            )
+            _warn_legacy_gemini_cookie_config_once()
             reconstructed_cookies = [
                 {
                     "name": "__Secure-1PSID",
