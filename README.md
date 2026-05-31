@@ -305,9 +305,8 @@ src/
 │   └── utils/
 │       ├── config_utils.py    # Atomic, non-blocking config persistence.
 │       ├── streaming.py       # Shared SSE normalization utility.
-│       └── browser.py         # Browser-based cookie retrieval.
-├── models/                    # Model wrappers.
-└── schemas/                   # Pydantic validation schemas.
+│       ├── browser.py         # Browser-based cookie retrieval.
+└── ...
 ```
 
 ---
