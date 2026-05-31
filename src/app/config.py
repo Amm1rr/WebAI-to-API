@@ -1,12 +1,29 @@
 # src/app/config.py
 import configparser
 import logging
+import os
 
 from app.env import load_local_env
 
 logger = logging.getLogger(__name__)
 
 load_local_env()
+
+
+def get_runtime_dir() -> str:
+    return os.environ.get("RUNTIME_DIR", "runtime")
+
+
+def get_default_auth_state_dir() -> str:
+    return os.path.join(get_runtime_dir(), "auth")
+
+
+def get_default_conversation_snapshot_db() -> str:
+    return os.path.join(get_runtime_dir(), "conversations", "conversation_snapshots.db")
+
+
+def get_default_playwright_cache_dir() -> str:
+    return os.path.join(get_runtime_dir(), "cache", "playwright")
 
 
 def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
@@ -44,34 +61,17 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
             "lease_timeout": "180",
             "chunk_timeout": "90",
             "total_request_timeout": "120",
-            "auth_state_dir": "auth_state"
+            "auth_state_dir": get_default_auth_state_dir(),
+            "auth_lock_backend": "in_memory"
         }
     else:
         if "auth_state_dir" not in config["Playwright"]:
-            config["Playwright"]["auth_state_dir"] = "auth_state"
+            config["Playwright"]["auth_state_dir"] = get_default_auth_state_dir()
+        if "auth_lock_backend" not in config["Playwright"]:
+            config["Playwright"]["auth_lock_backend"] = "in_memory"
 
-    # Save changes to the configuration file, also with UTF-8 encoding.
-    try:
-        import asyncio
-        from app.utils.config_utils import save_config_atomic
-        try:
-            # We try to use the atomic save if an event loop is running.
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                # We can't easily wait for it here without making load_config async,
-                # which would be a huge breaking change. 
-                # For initial load, blocking I/O is actually acceptable as it happens during startup.
-                # However, for consistency, we'll keep the blocking write here but use the same logic.
-                with open(config_file, "w", encoding="utf-8") as f:
-                    config.write(f)
-        except RuntimeError:
-            # No event loop, normal blocking write.
-            with open(config_file, "w", encoding="utf-8") as f:
-                config.write(f)
-    except Exception as e:
-        logger.error(f"Error writing to config file: {e}")
 
-    import os
+
     env_auth_state_dir = os.environ.get("AUTH_STATE_DIR")
     if env_auth_state_dir:
         config["Playwright"]["auth_state_dir"] = env_auth_state_dir

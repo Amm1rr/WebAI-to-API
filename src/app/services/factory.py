@@ -48,6 +48,17 @@ class ProviderFactory:
         return cls._instances[provider_key], model_name
 
     @classmethod
+    async def close_provider(cls, provider_key: str):
+        """Close and clear a specific registered provider."""
+        provider = cls._instances.pop(provider_key, None)
+        if provider:
+            try:
+                await provider.close()
+            except Exception as e:
+                from app.logger import logger
+                logger.warning(f"Error closing provider '{provider_key}': {e}")
+
+    @classmethod
     async def close_all(cls):
         """Close all registered providers."""
         for provider in cls._instances.values():

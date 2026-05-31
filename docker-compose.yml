@@ -17,4 +17,4 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - PLAYWRIGHT_HEADLESS=true
     volumes:
-      - ./auth_state:/app/auth_state
+      - ./runtime:/app/runtime

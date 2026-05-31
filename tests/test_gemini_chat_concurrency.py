@@ -174,3 +174,53 @@ async def test_interrupted_exactly_once_on_cancel(mocker):
     with pytest.raises(asyncio.CancelledError):
         async for _ in manager.get_streaming_response("m", "h", None):
             pass
+
+@pytest.mark.asyncio
+async def test_registry_update_client_updates_all(mocker):
+    """Verify registry.update_client updates both registry and session managers."""
+    mock_client1 = mocker.Mock()
+    mock_client2 = mocker.Mock()
+    
+    registry = SessionRegistry(mock_client1)
+    manager1 = await registry.get_session("conv_1")
+    manager2 = await registry.get_session("conv_2")
+    
+    assert registry.client == mock_client1
+    assert manager1.client == mock_client1
+    assert manager2.client == mock_client1
+    
+    # Execute async update
+    await registry.update_client(mock_client2)
+    
+    assert registry.client == mock_client2
+    assert manager1.client == mock_client2
+    assert manager2.client == mock_client2
+
+@pytest.mark.asyncio
+async def test_registry_update_client_is_lock_protected(mocker):
+    """Verify registry.update_client is strictly serialized and lock-protected."""
+    mock_client1 = mocker.Mock()
+    mock_client2 = mocker.Mock()
+    
+    registry = SessionRegistry(mock_client1)
+    
+    # Forcefully acquire the registry lock
+    await registry._lock.acquire()
+    assert registry._lock.locked() is True
+    
+    # Attempt update_client in a background task
+    update_task = asyncio.create_task(registry.update_client(mock_client2))
+    
+    # Wait a brief moment to ensure the task runs and tries to acquire lock
+    await asyncio.sleep(0.01)
+    
+    # Verify the update is blocked and has not completed (client still unchanged)
+    assert update_task.done() is False
+    assert registry.client == mock_client1
+    
+    # Release the lock and verify completion
+    registry._lock.release()
+    await update_task
+    
+    assert update_task.done() is True
+    assert registry.client == mock_client2

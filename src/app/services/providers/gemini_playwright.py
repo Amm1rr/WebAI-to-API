@@ -76,6 +76,18 @@ class GeminiPlaywrightProvider(BaseProvider):
         backoff_delays = [1.0, 2.0, 4.0]
         
         try:
+            from app.services.browser.auth_manager import get_auth_manager, AuthStatus
+            auth_mgr = get_auth_manager()
+            if auth_mgr.coordination_lock.is_locked():
+                raise HTTPException(status_code=503, detail="Authentication in progress.")
+            
+            if auth_mgr.refresh_playwright_status_lightweight() == AuthStatus.EXPIRED_SESSION:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication expired.",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+
             engine = await get_browser_engine()
             session = await engine.get_session("gemini")
             adapter = GeminiProviderAdapter()
@@ -289,7 +301,21 @@ class GeminiPlaywrightProvider(BaseProvider):
             raise
         except Exception as e:
             req_id = state.request_id if state else request_id
-            logger.exception("Error in chat_completions", extra={"request_id": req_id})
+            expected_recoverable_errors = (
+                SessionNotAliveError,
+                BrowserGenerationMismatchError,
+                TransientSessionError,
+            )
+            if isinstance(e, expected_recoverable_errors):
+                logger.warning(
+                    "Recoverable chat_completions failure: %s",
+                    e,
+                    extra={"request_id": req_id},
+                )
+            elif isinstance(e, BrowserDisconnectedError):
+                logger.exception("Browser disconnected during chat_completions", extra={"request_id": req_id})
+            else:
+                logger.exception("Error in chat_completions", extra={"request_id": req_id})
             from playwright.async_api import Error as PlaywrightError
             
             poison_session_errors = (
@@ -301,6 +327,11 @@ class GeminiPlaywrightProvider(BaseProvider):
                 await session.handle_session_failure()
             
             if isinstance(e, SessionNotAliveError):
+                try:
+                    from app.services.browser.auth_manager import get_auth_manager
+                    get_auth_manager().mark_expired()
+                except Exception:
+                    pass
                 raise HTTPException(
                     status_code=401,
                     detail="Authentication expired.",

@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from playwright.async_api import Page, BrowserContext
 
 from app.logger import logger
-from app.config import CONFIG
+from app.config import CONFIG, get_default_auth_state_dir
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
 from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
 
@@ -53,9 +53,10 @@ class ProviderSession:
         self.reaper_task: Optional[asyncio.Task] = None
         self._orphan_cleanup_tasks = set()
         self.active_orphans = weakref.WeakSet()
+        self._intentional_context_closes = weakref.WeakValueDictionary()
         
         # Persistent state
-        auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", "auth_state")
+        auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
         self.state_path = os.path.join(auth_state_dir, f"{name}.json")
@@ -422,15 +423,21 @@ class ProviderSession:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
 
-        if self._validate_state_file():
-            context_args["storage_state"] = self.state_path
+        if self.name == "gemini":
+            from app.services.browser.auth_loader import GeminiAuthStateLoader
+            auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+            if auth_data:
+                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(auth_data)
+        else:
+            if self._validate_state_file():
+                context_args["storage_state"] = self.state_path
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
             
             def safe_on_context_close(c):
                 try:
-                    asyncio.get_running_loop().create_task(self._on_context_closed())
+                    asyncio.get_running_loop().create_task(self._on_context_closed(c))
                 except RuntimeError as e:
                     logger.debug(
                         "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
@@ -681,9 +688,23 @@ class ProviderSession:
                     extra={"generation": self.last_browser_generation}
                 )
 
-    async def _on_context_closed(self):
+    def _mark_intentional_context_close(self, context: BrowserContext) -> None:
+        self._intentional_context_closes[id(context)] = context
+
+    def _consume_intentional_context_close(self, context: BrowserContext) -> bool:
+        return self._intentional_context_closes.pop(id(context), None) is context
+
+    async def _on_context_closed(self, context: BrowserContext):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
+            return
+
+        if self._consume_intentional_context_close(context):
+            logger.debug(
+                "ProviderSession(%s): Ignoring intentional browser context close.",
+                self.name,
+                extra={"generation": self.last_browser_generation}
+            )
             return
         
         logger.warning(f"ProviderSession({self.name}): Context closed (Window manually closed or crash).")
@@ -796,10 +817,13 @@ class ProviderSession:
                 self.keepalive_page = None
     
             if self.context:
+                context_to_close = self.context
+                self._mark_intentional_context_close(context_to_close)
                 try: 
                     logger.info(f"ProviderSession({self.name}): Closing browser context...")
-                    await self.context.close()
+                    await context_to_close.close()
                 except Exception as e:
+                    self._consume_intentional_context_close(context_to_close)
                     logger.warning(
                         f"ProviderSession({self.name}): Failed to close browser context: {e}",
                         exc_info=True,

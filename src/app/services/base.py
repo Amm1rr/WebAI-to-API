@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 from app.schemas.request import OpenAIChatRequest
+from app.services.providers.base_repository import ProviderCapability
 
 class BaseProvider(ABC):
     """
     Abstract base class for all AI providers.
     Defines the lightweight contract for external behavior normalization.
     """
+    capabilities: set[ProviderCapability] = set()
 
     @abstractmethod
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:

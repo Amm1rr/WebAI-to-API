@@ -4,18 +4,31 @@ import time
 from typing import Any, List, Optional
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from gemini_webapi.exceptions import APIError
 from app.services.base import BaseProvider
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.providers.base_repository import ProviderCapability
+from app.services.providers.exceptions import SessionRecoveryError, SnapshotNotFoundError, StateIntegrityError
 from app.services.session_manager import get_translate_session_manager, get_gemini_chat_registry, generate_opaque_token
 from app.utils.streaming import simulate_streaming_generator
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
+from models.gemini import resolve_model_name
+
+UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
+    "1097",
+}
+
+def is_unknown_model_error(error: ValueError) -> bool:
+    return "Unknown model name" in str(error)
 
 class GeminiProvider(BaseProvider):
     """
     Browser/session-driven provider for Google Gemini.
     Handles stateful sessions, cookie rotation, and prompt-based tool-calling simulation.
     """
+    provider_name = "gemini"
+    capabilities = {ProviderCapability.PERSISTENT_RECOVERY}
 
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
         try:
@@ -26,8 +39,12 @@ class GeminiProvider(BaseProvider):
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided.")
 
+        self._validate_model_name(request.model)
+        self._require_authenticated_conversation_recovery(request.conversation_id, gemini_client)
+
         # 1. Resolve or generate conversation_id securely
         cid = request.conversation_id
+        is_new_conversation = cid is None
         if cid:
             if len(cid) > 64:
                 raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
@@ -39,7 +56,21 @@ class GeminiProvider(BaseProvider):
         if not registry:
             raise HTTPException(status_code=503, detail="Session registry is not initialized.")
         
-        session_manager = await registry.get_session(cid)
+        try:
+            session_manager = await registry.get_session(
+                cid,
+                self,
+                allow_create=is_new_conversation,
+                model=request.model,
+                gem=request.gem,
+            )
+        except SnapshotNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail="The provided conversation_id was not found.",
+            )
+        except SessionRecoveryError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
 
         # 3. Build tool-calling prompt
         tools_prompt = self._build_tools_prompt(request.tools) if request.tools else ""
@@ -73,6 +104,7 @@ class GeminiProvider(BaseProvider):
                     except Exception as e:
                         logger.error(f"Error in Gemini progressive streaming: {e}", exc_info=True)
                     else:
+                        await registry.save_session_snapshot(cid, self, session_manager)
                         # Only send [DONE] if the stream finished successfully
                         yield await get_done_chunk()
 
@@ -94,6 +126,7 @@ class GeminiProvider(BaseProvider):
                 files=None,
                 gem=request.gem
             )
+            await registry.save_session_snapshot(cid, self, session_manager)
             
             # 6. Parse tool calls if necessary
             tool_call = self._parse_tool_call(response.text) if request.tools else None
@@ -124,9 +157,93 @@ class GeminiProvider(BaseProvider):
                 
             return openai_response
 
+        except HTTPException:
+            raise
+        except APIError as e:
+            if request.conversation_id and self._is_unrecoverable_conversation_error(e):
+                # NOTE:
+                # gemini_webapi retries APIError internally via @running(retry=5).
+                # For unrecoverable recovered conversations (e.g. API 1097),
+                # this may introduce additional latency before HTTP 410 is returned.
+                #
+                # No public per-call retry override currently exists in gemini_webapi.
+                # Avoid relying on internal decorator parameters such as current_retry,
+                # as they are implementation details and may change without notice.
+                #
+                # TODO(#77): Investigate an official per-request retry override for
+                # recovered conversations.
+                raise HTTPException(
+                    status_code=410,
+                    detail="The provided conversation_id can no longer be recovered. Start a new conversation.",
+                ) from e
+            logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
         except Exception as e:
             logger.error(f"Error in GeminiProvider.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
+
+    def _validate_model_name(self, model: Optional[str]) -> None:
+        if not model:
+            return
+
+        from gemini_webapi.constants import Model
+
+        try:
+            Model.from_name(resolve_model_name(model))
+        except ValueError as e:
+            if is_unknown_model_error(e):
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            raise
+
+    def _require_authenticated_conversation_recovery(self, conversation_id: Optional[str], gemini_client: Any) -> None:
+        if not conversation_id:
+            return
+
+        client = getattr(gemini_client, "client", None)
+        account_status = getattr(client, "account_status", None)
+        status_name = getattr(account_status, "name", None)
+
+        if status_name != "AVAILABLE":
+            raise HTTPException(
+                status_code=401,
+                detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    def _is_unrecoverable_conversation_error(self, error: APIError) -> bool:
+        error_code = (
+            getattr(error, "code", None)
+            or getattr(error, "error_code", None)
+            or getattr(error, "status_code", None)
+        )
+        if error_code is not None:
+            return str(error_code) in UNRECOVERABLE_CONVERSATION_ERROR_CODES
+
+        # Provider-specific conversation recovery failures. Add new codes only
+        # after observed provider behavior or upstream documentation confirms them.
+        return any(code in str(error) for code in UNRECOVERABLE_CONVERSATION_ERROR_CODES)
+
+    def serialize_session_state(self, session: Any) -> dict:
+        return json.loads(serialize_session_state(session))
+
+    def deserialize_session_state(
+        self,
+        session_state: dict,
+        client: Any,
+        *,
+        model: Optional[Any] = None,
+        gem: Optional[Any] = None,
+    ) -> Any:
+        return deserialize_session_state(
+            json.dumps(session_state),
+            client,
+            model=model,
+            gem=gem,
+        )
+
+    def validate_session_recovery(self, session_state: dict, client_context: Optional[dict] = None) -> dict:
+        validate_session_state_payload(session_state)
+        return session_state
 
 
     async def list_models(self) -> List[dict]:
@@ -227,3 +344,85 @@ class GeminiProvider(BaseProvider):
             }],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
+
+
+def serialize_session_state(session: Any) -> str:
+    """
+    Serializes a Gemini ChatSession's private state into a JSON string.
+    """
+    if session is None:
+        raise ValueError("Session cannot be None.")
+
+    gem_id = None
+    if session.gem:
+        gem_id = session.gem.id if hasattr(session.gem, 'id') else session.gem
+
+    model_name = ""
+    if session.model:
+        if isinstance(session.model, str):
+            model_name = session.model
+        elif isinstance(session.model, dict):
+            model_name = session.model.get("model_name", "")
+        elif hasattr(session.model, "model_name"):
+            model_name = session.model.model_name
+        else:
+            model_name = str(session.model)
+
+    payload = {
+        "provider_state_version": 1,
+        "metadata": session.metadata,
+        "gem_id": gem_id,
+        "model_name": model_name
+    }
+    return json.dumps(payload)
+
+
+def validate_session_state_payload(payload: Any) -> None:
+    if not isinstance(payload, dict):
+        raise StateIntegrityError("Session state must be a JSON object.")
+
+    required_keys = {"provider_state_version", "metadata", "gem_id", "model_name"}
+    missing_keys = required_keys - payload.keys()
+    if missing_keys:
+        raise StateIntegrityError(f"Missing required session state fields: {', '.join(sorted(missing_keys))}")
+
+    version = payload.get("provider_state_version")
+    if version != 1:
+        raise StateIntegrityError(f"Unsupported provider state version: {version}")
+
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, list) or len(metadata) < 3:
+        raise StateIntegrityError("Missing or invalid metadata context in session state.")
+    if not all(isinstance(value, str) and value for value in metadata[:3]):
+        raise StateIntegrityError("Missing or invalid Gemini continuation metadata fields.")
+
+
+def deserialize_session_state(
+    state_str: str,
+    client: Any,
+    *,
+    model: Optional[Any] = None,
+    gem: Optional[Any] = None,
+) -> Any:
+    """
+    Deserializes a Gemini ChatSession's state from a JSON string,
+    recreates the session using the client, and safely isolates the metadata reference.
+    """
+    try:
+        payload = json.loads(state_str)
+    except Exception as e:
+        raise StateIntegrityError(f"Malformed JSON state: {e}")
+
+    validate_session_state_payload(payload)
+
+    metadata = payload.get("metadata")
+    model_name = model if model is not None else payload.get("model_name")
+    gem_id = gem if gem is not None else payload.get("gem_id")
+
+    # Start a clean chat session
+    session = client.start_chat(model=model_name, gem=gem_id)
+
+    # Guarantee isolated metadata copy to break shared reference to DEFAULT_METADATA
+    session._ChatSession__metadata = list(metadata)
+
+    return session

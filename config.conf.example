@@ -24,9 +24,10 @@ default_ai = gemini
 # - unspecified                (use account default)
 default_model_gemini = gemini-3-flash
 
-# --- Gemini Cookies ---
-# Provide your authentication cookies for Gemini here.
-# You can either paste them manually or log in via browser to generate them.
+# --- Gemini Cookies (DEPRECATED) ---
+# ⚠️ WARNING: Configuration-backed cookie storage is deprecated.
+# Active session storage has been migrated to the canonical store at runtime/auth/gemini.json.
+# Cookies provided here will only be read as a read-only fallback.
 [Cookies]
 gemini_cookie_1psid = 
 gemini_cookie_1psidts = 
@@ -61,3 +62,10 @@ ui_wait_timeout = 15000
 # Eviction timeouts in seconds
 idle_conversation_timeout = 900
 lease_timeout = 180
+# Directory for provider browser storage state files
+auth_state_dir = runtime/auth
+# Concurrency locking backend for on-demand authentication coordination.
+# Default: in_memory (process-bound). Swapping this is required for production
+# multi-worker/Gunicorn or horizontally scaled SaaS deployments to avoid races.
+# Supported future values: redis, postgres.
+auth_lock_backend = in_memory

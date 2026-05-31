@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from app.services.browser.session import ProviderSession
 from app.services.browser.errors import TransientSessionError
+from app.services.browser.engine import BrowserEngine
 from app.services.providers.gemini_playwright import GeminiPlaywrightProvider
 from app.schemas.request import OpenAIChatRequest
 from fastapi import HTTPException
@@ -187,6 +188,78 @@ async def test_transient_failure_preserves_persistent_state_file(tmp_path):
     # 4. Verify that the state file is preserved
     assert state_file.exists()
     assert state_file.read_text() == '{"cookies": [{"name": "mock"}]}'
+
+
+@pytest.mark.asyncio
+async def test_intentional_provider_context_cleanup_does_not_shutdown_engine(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine._on_browser_disconnected = Mock()
+
+    session = ProviderSession(mock_engine, "test_provider")
+    context = MagicMock()
+    async def close_context():
+        await session._on_context_closed(context)
+    context.close = AsyncMock(side_effect=close_context)
+    session.context = context
+
+    await session.close_resources(save_state=False)
+
+    mock_engine._on_browser_disconnected.assert_not_called()
+    assert session.context is None
+
+
+@pytest.mark.asyncio
+async def test_unexpected_provider_context_close_triggers_engine_shutdown(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine._on_browser_disconnected = Mock()
+
+    session = ProviderSession(mock_engine, "test_provider")
+    context = MagicMock()
+
+    await session._on_context_closed(context)
+
+    mock_engine._on_browser_disconnected.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_browser_disconnect_still_schedules_terminal_close():
+    engine = BrowserEngine(headless=True)
+    engine.close = AsyncMock()
+
+    engine._on_browser_disconnected()
+    await asyncio.sleep(0)
+
+    engine.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_liveness_loss_still_triggers_terminal_shutdown(tmp_path, monkeypatch):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine._on_browser_disconnected = Mock()
+
+    session = ProviderSession(mock_engine, "test_provider")
+    session.last_browser_generation = 1
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr("app.services.browser.session.asyncio.sleep", no_sleep)
+
+    await session._reaper_loop()
+
+    mock_engine._on_browser_disconnected.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -381,9 +454,12 @@ async def test_auth_expired_maps_to_401(monkeypatch):
     """Verify that SessionNotAliveError maps to HTTPException 401."""
     mock_engine = MagicMock()
     mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine._on_browser_disconnected = Mock()
     mock_session = AsyncMock()
     mock_session.submit_lock = asyncio.Lock()
     mock_session._setup_page_bridge = AsyncMock()
+    mock_session.handle_session_failure = AsyncMock()
     mock_engine.get_session = AsyncMock(return_value=mock_session)
     
     async def mock_get_browser_engine():
@@ -427,6 +503,9 @@ async def test_auth_expired_maps_to_401(monkeypatch):
         
     assert excinfo.value.status_code == 401
     assert "Authentication expired." in excinfo.value.detail
+    mock_session.handle_session_failure.assert_awaited_once()
+    mock_engine._on_browser_disconnected.assert_not_called()
+    assert mock_engine.is_shutting_down is False
 
 
 @pytest.mark.asyncio
@@ -754,6 +833,4 @@ async def test_www_authenticate_header_exists_on_401(monkeypatch):
     assert "Authentication expired." in excinfo.value.detail
     assert excinfo.value.headers is not None
     assert excinfo.value.headers.get("WWW-Authenticate") == "Bearer"
-
-
 

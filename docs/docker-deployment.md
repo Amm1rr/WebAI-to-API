@@ -44,7 +44,7 @@ The service is defined in `docker-compose.yml` for production execution:
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
 - **Port Exposure**: Maps host port `6969` to container port `6969`.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH`, `ENVIRONMENT`, and `PLAYWRIGHT_HEADLESS`.
-- **Persistent Authentication State**: Mounts `./auth_state` into the container to preserve browser authentication and session data across container restarts and redeployments.
+- **Persistent Runtime State**: Mounts `./runtime` into the container to preserve browser authentication state, conversation snapshots, and runtime-generated cache/log directories across container restarts and redeployments.
 
 ### 3.2 Runtime Topology
 
@@ -62,11 +62,11 @@ Browser session data is persisted through mounted volumes, ensuring it survives 
 
 ### 4.1 Ephemeral vs. Persistent Boundaries
 - **Ephemeral assets**: Source files, dependencies, and internal Playwright page caches are stored in transient container layers and discarded on container rebuilds.
-- **Persistent session files**: User-visible session profiles, cookies (`gemini.json`), and conversation history are persisted.
+- **Persistent runtime files**: User-visible session profiles, cookies (`runtime/auth/gemini.json`), SQLite conversation snapshots, and runtime-generated logs/cache are persisted.
 
 ### 4.2 Storage Mounts
-- **Bind mount configuration**: Maps the local host path `./auth_state` to `/app/auth_state` inside the container.
-- **Volume persistence**: When the Playwright session updates or performs autosaving, state files are written within the mounted volume, surviving container recreation.
+- **Bind mount configuration**: Maps the local host path `./runtime` to `/app/runtime` inside the container.
+- **Volume persistence**: Runtime-generated state files are written within the mounted volume, surviving container recreation.
 
 ---
 
@@ -105,7 +105,7 @@ docker logs -f web_ai_server
 ## 7. Operational Notes
 
 ### 7.1 Image Rebuild
-Because the production-only container maps only persistent browser data directories (`./auth_state`) and does not bind-mount source code directories, any modification to Python source files (`.py` under `src/` or `app/`) requires an image rebuild to be projected into the active container runtime:
+Because the production-only container maps only persistent runtime state directories (`./runtime`) and does not bind-mount source code directories, any modification to Python source files (`.py` under `src/` or `app/`) requires an image rebuild to be projected into the active container runtime:
 - **`docker-compose up --build` or `make build`**: Required whenever there are changes to Python source code, system packages, the `Dockerfile`, or Python dependencies in `requirements.txt`.
 - **`make build-fresh`**: Recommended when troubleshooting package mismatch issues, resetting cached layers, or performing a clean verification of the dependency tree.
 
