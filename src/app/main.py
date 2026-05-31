@@ -32,6 +32,14 @@ async def lifespan(app: FastAPI):
     else:
         logger.error("Failed to initialize Gemini client in server process.")
 
+    # Register Gemini Auth Strategy
+    try:
+        from app.services.providers.gemini.auth import GeminiAuthStrategy
+        get_auth_manager().set_strategy(GeminiAuthStrategy())
+        logger.info("Gemini authentication strategy registered.")
+    except Exception as e:
+        logger.error(f"Failed to register Gemini auth strategy: {e}")
+
     # Initialize session managers
     try:
         await init_session_managers()
