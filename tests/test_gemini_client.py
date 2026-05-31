@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.services.providers.gemini.client import init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
 from app.services.browser.auth_loader import GeminiAuthStateLoader
+from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
 
 
 class Status:
@@ -24,6 +25,18 @@ def auth_data(psid):
             {"name": "__Secure-1PSID", "value": psid, "domain": ".google.com"}
         ]
     }
+
+
+def auth_candidate(source_name, source_type, psid, is_legacy=False):
+    return GeminiAuthCandidate(
+        source_name=source_name,
+        source_type=source_type,
+        auth_data=auth_data(psid),
+        is_legacy=is_legacy,
+        supports_webapi_cookie_auth=True,
+        supports_playwright_storage=True,
+        migration_needed=is_legacy,
+    )
 
 
 def patch_auth_sources(mocker, gemini=None, legacy=None, json_source=None):
@@ -403,6 +416,49 @@ async def test_init_gemini_client_all_unavailable(mocker):
 # =============================================================================
 # Source Iteration Tests (Config Source Priority Chain)
 # =============================================================================
+
+@pytest.mark.asyncio
+async def test_init_gemini_client_consumes_selector_candidates_in_order(mocker):
+    """Verify WebAPI initialization consumes GeminiAuthSelector candidates in order."""
+    gemini_client_module._gemini_client = None
+    gemini_client_module._initialization_error = None
+
+    mock_config = configparser.ConfigParser()
+    mock_config.optionxform = str
+    mock_config.read_dict({
+        "EnabledAI": {"gemini": "true"},
+        "Proxy": {"http_proxy": ""},
+        "Playwright": {"auth_state_dir": "auth_state"}
+    })
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
+
+    candidates = [
+        auth_candidate("[Gemini] config", "gemini_config", "gemini_psid"),
+        auth_candidate("[Cookies] legacy config", "legacy_cookies", "cookies_psid", is_legacy=True),
+    ]
+    selector = mocker.patch(
+        'app.services.providers.gemini.client.GeminiAuthSelector.iter_candidates',
+        return_value=iter(candidates),
+    )
+
+    mock_gemini_client = make_mock_client("UNAUTHENTICATED")
+    mock_cookies_client = make_mock_client("AVAILABLE")
+    mock_my_gemini_client_class = mocker.patch(
+        'app.services.providers.gemini.client.MyGeminiClient',
+        side_effect=[mock_gemini_client, mock_cookies_client]
+    )
+    mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser')
+
+    res = await init_gemini_client()
+
+    assert res is True
+    assert gemini_client_module._gemini_client is mock_cookies_client
+    selector.assert_called_once()
+    assert [call.kwargs["secure_1psid"] for call in mock_my_gemini_client_class.call_args_list] == [
+        "gemini_psid",
+        "cookies_psid",
+    ]
+
 
 @pytest.mark.asyncio
 async def test_init_gemini_client_source_iteration_unauth_to_avail(mocker):
