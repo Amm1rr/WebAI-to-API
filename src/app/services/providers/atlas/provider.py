@@ -4,7 +4,7 @@ from typing import Any, List
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from app.services.base import BaseProvider
-from app.services.atlas_client import get_atlas_client, AtlasClientNotConfiguredError, AtlasClientError
+from .client import get_atlas_client, AtlasClientNotConfiguredError, AtlasClientError
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 
