@@ -123,6 +123,100 @@ class GeminiAuthStateLoader:
         return None, False
 
     @classmethod
+    def get_gemini_config_source(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Get cookies from [Gemini] section in config.conf.
+        Returns Tuple (cookies_data_dict, is_legacy_fallback).
+        Returns (None, False) if section missing or cookies incomplete.
+        """
+        if "Gemini" not in CONFIG:
+            return None, False
+
+        gemini_config = dict(CONFIG["Gemini"])
+        psid_val = gemini_config.get("__Secure-1PSID", "").strip()
+        psidts_val = gemini_config.get("__Secure-1PSIDTS", "").strip()
+
+        # Source is usable ONLY when BOTH cookies are present and non-empty
+        if psid_val and psidts_val:
+            # Clean up quoted values if present
+            psid_val = psid_val.strip('"')
+            psidts_val = psidts_val.strip('"')
+
+            reconstructed_cookies = [
+                {
+                    "name": "__Secure-1PSID",
+                    "value": psid_val,
+                    "domain": ".google.com",
+                    "path": "/"
+                },
+                {
+                    "name": "__Secure-1PSIDTS",
+                    "value": psidts_val,
+                    "domain": ".google.com",
+                    "path": "/"
+                }
+            ]
+            return {"cookies": reconstructed_cookies}, False
+
+        return None, False
+
+    @classmethod
+    def get_legacy_cookie_source(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Get cookies from legacy [Cookies] section in config.conf.
+        Returns Tuple (cookies_data_dict, is_legacy_fallback).
+        Returns (None, False) if section missing or cookies incomplete.
+        """
+        if "Cookies" not in CONFIG:
+            return None, False
+
+        config_cookies = dict(CONFIG["Cookies"])
+        # Only support legacy aliases - do NOT support __Secure- prefixed keys here
+        psid_val = config_cookies.get("gemini_cookie_1psid", "").strip()
+        psidts_val = config_cookies.get("gemini_cookie_1psidts", "").strip()
+
+        # Source is usable ONLY when BOTH cookies are present and non-empty
+        if psid_val and psidts_val:
+            # Clean up quoted values if present
+            psid_val = psid_val.strip('"')
+            psidts_val = psidts_val.strip('"')
+
+            logger.warning(
+                "Legacy Gemini cookie configuration detected in [Cookies]. "
+                "Please move cookies to the [Gemini] section. "
+                "Support will be removed in a future release."
+            )
+            reconstructed_cookies = [
+                {
+                    "name": "__Secure-1PSID",
+                    "value": psid_val,
+                    "domain": ".google.com",
+                    "path": "/"
+                },
+                {
+                    "name": "__Secure-1PSIDTS",
+                    "value": psidts_val,
+                    "domain": ".google.com",
+                    "path": "/"
+                }
+            ]
+            return {"cookies": reconstructed_cookies}, True
+
+        return None, False
+
+    @classmethod
+    def get_json_source(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Get cookies from canonical store runtime/auth/gemini.json.
+        Returns Tuple (cookies_data_dict, is_legacy_fallback).
+        Returns (None, False) if file missing, empty, or invalid.
+        """
+        canonical = cls.load_canonical_state()
+        if canonical:
+            return canonical, False
+        return None, False
+
+    @classmethod
     def validate_state_structure(cls, data: Any) -> bool:
         """
         Validates the structure of the loaded auth state dictionary.
