@@ -52,8 +52,8 @@ This design provides both **speed and reliability**, ensuring flexibility depend
   - `/v1beta/models/{model}` (Google Generative AI v1beta compatibility layer)
 
   ### Legacy / Specialized APIs
-  - `/gemini` (Stateless Gemini endpoint)
-  - `/gemini-chat` (Simple conversation-oriented Gemini endpoint)
+  - `/gemini` (Legacy stateless Gemini endpoint)
+  - `/gemini-chat` (Legacy in-memory conversation endpoint — does not survive restarts)
   - `/translate` (Specialized endpoint for Translate It! integration)
   - `/v1/gems` (List available Gemini Gems)
 
@@ -194,15 +194,20 @@ A lightweight implementation intended for integrations expecting the Google Gene
 
 > `POST /gemini`
 
-Simple stateless Gemini endpoint. Each request starts a completely new session.
+**Legacy stateless Gemini endpoint**. Retained for backward compatibility. Each request starts a completely new session. New integrations should prefer `/v1/chat/completions`.
 
 > `POST /gemini-chat`
 
-Simple conversation-oriented Gemini endpoint. Useful for basic stateful interactions without the full OpenAI schema complexity.
+**Legacy conversation-oriented Gemini endpoint**. Conversation state is maintained in memory only and **does not survive server restarts**. For persistent conversations, use `/v1/chat/completions` with `conversation_id`.
 
 > `POST /translate`
 
-Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension. It functions similarly to `/gemini-chat` but is optimized for translation tasks.
+Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
+- **Shared Session**: Uses a shared global in-memory session (no isolation).
+- **Transient**: Does not survive server restarts.
+- **Non-Streaming**: Buffered responses only.
+- **Requirement**: The client must provide translation instructions in the prompt.
+- **Recommendation**: For isolated or persistent translation workflows, prefer `/v1/chat/completions`.
 
 > `GET /v1/gems`
 

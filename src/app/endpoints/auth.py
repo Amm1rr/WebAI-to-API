@@ -5,7 +5,11 @@ from app.logger import logger
 
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])
 
-@router.get("/status")
+@router.get(
+    "/status",
+    summary="Get Authentication Status",
+    description="Inspects the current authentication state. Returns information about whether providers are logged in, pending login operations, and runtime auth diagnostics."
+)
 async def get_auth_status(refresh: bool = Query(False, description="Force a lightweight cache refresh")):
     auth_mgr = get_auth_manager()
     if refresh:
@@ -16,7 +20,12 @@ async def get_auth_status(refresh: bool = Query(False, description="Force a ligh
     
     return auth_mgr.get_status()
 
-@router.post("/login", status_code=202)
+@router.post(
+    "/login",
+    status_code=202,
+    summary="Trigger Authentication Login",
+    description="Starts an isolated browser-based login workflow. Opens the authentication flow for the user to log in when sessions expire."
+)
 async def trigger_auth_login():
     auth_mgr = get_auth_manager()
     try:
