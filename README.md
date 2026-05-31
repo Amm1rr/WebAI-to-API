@@ -111,6 +111,18 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | `gemini-3-flash`            | Fast and efficient model (default) |
 | `gemini-3-flash-thinking`   | Enhanced reasoning model           |
 
+### Provider Routing
+
+Requests to `/v1/chat/completions` are automatically routed based on the model prefix or an explicit provider field.
+
+| Model Prefix | Provider | Example |
+| ------------ | -------- | ------- |
+| *(none)*     | Gemini   | `gemini-3-flash` |
+| `playwright/`| Gemini (Playwright) | `playwright/gemini-3-pro` |
+| `atlas/`     | Atlas    | `atlas/MiniMax-M2` |
+
+---
+
 ### Example Request (Basic)
 
 ```json
@@ -232,7 +244,6 @@ Lists available Gemini "Gems" associated with the account. The returned Gem IDs 
 
 | Section     | Option     | Description                                | Example Value           |
 | ----------- | ---------- | ------------------------------------------ | ----------------------- |
-| [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`                |
 | [Browser]   | name       | Browser for cookie-based authentication    | `chrome`               |
 | [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`                  |
 | [Proxy]     | http_proxy | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
@@ -245,10 +256,6 @@ If the cookies are left empty, the application will automatically retrieve them 
 ### Sample `config.conf`
 
 ```ini
-[AI]
-# Default AI service.
-default_ai = gemini
-
 [Gemini]
 # Choose the backend adapter (webapi or playwright)
 backend = webapi

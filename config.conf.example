@@ -9,12 +9,6 @@
 [Browser]
 name = chrome
 
-# --- AI Provider Settings ---
-# Select the default AI service.
-# Currently supported: gemini, atlas
-[AI]
-default_ai = gemini
-
 # --- Gemini Configuration ---
 # Configure the Google Gemini provider.
 #

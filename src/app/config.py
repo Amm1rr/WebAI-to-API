@@ -45,8 +45,6 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["Browser"] = {"name": "chrome"}
     if "Cookies" not in config:
         config["Cookies"] = {}
-    if "AI" not in config:
-        config["AI"] = {}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
     if "Playwright" not in config:
