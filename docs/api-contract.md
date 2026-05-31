@@ -98,19 +98,22 @@ Authentication is a decoupled lifecycle managed via `AuthManager` and specialize
 
 ## 10. Provider Routing Contract
 
-The architecture enforces a "Thin Gateway" pattern:
+The architecture enforces a "Thin Gateway" pattern with an encapsulated strategy layer:
 
 ```text
 /v1/chat/completions
         ↓
-ProviderFactory (Resolves provider based on model prefix)
+ProviderFactory (Resolves logical identity, e.g., "gemini", "atlas")
         ↓
-Selected Provider (Handles request transformation & implementation)
+Provider (Logical Identity - e.g., GeminiProvider)
+        ↓
+Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 ```
 
-- **Ownership**: The endpoint handler is responsible for routing and normalization.
-- **Logic**: All implementation-heavy logic (session recovery, tool-call parsing, prompt construction) belongs to the **Provider**.
-- **Transparency**: The gateway should remain agnostic of provider internals.
+- **Ownership**: The endpoint handler is responsible for high-level routing via the factory.
+- **Identity**: The Provider class represents the logical LLM vendor and owns all shared logic (e.g., tool parsing, prompt transformation) common to that vendor across different backends.
+- **Strategy**: The Adapter encapsulates the technical implementation details of a specific execution backend (e.g., driving a browser via Playwright vs. using a REST API).
+- **Transparency**: The gateway remains agnostic of whether a request is fulfilled via a browser-native runtime or a direct API client.
 
 ## 11. Future Evolution Policy
 

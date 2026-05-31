@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.schemas.request import OpenAIChatRequest
 from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
-from app.services.providers.gemini import GeminiProvider
+from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.sqlite_repository import SQLiteConversationRepository
 from app.services.session_manager import SessionRegistry
 
@@ -59,9 +59,9 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(tmp
     client = MockGeminiClient()
     first_registry = SessionRegistry(client, repository=repo)
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=first_registry)
-    mocker.patch("app.services.providers.gemini.generate_opaque_token", return_value="conv-restart")
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
+    mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart")
 
     first_response = await provider.chat_completions(
         OpenAIChatRequest(
@@ -74,7 +74,7 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(tmp
     assert first_response["reused_conversation"] is False
 
     second_registry = SessionRegistry(client, repository=repo)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=second_registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=second_registry)
 
     second_response = await provider.chat_completions(
         OpenAIChatRequest(
@@ -117,8 +117,8 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(tmp_path, mo
     client = MockGeminiClient()
     registry = SessionRegistry(client, repository=repo)
 
-    mocker.patch("app.services.providers.gemini.get_gemini_client", return_value=client)
-    mocker.patch("app.services.providers.gemini.get_gemini_chat_registry", return_value=registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     with pytest.raises(HTTPException) as exc_info:
         await provider.chat_completions(

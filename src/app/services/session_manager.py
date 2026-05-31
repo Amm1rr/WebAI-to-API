@@ -10,6 +10,7 @@ from app.logger import logger
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.base_repository import ConversationSnapshot, IConversationRepository, ProviderCapability
 from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
+from app.utils.tokens import generate_opaque_token
 
 # Configuration constants
 MAX_SESSIONS = 500
@@ -340,9 +341,6 @@ class SessionRegistry:
                     if len(self._sessions) < MAX_SESSIONS * 0.9:
                         break
 
-def generate_opaque_token() -> str:
-    """Generate a cryptographically secure opaque token for conversation IDs."""
-    return secrets.token_urlsafe(16)
 
 # Global instances
 _translate_session_manager = None
