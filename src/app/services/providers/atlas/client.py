@@ -66,11 +66,16 @@ class AtlasClient:
 
 
 def get_atlas_client() -> AtlasClient:
-    api_key = os.getenv("ATLASCLOUD_API_KEY")
+    from app.config import CONFIG
+
+    api_key = os.getenv("ATLASCLOUD_API_KEY") or CONFIG.get("Atlas", "api_key", fallback=None)
     if not api_key:
         raise AtlasClientNotConfiguredError(
-            "Atlas Cloud API key not configured. Set ATLASCLOUD_API_KEY in .env.local or environment."
+            "Atlas Cloud API key not configured. Set ATLASCLOUD_API_KEY in .env.local or [Atlas] api_key in config.conf."
         )
 
-    base_url = os.getenv("ATLASCLOUD_BASE_URL", "https://api.atlascloud.ai/v1")
+    base_url = (
+        os.getenv("ATLASCLOUD_BASE_URL")
+        or CONFIG.get("Atlas", "base_url", fallback="https://api.atlascloud.ai/v1")
+    )
     return AtlasClient(api_key=api_key, base_url=base_url)

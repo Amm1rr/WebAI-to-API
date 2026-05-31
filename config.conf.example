@@ -38,6 +38,14 @@ gemini_cookie_1psidts =
 [EnabledAI]
 gemini = true
 
+# --- Atlas Cloud Configuration ---
+# API key and endpoint for the Atlas Cloud provider.
+# NOTE: Environment variables (ATLASCLOUD_API_KEY, ATLASCLOUD_BASE_URL) 
+# take precedence over these settings.
+[Atlas]
+api_key = 
+base_url = https://api.atlascloud.ai/v1
+
 # --- Gemini Execution Strategy ---
 # Choose the backend adapter for Gemini execution.
 # - webapi:    Lightweight, fast, uses unofficial API wrappers.
