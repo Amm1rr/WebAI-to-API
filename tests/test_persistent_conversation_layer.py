@@ -6,7 +6,7 @@ from app.schemas.request import OpenAIChatRequest
 from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.sqlite_repository import SQLiteConversationRepository
-from app.services.session_manager import SessionRegistry
+from app.services.providers.gemini.session_manager import SessionRegistry
 
 
 class MockResponse:

@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from gemini_webapi.exceptions import APIError
 
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.session_manager import get_gemini_chat_registry
+from app.services.providers.gemini.session_manager import get_gemini_chat_registry
 from app.services.providers.exceptions import SessionRecoveryError, SnapshotNotFoundError
 from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
 from app.services.providers.gemini.shared import (

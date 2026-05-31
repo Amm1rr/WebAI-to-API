@@ -6,7 +6,8 @@ from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.session_manager import get_gemini_chat_registry, generate_opaque_token
+from app.services.providers.gemini.session_manager import get_gemini_chat_registry
+from app.utils.tokens import generate_opaque_token
 
 from pathlib import Path
 from typing import Union, List, Optional

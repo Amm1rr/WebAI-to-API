@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.session_manager import get_translate_session_manager
+from app.services.providers.gemini.session_manager import get_translate_session_manager
 from app.services.factory import ProviderFactory
 
 router = APIRouter()

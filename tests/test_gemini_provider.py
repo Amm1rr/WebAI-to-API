@@ -65,7 +65,7 @@ def test_convert_to_openai_format_with_tool_call(provider):
 async def test_chat_completions_stateful_buffered(mocker, provider):
     """Verify chat_completions retrieves SessionManager and executes stateful buffered response."""
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionManager, SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
     
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
@@ -109,7 +109,7 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
 @pytest.mark.asyncio
 async def test_chat_completions_invalid_model_buffered_returns_400_before_session_use(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionRegistry
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
     mock_registry = mocker.Mock(spec=SessionRegistry)
@@ -133,7 +133,7 @@ async def test_chat_completions_invalid_model_buffered_returns_400_before_sessio
 @pytest.mark.asyncio
 async def test_chat_completions_invalid_model_streaming_returns_400_before_stream(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionRegistry
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
     mock_registry = mocker.Mock(spec=SessionRegistry)
@@ -157,7 +157,7 @@ async def test_chat_completions_invalid_model_streaming_returns_400_before_strea
 @pytest.mark.asyncio
 async def test_chat_completions_with_conversation_id_requires_authenticated_client(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionRegistry
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "UNAUTHENTICATED"
@@ -189,7 +189,7 @@ async def test_chat_completions_with_conversation_id_requires_authenticated_clie
 @pytest.mark.asyncio
 async def test_chat_completions_with_conversation_id_fails_closed_when_auth_status_unknown(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionRegistry
 
     mock_client = SimpleNamespace(
         client=SimpleNamespace(account_status=SimpleNamespace())
@@ -217,7 +217,7 @@ async def test_chat_completions_with_conversation_id_fails_closed_when_auth_stat
 @pytest.mark.asyncio
 async def test_chat_completions_with_stale_conversation_id_returns_410(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionManager, SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
@@ -255,7 +255,7 @@ async def test_chat_completions_with_stale_conversation_id_returns_410(mocker, p
 @pytest.mark.asyncio
 async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_error(mocker, provider):
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionManager, SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
@@ -296,7 +296,7 @@ async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_err
 async def test_chat_completions_stateful_streaming(mocker, provider):
     """Verify chat_completions retrieves SessionManager and executes stateful streaming response with SSE format."""
     from app.schemas.request import OpenAIChatRequest
-    from app.services.session_manager import SessionManager, SessionRegistry
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
     
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
@@ -350,7 +350,7 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
 
 def test_transform_messages_formatting():
     """Verify transform_messages formatting behavior for different roles and tools."""
-    from app.services.session_manager import transform_messages
+    from app.services.providers.gemini.session_manager import transform_messages
     
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},

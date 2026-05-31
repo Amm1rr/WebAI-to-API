@@ -1,4 +1,4 @@
-# src/app/services/session_manager.py
+# src/app/services/providers/gemini/session_manager.py
 import asyncio
 import time
 import secrets

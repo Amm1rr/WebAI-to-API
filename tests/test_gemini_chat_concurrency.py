@@ -3,7 +3,8 @@ import json
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
-from app.services.session_manager import SessionRegistry, SessionManager, generate_opaque_token
+from app.services.providers.gemini.session_manager import SessionRegistry, SessionManager
+from app.utils.tokens import generate_opaque_token
 
 @pytest.mark.asyncio
 async def test_concurrent_independent_streams(mocker):
@@ -87,8 +88,11 @@ async def test_same_session_serialization(mocker):
 @pytest.mark.asyncio
 async def test_registry_capacity_exhaustion(mocker):
     """Verify HTTP 429 when all sessions are locked."""
-    from app.services import session_manager
-    mocker.patch("app.services.session_manager.MAX_SESSIONS", 2)
+    from app.services.providers.gemini import session_manager
+    mocker.patch(
+        "app.services.providers.gemini.session_manager.MAX_SESSIONS",
+        2,
+    )
     
     mock_client = mocker.Mock()
     registry = SessionRegistry(mock_client)
@@ -108,8 +112,11 @@ async def test_registry_capacity_exhaustion(mocker):
 @pytest.mark.asyncio
 async def test_pruning_protects_active_streams(mocker):
     """Verify that sessions with active streams are NOT pruned."""
-    from app.services import session_manager
-    mocker.patch("app.services.session_manager.MAX_SESSIONS", 1)
+    from app.services.providers.gemini import session_manager
+    mocker.patch(
+        "app.services.providers.gemini.session_manager.MAX_SESSIONS",
+        1,
+    )
     
     mock_client = mocker.Mock()
     registry = SessionRegistry(mock_client)
