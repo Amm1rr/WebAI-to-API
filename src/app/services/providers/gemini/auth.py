@@ -30,7 +30,7 @@ class GeminiAuthStrategy:
         # 2. Check direct WebAPI client status
         webapi_status = AuthStatus.INVALID
         try:
-            import app.services.gemini_client as gc
+            import app.services.providers.gemini.client as gc
             client_instance = gc._gemini_client
             if client_instance:
                 status_name = client_instance.client.account_status.name if hasattr(client_instance.client, 'account_status') else "UNKNOWN"
@@ -158,7 +158,7 @@ class GeminiAuthStrategy:
         """
         Ordered recovery for Gemini components after successful login.
         """
-        from app.services.gemini_client import init_gemini_client
+        from app.services.providers.gemini.client import init_gemini_client
         from app.services.providers.gemini.session_manager import init_session_managers
         from app.services.factory import ProviderFactory
         
