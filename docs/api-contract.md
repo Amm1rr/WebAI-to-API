@@ -15,7 +15,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
-| `/v1/chat/completions` | Primary | Yes | SQLite-backed | Yes | Authoritative OpenAI-compatible surface. |
+| `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for all providers. |
 | `/v1/auth/status` | Primary | Yes | N/A | No | Real-time auth state and health diagnostics. |
 | `/v1/auth/login` | Primary | Yes | N/A | No | Trigger for browser-based login workflows. |
@@ -32,7 +32,7 @@ The `/v1/chat/completions` endpoint is the authoritative API surface of the proj
 - **Schema**: Strictly follows the OpenAI request/response format.
 - **Streaming**: Supported via Server-Sent Events (SSE).
 - **Provider Routing**: Requests are routed through the `ProviderFactory`.
-- **Persistence**: Supported for providers implementing `PERSISTENT_RECOVERY` (e.g., `GeminiProvider`).
+- **Persistence**: Provider/backend-dependent. The selected provider and adapter define whether `conversation_id` maps to local snapshots, provider-side conversation URLs, or no persisted state.
 - **Isolation**: Every request is isolated by its `conversation_id`.
 
 ## 4. Conversation Contract
@@ -40,22 +40,32 @@ The `/v1/chat/completions` endpoint is the authoritative API surface of the proj
 ### `conversation_id`
 
 - **Creation**: If not provided, a cryptographically secure 16-byte opaque token is generated.
-- **Reuse**: Providing a valid `conversation_id` instructs the system to attempt session recovery.
-- **Recovery**: Recovery depends on the provider. For `GeminiProvider`, this triggers a lookup in the SQLite repository.
+- **Reuse**: Providing a valid `conversation_id` instructs the selected provider/backend to attempt continuation according to its own recovery mechanism.
+- **Recovery**: Recovery depends on the provider/backend:
+  - **Gemini WebAPI**: Uses SQLite-backed session snapshots through `SessionRegistry` and `SQLiteConversationRepository`.
+  - **Gemini Playwright**: Uses Gemini provider-side conversation URLs (`https://gemini.google.com/app/{conversation_id}`) and reuses in-memory `PersistentTab` instances when available. It does not use SQLite conversation snapshots.
+  - **Atlas**: Stateless pass-through provider. It does not consume or persist `conversation_id`.
 
 ### `reused_conversation`
 
 A boolean field injected into the response metadata:
-- `true`: The model response was generated within an existing, recovered session context.
-- `false`: A new session was bootstrapped for this request.
+- **Gemini WebAPI**:
+  - `true`: An existing or restored `ChatSession` was reused.
+  - `false`: A new `ChatSession` was bootstrapped.
+- **Gemini Playwright**:
+  - `true`: An in-memory `PersistentTab` for the conversation was reused.
+  - `false`: No in-memory tab was reused. The backend may still resume the provider-side Gemini thread by navigating to the conversation URL.
+- **Stateless providers**: This field may be absent or provider-defined because no local conversation state is maintained.
 
 ## 5. Persistence Guarantees
 
-Persistence semantics vary significantly across endpoints and must be clearly communicated to users.
+Persistence semantics vary significantly across endpoints and across `/v1/chat/completions` providers/backends. They must be clearly communicated to users.
 
-| Endpoint | Restart Safe | Persistence Type | Recovery Mechanism |
+| Endpoint / Backend | Restart Safe | Persistence Type | Recovery Mechanism |
 | :--- | :---: | :--- | :--- |
-| `/v1/chat/completions` | **Yes** | SQLite-backed | Serialized session restoration via repository. |
+| `/v1/chat/completions` - Gemini WebAPI | Yes | SQLite-backed snapshots | Serialized `ChatSession` restoration via repository. |
+| `/v1/chat/completions` - Gemini Playwright | Provider-dependent | Provider-side URL-backed | Navigate to `https://gemini.google.com/app/{conversation_id}`; reuse `PersistentTab` when still in memory. |
+| `/v1/chat/completions` - Atlas | No | Stateless | No local conversation persistence; requests are forwarded independently. |
 | `/gemini-chat` | No | In-memory only | Volatile; lost on server shutdown or crash. |
 | `/translate` | No | Shared In-memory | Volatile; uses a singleton shared across all users. |
 | `/gemini` | N/A | Stateless | Every request is a fresh, isolated session. |

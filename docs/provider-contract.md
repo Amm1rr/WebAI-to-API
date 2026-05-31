@@ -132,6 +132,8 @@ AI Agents working on provider implementations must adhere to these strict constr
 
 This section provides a summary of the specific fields added to the chat completions API to support stateful Gemini conversations. For authoritative definitions and persistence guarantees, see **[API Contract](api-contract.md)**.
 
+Provider implementations define their own recovery mechanism and must document their `conversation_id` and `reused_conversation` semantics clearly. For example, Gemini WebAPI uses SQLite-backed `ChatSession` snapshots, while Gemini Playwright uses provider-side Gemini conversation URLs plus in-memory `PersistentTab` reuse.
+
 ### 11.1 Input / Output Fields
 
 #### conversation_id
@@ -139,14 +141,14 @@ This section provides a summary of the specific fields added to the chat complet
 * **Presence**: Optional request field.
 * **Behavior**: 
   * If omitted in the request, the system automatically generates a new cryptographically secure `conversation_id` and bootstraps a fresh session.
-  * If provided, the system attempts to lookup and reuse the corresponding active session.
+  * If provided, the selected provider/backend attempts continuation using its documented recovery mechanism.
 * **Response**: Always returned in the top-level response payload to allow the client to persist the thread context.
 
 #### reused_conversation
 * **Type**: `bool`
 * **Presence**: Always present in the response payload.
 * **Behavior**: 
-  * Returns `true` if an existing, active `SessionManager` mapped to the provided `conversation_id` was successfully reused.
-  * Returns `false` to indicate that no reusable in-memory session existed for the supplied `conversation_id` (either because the field was omitted in the request, the session was pruned/expired due to TTL, the process was restarted, or the requested model/gem was switched) and a new `SessionManager` had to be initialized.
-
+  * For Gemini WebAPI, returns `true` when an existing or restored `ChatSession` was reused.
+  * For Gemini Playwright, returns `true` when an existing in-memory `PersistentTab` was reused. URL-backed provider-side recovery after a restart may still report `false` because no in-memory tab was reused.
+  * Stateless providers may omit the field or define backend-specific semantics.
 

@@ -92,36 +92,46 @@ AI Agents working on lifecycle or recovery logic must adhere to these strict con
 4. **Converge Recoveries**: Ensure all recovery logic is guarded by locks and converges into a single path; never allow parallel context recreation.
 5. **Fail terminal**: If `ensure_healthy` cannot restore structural invariants, escalate to terminal shutdown rather than entering a recovery loop.
 
-## 7. Gemini Conversation Sessions
+## 7. Conversation Continuity Models
 
-### 7.1 Purpose of SessionRegistry
-The `SessionRegistry` is a global in-memory container protected by asyncio synchronization primitives and is safe within the application's single-event-loop execution model. It maps cryptographically secure opaque tokens (`conversation_id`) generated via `secrets.token_urlsafe(16)` to persistent chat sessions, enabling isolated conversation tracking when each client utilizes a unique `conversation_id`.
+Conversation recovery is provider/backend-dependent. Browser lifecycle recovery remains owned by `BrowserEngine` and `ProviderSession`; conversation continuity for a chat request is owned by the selected provider/backend.
 
+### 7.1 Gemini WebAPI SessionRegistry
 
-### 7.2 conversation_id Lifecycle
+The Gemini WebAPI backend uses `SessionRegistry` as an in-memory container protected by asyncio synchronization primitives. It maps cryptographically secure opaque tokens (`conversation_id`) to `SessionManager` instances and coordinates SQLite-backed snapshot recovery through the conversation repository.
+
+### 7.2 Gemini WebAPI conversation_id Lifecycle
 1. **Creation**: When a completions request is submitted without a `conversation_id`, the system generates a secure opaque token.
 2. **Registry Mapping**: The token maps to a dedicated `SessionManager` in memory, which lazily instantiates a `ChatSession`.
 3. **API Return**: The `conversation_id` token is returned as a top-level key in the standard OpenAI-compatible completions response body.
 4. **Client Preservation**: Subsequent requests by the same client present this token in the request body to continue the thread.
 
-### 7.3 SessionManager Reuse Behavior
+### 7.3 Gemini WebAPI SessionManager Reuse Behavior
 If the registry finds an active `SessionManager` for the given token, it reuses the session if and only if the requested model and gem match. The manager acts as a long-lived state container, bypassing the initialization overhead of the client and retaining history natively.
 
-### 7.4 Session Bootstrap and Persistent Recovery
+### 7.4 Gemini WebAPI Bootstrap and Persistent Recovery
 * **Bootstrapping**: On the first request of a new session, the provider concatenates the entire conversation history from `messages` to bootstrap the thread on Google's backend.
 * **Persistent Recovery**: The system utilizes a SQLite-backed repository to persist session snapshots. If a session is lost from memory (e.g., pruned due to TTL or after a server restart), the `SessionRegistry` can automatically restore the session state from the database using the supplied `conversation_id`.
-* **Durable Continuity**: Unlike volatile in-memory-only systems, this architecture ensures that long-running threads remain continuous across process restarts or container recycling, provided the `conversation_id` is preserved by the client.
-* **Fallback Self-Healing**: If both memory and persistent snapshots are unavailable, the system falls back on self-healing by reconstructing the thread context via the complete history from the incoming `messages` array.
+* **Durable Continuity**: For Gemini WebAPI, long-running threads can remain continuous across process restarts or container recycling, provided the `conversation_id` is preserved by the client and the corresponding SQLite snapshot exists.
+* **Missing Snapshot Behavior**: If an existing `conversation_id` is not present in memory and no valid snapshot exists, the request fails explicitly. The current implementation does not silently rebuild an existing WebAPI conversation from incoming message history.
 
+### 7.5 Gemini Playwright URL-Backed Continuity
 
-### 7.5 Model and Gem Switching
+The Gemini Playwright backend does not use SQLite conversation snapshots. It uses two continuity mechanisms:
+
+* **Live Tab Reuse**: `ProviderSession.conversation_registry` maps Gemini provider conversation IDs to in-memory `PersistentTab` instances. If a matching tab is live and valid, the request reuses that tab.
+* **Provider-Side URL Recovery**: If no live tab is available but the request supplies a `conversation_id`, the backend navigates a browser page to `https://gemini.google.com/app/{conversation_id}` and relies on Gemini's provider-side conversation history.
+
+For new Playwright conversations, the provider-side `conversation_id` is discovered from the Gemini URL after submission and the temporary page is promoted to a `PersistentTab` in `ProviderSession.conversation_registry`.
+
+`reused_conversation=true` in Playwright indicates live in-memory `PersistentTab` reuse. After a process restart or context recreation, Playwright may still resume the provider-side Gemini thread by URL navigation while reporting `reused_conversation=false` because no in-memory tab was reused.
+
+### 7.6 Model and Gem Switching
 If a stateful request switches models (e.g. from `gemini-3-flash` to `gemini-3-pro`) or changes the gem ID:
-* The `SessionManager._ensure_session()` detects the mismatch.
-* It invalidates the old `ChatSession` and instantiates a new one.
-* This resets the in-memory state and triggers a full prompt concatenation on the current request to rebuild the history context for the new model/gem.
+* **Gemini WebAPI**: `SessionManager._ensure_session()` detects the mismatch, replaces the `ChatSession`, and uses full prompt concatenation on the current request to bootstrap the new model/gem context.
+* **Gemini Playwright**: model/gem behavior is handled by the Playwright adapter and provider UI flow, not by SQLite snapshots.
 
-### 7.6 Session Pruning Policy
+### 7.7 Session Pruning Policy
 To protect server memory, the `SessionRegistry` passively prunes idle sessions when the cache capacity exceeds `MAX_SESSIONS = 500`.
 * **Prunability Invariant**: A session can ONLY be pruned if it is unlocked (`manager.lock` is not locked) and has `active_streams == 0` (no active progressive stream tasks).
 * **TTL Policy**: Stale sessions are evicted if their idle time exceeds `IDLE_TIMEOUT = 3600` (60 minutes).
-

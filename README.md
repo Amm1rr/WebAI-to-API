@@ -60,7 +60,7 @@ This design provides both **speed and reliability**, ensuring flexibility depend
 - 🛠️ **Refactored Architecture**: Decoupled gateway logic with a lightweight provider contract.
   - **Thin Gateway**: `chat.py` acts as a clean orchestrator.
   - **Provider-Owned Complexity**: Each backend (Gemini, Atlas) manages its own transformation and streaming quirks.
-  - **Atomic Persistence**: Concurrency-safe cookie rotation and configuration updates.
+  - **Provider-Specific Continuity**: Conversation persistence depends on the selected provider/backend.
 
 <p align="center">
   <img src="./assets/Endpoints-Docs.png" alt="Endpoints" height="280" />
@@ -192,7 +192,7 @@ Triggers an isolated, browser-based login workflow. This is useful when the serv
 
 **Primary OpenAI-compatible endpoint**. This is the recommended way to interact with the service. It supports:
 - **Multi-Provider Support**: Route requests through any configured provider.
-- **Conversation Continuation**: Use `conversation_id` to continue an existing conversation session.
+- **Conversation Continuation**: Use `conversation_id` to continue an existing conversation when the selected provider/backend supports it. Gemini WebAPI uses SQLite-backed snapshots; Gemini Playwright uses Gemini provider-side conversation URLs and in-memory tab reuse; Atlas is stateless.
 - **Streaming**: Full SSE (Server-Sent Events) support for real-time progressive responses.
 - **System Prompts & History**: Standard OpenAI message format support.
 
@@ -210,7 +210,7 @@ A lightweight implementation intended for integrations expecting the Google Gene
 
 > `POST /gemini-chat`
 
-**Legacy conversation-oriented Gemini endpoint**. Conversation state is maintained in memory only and **does not survive server restarts**. For persistent conversations, use `/v1/chat/completions` with `conversation_id`.
+**Legacy conversation-oriented Gemini endpoint**. Conversation state is maintained in memory only and **does not survive server restarts**. For provider/backend-specific conversation continuity, use `/v1/chat/completions` with `conversation_id`.
 
 > `POST /translate`
 
@@ -219,7 +219,7 @@ Specialized endpoint maintained for compatibility with the [Translate It!](https
 - **Transient**: Does not survive server restarts.
 - **Non-Streaming**: Buffered responses only.
 - **Requirement**: The client must provide translation instructions in the prompt.
-- **Recommendation**: For isolated or persistent translation workflows, prefer `/v1/chat/completions`.
+- **Recommendation**: For isolated or provider-supported persistent translation workflows, prefer `/v1/chat/completions`.
 
 > `GET /v1/gems`
 
@@ -339,8 +339,8 @@ The project is built on a modular architecture designed for scalability and ease
 3. **Delegated Implementation:**  
    Each provider implements a lightweight contract. The orchestrator remains clean, while the providers handle implementation-heavy work like prompt transformation, tool-call parsing, and internal streaming states.
 
-4. **Normalization & Persistence:**  
-   Responses are normalized to OpenAI format at the provider/SSE boundary. Any state changes (like cookie rotation) are persisted atomically to prevent configuration corruption.
+4. **Normalization & Continuity:**
+   Responses are normalized to OpenAI format at the provider/SSE boundary. Conversation continuity is backend-specific: WebAPI-backed sessions can use local snapshots, browser-backed sessions can use provider conversation URLs, and stateless providers forward independent requests.
 
 ---
 

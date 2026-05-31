@@ -18,7 +18,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 ### 1. Provider-Scoped Sessions (`ProviderSession`)
 - **Authoritative Ownership:** Each provider session owns its dedicated `BrowserContext`, a `keepalive_page` for liveness monitoring, and the background loops (`reaper`, `autosave`, `eviction`) governing its state.
 - **Session-Scoped Recovery:** `ProviderSession` is the authoritative owner of context recreation and tab invalidation logic.
-- **Atomic Persistence:** Session states are persisted using a write-sync-replace strategy to guarantee state integrity during power loss or crashes.
+- **Browser State Persistence:** Browser authentication state persistence is controlled by dedicated auth/bootstrap flows. Conversation continuity is provider/backend-specific and is not uniformly owned by `ProviderSession`.
 
 ### 2. Browser Engine (`BrowserEngine`)
 - **Active Lifecycle Orchestration:** A global singleton managing the active Chromium process and coordinating cross-provider synchronization. Recovery is valid only within an active engine lifecycle; it is NOT a resurrection authority after terminal shutdown begins.
@@ -28,6 +28,11 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 ### 3. Managed Resource Lifecycle
 - **ManagedPage & Lease Ownership:** Every request operates within a `ManagedPage` wrapper, which owns a dedicated semaphore permit and a `PersistentTab` lease. Raw page lifecycle management outside this wrapper is strictly forbidden.
 - **Deterministic Cleanup:** Release semantics are idempotent, best-effort, cancellation-safe, and shielded via `asyncio.shield` to ensure that resource release is guaranteed even during request cancellation.
+
+### 4. Conversation Continuity Models
+- **Gemini WebAPI:** Uses SQLite-backed conversation snapshots to restore serialized `ChatSession` state across process restarts.
+- **Gemini Playwright:** Uses provider-side Gemini conversation URLs and in-memory `PersistentTab` reuse. It does not use SQLite snapshots for normal conversation continuity.
+- **Stateless Providers:** Some providers, such as Atlas, forward each request independently and do not persist `conversation_id` state locally.
 
 ---
 
@@ -62,7 +67,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 ### Phase 2: Provider Expansion (Medium-Term)
 - **New Adapters:** Native support for ChatGPT Web, Claude Web, and Grok via specialized browser-native adapters.
 - **Multi-Account Pooling:** Support for cycling through multiple authenticated sessions per provider.
-- **Session Persistence:** Full integration of `conversation_id` to maintain chat history across API calls.
+- **Conversation Persistence Expansion:** Extend and standardize provider/backend-specific `conversation_id` semantics where useful, while preserving existing WebAPI snapshot-backed and Playwright URL-backed continuity models.
 
 ### Phase 3: Infrastructure (Long-Term)
 - **Universal Provider SDK:** A unified framework for adding new logical providers and adapters.
