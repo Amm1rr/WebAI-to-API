@@ -63,37 +63,52 @@ async def init_gemini_client() -> bool:
         client = None
 
         try:
-            # Step 1: Resolve authentication utilizing prioritized hierarchy in GeminiAuthStateLoader
+            # Step 1: Try config sources in priority order
             from app.services.browser.auth_loader import GeminiAuthStateLoader
-            auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
-            
-            if auth_data:
-                cookies_dict, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(auth_data)
-                if psid:
-                    source_desc = "legacy config cookies" if is_legacy else "canonical gemini.json state"
-                    logger.info(f"Attempting to initialize Gemini client with cookies from {source_desc}...")
-                    try:
-                        client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=cookies_dict)
-                        await client.init(verbose=True, auto_refresh=False)
-                        
-                        status_name = client.client.account_status.name if hasattr(client.client, 'account_status') else "UNKNOWN"
-                        if status_name == "AVAILABLE":
-                            logger.info(f"Gemini client successfully initialized as authenticated client using {source_desc}.")
-                            _gemini_client = client
-                            return True
-                        elif status_name == "UNAUTHENTICATED":
-                            logger.info(f"Cookies from {source_desc} are unauthenticated. Holding client as fallback candidate.")
-                            best_client = client
-                            client = None
-                        else:
-                            logger.warning(f"Cookies from {source_desc} are blocked or invalid (Status: {status_name}). Closing client.")
-                            await client.close()
-                            client = None
-                    except Exception as e:
-                        logger.warning(f"Gemini client initialization failed with cookies from {source_desc}: {e}. Proceeding to fallbacks...")
-                        if client:
-                            await client.close()
-                            client = None
+
+            config_sources = [
+                ("[Gemini] config", GeminiAuthStateLoader.get_gemini_config_source),
+                ("[Cookies] legacy config", GeminiAuthStateLoader.get_legacy_cookie_source),
+                ("gemini.json canonical store", GeminiAuthStateLoader.get_json_source),
+            ]
+
+            for source_name, source_getter in config_sources:
+                auth_data, is_legacy = source_getter()
+
+                if auth_data:
+                    cookies_dict, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(auth_data)
+                    if psid:
+                        logger.info(f"Attempting to initialize Gemini client with cookies from {source_name}...")
+                        try:
+                            client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=cookies_dict)
+                            await client.init(verbose=True, auto_refresh=False)
+
+                            status_name = client.client.account_status.name if hasattr(client.client, 'account_status') else "UNKNOWN"
+                            if status_name == "AVAILABLE":
+                                logger.info(f"Gemini client successfully initialized as authenticated client using {source_name}.")
+                                if best_client:
+                                    await best_client.close()
+                                    best_client = None
+                                _gemini_client = client
+                                return True
+                            elif status_name == "UNAUTHENTICATED":
+                                if best_client is None:
+                                    logger.info(f"Cookies from {source_name} are unauthenticated. Holding as fallback, continuing to next source...")
+                                    best_client = client
+                                    client = None
+                                else:
+                                    logger.info(f"Cookies from {source_name} are unauthenticated. Already have a fallback candidate, closing client.")
+                                    await client.close()
+                                    client = None
+                            else:
+                                logger.warning(f"Cookies from {source_name} are blocked or invalid (Status: {status_name}). Closing client.")
+                                await client.close()
+                                client = None
+                        except Exception as e:
+                            logger.warning(f"Gemini client initialization failed with cookies from {source_name}: {e}. Continuing to next source...")
+                            if client:
+                                await client.close()
+                                client = None
 
             # Step 2: Try browser cookies fallback
             if _gemini_client is None:
