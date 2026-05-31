@@ -3,75 +3,99 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
-@pytest.mark.asyncio
-async def test_openapi_legacy_and_specialized_endpoint_metadata():
-    """Verify that legacy and specialized endpoints have correct OpenAPI metadata."""
+async def _get_openapi_schema():
+    """Helper to fetch and return the OpenAPI schema."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/openapi.json")
-    
     assert response.status_code == 200
-    schema = response.json()
+    return response.json()
+
+@pytest.mark.asyncio
+async def test_openapi_legacy_endpoint_metadata():
+    """Verify metadata for legacy endpoints."""
+    schema = await _get_openapi_schema()
     
     # Check /gemini
     gemini_path = schema["paths"].get("/gemini")
-    assert gemini_path is not None, "/gemini endpoint missing from OpenAPI schema"
-    assert gemini_path["post"].get("deprecated") is True, "/gemini should be marked as deprecated"
-    
+    assert gemini_path is not None
+    assert gemini_path["post"].get("deprecated") is True
+    assert "Legacy" in gemini_path["post"]["tags"]
+    assert "Legacy" in gemini_path["post"]["summary"]
+    assert "OpenAI-compatible" in gemini_path["post"]["description"]
+
     # Check /gemini-chat
     gemini_chat_path = schema["paths"].get("/gemini-chat")
-    assert gemini_chat_path is not None, "/gemini-chat endpoint missing from OpenAPI schema"
-    assert gemini_chat_path["post"].get("deprecated") is True, "/gemini-chat should be marked as deprecated"
+    assert gemini_chat_path is not None
+    assert gemini_chat_path["post"].get("deprecated") is True
     assert "Legacy" in gemini_chat_path["post"]["tags"]
+    assert "Legacy" in gemini_chat_path["post"]["summary"]
+    assert "does not survive server restarts" in gemini_chat_path["post"]["description"]
 
-    # Check /translate
+@pytest.mark.asyncio
+async def test_openapi_translate_endpoint_metadata():
+    """Verify metadata for the translate endpoint."""
+    schema = await _get_openapi_schema()
+    
     translate_path = schema["paths"].get("/translate")
-    assert translate_path is not None, "/translate endpoint missing from OpenAPI schema"
-    assert translate_path["post"].get("deprecated") is not True, "/translate should NOT be marked as deprecated"
+    assert translate_path is not None
+    assert translate_path["post"].get("deprecated") is not True
+    assert "Translation" in translate_path["post"]["tags"]
     assert "Translate Extension Compatibility" in translate_path["post"]["summary"]
     assert "shared global in-memory session" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
-    assert "Translation" in translate_path["post"]["tags"]
 
-    # Check /v1/chat/completions (Primary API)
+@pytest.mark.asyncio
+async def test_openapi_chat_endpoint_metadata():
+    """Verify metadata for primary chat endpoints."""
+    schema = await _get_openapi_schema()
+    
+    # Check /v1/chat/completions
     chat_path = schema["paths"].get("/v1/chat/completions")
     assert chat_path is not None
+    assert "Chat" in chat_path["post"]["tags"]
     assert "OpenAI-Compatible Chat Completions" in chat_path["post"]["summary"]
     assert "recommended API" in chat_path["post"]["description"]
-    assert "Chat" in chat_path["post"]["tags"]
 
     # Check /v1/models
     models_path = schema["paths"].get("/v1/models")
     assert models_path is not None
-    assert "List Available Models" in models_path["get"]["summary"]
     assert "Chat" in models_path["get"]["tags"]
+    assert "List Available Models" in models_path["get"]["summary"]
 
+@pytest.mark.asyncio
+async def test_openapi_authentication_endpoint_metadata():
+    """Verify metadata for authentication endpoints."""
+    schema = await _get_openapi_schema()
+    
     # Check /v1/auth/status
-    auth_status_path = schema["paths"].get("/v1/auth/status")
-    assert auth_status_path is not None
-    assert "Get Authentication Status" in auth_status_path["get"]["summary"]
-    assert "Authentication" in auth_status_path["get"]["tags"]
+    status_path = schema["paths"].get("/v1/auth/status")
+    assert status_path is not None
+    assert "Authentication" in status_path["get"]["tags"]
+    assert "Get Authentication Status" in status_path["get"]["summary"]
 
     # Check /v1/auth/login
-    auth_login_path = schema["paths"].get("/v1/auth/login")
-    assert auth_login_path is not None
-    assert "Trigger Authentication Login" in auth_login_path["post"]["summary"]
-    assert "Authentication" in auth_login_path["post"]["tags"]
+    login_path = schema["paths"].get("/v1/auth/login")
+    assert login_path is not None
+    assert "Authentication" in login_path["post"]["tags"]
+    assert "Trigger Authentication Login" in login_path["post"]["summary"]
 
-    # Check /v1beta/models/{model_path}
+@pytest.mark.asyncio
+async def test_openapi_compatibility_endpoint_metadata():
+    """Verify metadata for compatibility endpoints."""
+    schema = await _get_openapi_schema()
+    
     v1beta_path = schema["paths"].get("/v1beta/models/{model_path}")
     assert v1beta_path is not None
-    assert "Google Generative AI Compatibility Endpoint" in v1beta_path["post"]["summary"]
     assert "Compatibility" in v1beta_path["post"]["tags"]
+    assert "Google Generative AI Compatibility Endpoint" in v1beta_path["post"]["summary"]
+    assert "not guaranteed to provide full protocol parity" in v1beta_path["post"]["description"]
 
-    # Check /v1/gems
+@pytest.mark.asyncio
+async def test_openapi_utility_endpoint_metadata():
+    """Verify metadata for utility endpoints."""
+    schema = await _get_openapi_schema()
+    
     gems_path = schema["paths"].get("/v1/gems")
     assert gems_path is not None
-    assert "List Available Gems" in gems_path["get"]["summary"]
     assert "Utilities" in gems_path["get"]["tags"]
-
-    # Check descriptions and summaries for Legacy
-    assert "Legacy" in gemini_path["post"]["summary"]
-    assert "Legacy" in gemini_chat_path["post"]["summary"]
-    assert "Legacy" in gemini_path["post"]["tags"]
-    assert "OpenAI-compatible" in gemini_path["post"]["description"]
-    assert "does not survive server restarts" in gemini_chat_path["post"]["description"]
+    assert "List Available Gems" in gems_path["get"]["summary"]
