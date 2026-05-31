@@ -257,8 +257,8 @@ class AuthManager:
                     from app.services.session_manager import init_session_managers
                     from app.services.factory import ProviderFactory
                     
-                    logger.info("AuthManager: Clearing and closing registered providers in ProviderFactory...")
-                    await ProviderFactory.close_all()
+                    logger.info("AuthManager: Clearing and closing registered Gemini provider in ProviderFactory...")
+                    await ProviderFactory.close_provider("gemini")
 
                     logger.info("AuthManager: Re-initializing direct Gemini WebAPI client...")
                     init_success = await init_gemini_client()
@@ -266,7 +266,7 @@ class AuthManager:
                         raise RuntimeError("Gemini direct client initialization returned False.")
                     
                     logger.info("AuthManager: Re-initializing session managers with new client...")
-                    init_session_managers()
+                    await init_session_managers()
                     
                     logger.info("AuthManager: Instantly refreshing local authentication statuses...")
                     self.refresh_status()
@@ -385,6 +385,19 @@ class AuthManager:
                     await asyncio.sleep(2)
             except Exception as e:
                 logger.warning(f"AuthManager: Exception during login monitoring: {e}")
+                try:
+                    # If page is physically closed, or exception indicates target closure, classify as user_closed
+                    err_msg = str(e).lower()
+                    if (
+                        "target closed" in err_msg
+                        or "page closed" in err_msg
+                        or "context closed" in err_msg
+                        or page.is_closed()
+                    ):
+                        user_closed = True
+                except Exception:
+                    # Best-effort fallback: if page reference is completely broken/destroyed, assume closed by user
+                    user_closed = True
             finally:
                 if page_wrapper:
                     try:

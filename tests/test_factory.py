@@ -51,3 +51,22 @@ def test_get_provider_unknown_prefix_defaults_to_gemini():
     
     assert isinstance(provider, GeminiProvider)
     assert model == "unknown/model"
+
+@pytest.mark.asyncio
+async def test_close_provider(mocker):
+    """Verify close_provider pop and close only the targeted provider instance."""
+    mock_gemini = mocker.AsyncMock()
+    mock_atlas = mocker.AsyncMock()
+    
+    # Setup instances
+    ProviderFactory._instances = {
+        "gemini": mock_gemini,
+        "atlas": mock_atlas,
+    }
+
+    await ProviderFactory.close_provider("gemini")
+
+    assert "gemini" not in ProviderFactory._instances
+    assert "atlas" in ProviderFactory._instances
+    mock_gemini.close.assert_called_once()
+    mock_atlas.close.assert_not_called()

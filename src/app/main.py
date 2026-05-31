@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize session managers
     try:
-        init_session_managers()
+        await init_session_managers()
         logger.info("Session managers initialized for WebAI-to-API.")
     except GeminiClientNotInitializedError as e:
         logger.warning(f"Session managers not initialized: {e}")

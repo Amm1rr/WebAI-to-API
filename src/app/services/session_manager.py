@@ -188,6 +188,18 @@ class SessionRegistry:
         self._sessions: Dict[str, SessionManager] = {}
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
+    async def update_client(self, client):
+        """
+        Safely update the direct client reference in all active session managers
+        under the registry-level management lock. This guarantees coroutine-level
+        serialized updates to prevent race conditions with concurrent session creation,
+        but does not represent low-level hardware or CPU-level atomicity.
+        """
+        async with self._lock:
+            self.client = client
+            for manager in self._sessions.values():
+                manager.client = client
+
     async def get_session(
         self,
         conversation_id: str,
@@ -336,15 +348,25 @@ def generate_opaque_token() -> str:
 _translate_session_manager = None
 _gemini_chat_registry = None
 
-def init_session_managers():
+async def init_session_managers():
     """
     Initialize session managers. 
     /translate keeps its singleton legacy manager.
     /gemini-chat moves to the new SessionRegistry.
+    If already initialized, safely updates client references in all active 
+    session managers and registries to preserve runtime/concurrency state.
     """
     global _translate_session_manager, _gemini_chat_registry
     try:
         client = get_gemini_client()
+        
+        # If already initialized, safely update their client references to preserve runtime state
+        if _translate_session_manager is not None and _gemini_chat_registry is not None:
+            _translate_session_manager.client = client
+            await _gemini_chat_registry.update_client(client)
+            logger.info("Session managers safely updated with new client reference.")
+            return
+
         from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
         repository = SQLiteConversationRepository(
