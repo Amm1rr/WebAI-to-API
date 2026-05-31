@@ -28,6 +28,23 @@ from app.logger import logger
 from app.config import CONFIG
 from app.schemas.request import OpenAIChatRequest
 
+@dataclass(frozen=True)
+class PlaywrightAdapterConfig:
+    """Consolidated configuration for the Playwright adapter."""
+    navigation_timeout: int
+    ui_wait_timeout: int
+    chunk_timeout: int
+    total_request_timeout: int
+
+    @classmethod
+    def load(cls) -> "PlaywrightAdapterConfig":
+        return cls(
+            navigation_timeout=CONFIG["Playwright"].getint("navigation_timeout", 30000),
+            ui_wait_timeout=CONFIG["Playwright"].getint("ui_wait_timeout", 15000),
+            chunk_timeout=CONFIG["Playwright"].getint("chunk_timeout", 90),
+            total_request_timeout=CONFIG["Playwright"].getint("total_request_timeout", 120)
+        )
+
 @dataclass
 class PlaywrightRequestState:
     """Shared state for a single request lifecycle in Playwright."""
@@ -57,6 +74,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
     
     def __init__(self, provider):
         self.provider = provider
+        self.config = PlaywrightAdapterConfig.load()
 
     async def chat_completions(self, request: OpenAIChatRequest, cid: str, is_new_conversation: bool, tools_prompt: str) -> Any:
         request_id = str(uuid.uuid4()).replace("-", "_")
@@ -87,8 +105,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
             engine = await get_browser_engine()
             session = await engine.get_session("gemini")
-            adapter = GeminiProviderAdapter()
-            
+            adapter = GeminiProviderAdapter(ui_wait_timeout=self.config.ui_wait_timeout)
             for attempt in range(1, max_retries + 1):
                 page_lease = None
                 observer_task = None
@@ -156,31 +173,29 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                     page._gemini_callbacks[state.request_id] = bridge_callback
                     await asyncio.sleep(0.01)
                     
-                    nav_timeout = CONFIG["Playwright"].getint("navigation_timeout", 30000)
-                    
                     # 2. Target Navigation
                     check_generation()
                     if state.reused_conversation:
                         target_url = f"https://gemini.google.com/app/{state.conversation_id}"
                         if page.url != target_url:
                             if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                            await page.goto(target_url, wait_until="domcontentloaded", timeout=nav_timeout)
+                            await page.goto(target_url, wait_until="domcontentloaded", timeout=self.config.navigation_timeout)
                             if state.active_tab: state.active_tab.heartbeat("navigation_end")
                     elif request.conversation_id:
                         if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                        await page.goto(f"https://gemini.google.com/app/{request.conversation_id}", wait_until="domcontentloaded", timeout=nav_timeout)
+                        await page.goto(f"https://gemini.google.com/app/{request.conversation_id}", wait_until="domcontentloaded", timeout=self.config.navigation_timeout)
                         if state.active_tab: state.active_tab.heartbeat("navigation_end")
                     else:
                         if "gemini.google.com/app" not in page.url:
                             if state.active_tab: state.active_tab.heartbeat("navigation_start")
-                            await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=nav_timeout)
+                            await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=self.config.navigation_timeout)
                             if state.active_tab: state.active_tab.heartbeat("navigation_end")
                     
                     input_locator = page.locator(SELECTORS["INPUT"]).first
                     if state.active_tab: state.active_tab.heartbeat("input_wait")
                     try:
                         check_generation()
-                        await input_locator.wait_for(state="visible", timeout=15000)
+                        await input_locator.wait_for(state="visible", timeout=self.config.ui_wait_timeout)
                         await asyncio.sleep(0.5)
                     except (PlaywrightTimeoutError, PlaywrightError) as e:
                         state.page_poisoned = True
@@ -262,7 +277,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            # Error mapping logic...
+            # Map internal Playwright and provider errors to appropriate HTTP status codes
             poison_session_errors = (SessionNotAliveError, BrowserDisconnectedError, BrowserGenerationMismatchError)
             if isinstance(e, poison_session_errors) and session:
                 await session.handle_session_failure()
@@ -298,7 +313,6 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
     async def _sse_generator(self, queue: asyncio.Queue, model: str, page: Page, state: PlaywrightRequestState, observer_task: Optional[asyncio.Task], engine: Any, session: Any, lease: ManagedPage):
         from app.utils.streaming import format_sse_chunk, get_done_chunk
-        chunk_timeout = CONFIG["Playwright"].getint("chunk_timeout", 90)
         
         try:
             while True:
@@ -312,7 +326,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                                     state.conversation_id = match.group(1)
                                     state.active_tab = await session.register_conversation(state.conversation_id, lease)
 
-                    payload = await asyncio.wait_for(queue.get(), timeout=chunk_timeout)
+                    payload = await asyncio.wait_for(queue.get(), timeout=self.config.chunk_timeout)
                     if payload.get("type") == "done": break
                     
                     if state.active_tab:
@@ -341,10 +355,9 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
             await self._cleanup(observer_task, state, lease, session)
 
     async def _get_buffered_response(self, queue: asyncio.Queue, model: str, page: Page, state: PlaywrightRequestState, observer_task: Optional[asyncio.Task], engine: Any, session: Any, lease: ManagedPage):
-        total_timeout = CONFIG["Playwright"].getint("total_request_timeout", 120)
         try:
             full_text = ""
-            async with asyncio.timeout(total_timeout):
+            async with asyncio.timeout(self.config.total_request_timeout):
                 while True:
                     if state.queue_overflow: raise QueueOverflowError("Event queue saturated")
                     if not state.conversation_id and not state.active_tab:

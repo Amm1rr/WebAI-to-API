@@ -42,12 +42,6 @@ class BrowserEngine:
         self.is_shutting_down = False
         self._shutdown_started = False
         self._disconnect_handled = False
-        
-        # Basic provider adapter registry mapping
-        from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
-        self.adapters = {
-            "gemini": GeminiProviderAdapter()
-        }
 
     @classmethod
     async def get_instance(cls, headless: Optional[bool] = None) -> 'BrowserEngine':
