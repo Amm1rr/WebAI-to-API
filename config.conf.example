@@ -15,6 +15,8 @@ name = chrome
 # Execution Strategy:
 # - webapi:    Lightweight, fast, uses unofficial API wrappers.
 # - playwright: Browser-native runtime (Chromium). Most resilient.
+# NOTE: Using a 'playwright/...' model prefix in your request will 
+# automatically override this global backend configuration.
 #
 # Default Model:
 # Choose the model to be used when none is specified in the request.
@@ -39,8 +41,13 @@ gemini = true
 
 # --- Atlas Cloud Configuration ---
 # API key and endpoint for the Atlas Cloud provider.
-# NOTE: Environment variables (ATLASCLOUD_API_KEY, ATLASCLOUD_BASE_URL) 
-# take precedence over these settings.
+#
+# Precedence Order:
+# OS Env > .env.local > .env > config.conf > defaults
+#
+# NOTE: For production, Docker, or CI/CD deployments, it is highly 
+# recommended to use environment variables (ATLASCLOUD_API_KEY, 
+# ATLASCLOUD_BASE_URL) rather than committing secrets to this file.
 [Atlas]
 api_key = 
 base_url = https://api.atlascloud.ai/v1
@@ -57,22 +64,39 @@ http_proxy =
 [Playwright]
 # Run in headless mode (true/false)
 headless = false
-# Maximum concurrent pages across all sessions (HARD LIMIT via semaphore)
-max_concurrent_pages = 5
-# Global soft-cap for total open pages across all sessions (eviction threshold)
-max_total_tabs = 50
-# Maximum conversations to keep in the LRU registry per provider
-max_persistent_conversations = 20
-# Timeouts in milliseconds
-navigation_timeout = 30000
-ui_wait_timeout = 15000
-# Eviction timeouts in seconds
-idle_conversation_timeout = 900
-lease_timeout = 180
+
 # Directory for provider browser storage state files
 auth_state_dir = runtime/auth
+
 # Concurrency locking backend for on-demand authentication coordination.
 # Default: in_memory (process-bound). Swapping this is required for production
 # multi-worker/Gunicorn or horizontally scaled SaaS deployments to avoid races.
 # Supported future values: redis, postgres.
 auth_lock_backend = in_memory
+
+# =====================================================================
+# --- Advanced Playwright Engine Tuning ---
+# ⚠️ Only modify these if you understand the runtime architecture.
+# =====================================================================
+
+# -- Capacity Limits --
+# Maximum concurrent pages across all sessions (HARD LIMIT via semaphore)
+max_concurrent_pages = 5
+
+# Global soft-cap for total open pages across all sessions (eviction threshold)
+max_total_tabs = 50
+
+# Maximum conversations to keep in the LRU registry per provider
+max_persistent_conversations = 20
+
+# -- Timeouts (Milliseconds) --
+# Passed directly to Playwright underlying APIs.
+navigation_timeout = 30000
+ui_wait_timeout = 15000
+
+# -- Timeouts (Seconds) --
+# Used by Python asyncio layer for application-level lifecycle management.
+chunk_timeout = 90
+total_request_timeout = 120
+idle_conversation_timeout = 900
+lease_timeout = 180

@@ -113,7 +113,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ### Provider Routing
 
-Requests to `/v1/chat/completions` are automatically routed based on the model prefix or an explicit provider field.
+Requests to `/v1/chat/completions` are automatically routed based on the model prefix or an explicit provider field. If no prefix is found, the system falls back to the default Gemini provider, which will use the strategy defined by `[Gemini] backend`.
 
 | Model Prefix | Provider | Example |
 | ------------ | -------- | ------- |
