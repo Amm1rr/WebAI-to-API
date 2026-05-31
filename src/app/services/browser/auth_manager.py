@@ -254,7 +254,7 @@ class AuthManager:
                 # Re-initialize the direct gemini-webapi client with the newly saved cookies
                 try:
                     from app.services.gemini_client import init_gemini_client
-                    from app.services.session_manager import init_session_managers
+                    from app.services.providers.gemini.session_manager import init_session_managers
                     from app.services.factory import ProviderFactory
                     
                     logger.info("AuthManager: Clearing and closing registered Gemini provider in ProviderFactory...")
