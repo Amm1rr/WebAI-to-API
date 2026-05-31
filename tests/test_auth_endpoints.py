@@ -117,7 +117,9 @@ def test_auth_manager_multi_worker_warning(mocker):
 async def test_run_login_flow_success(mocker):
     """Verify run_login_flow detects authenticated chat after traversing sign-in and guest states."""
     from app.services.browser.auth_manager import get_auth_manager
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
     auth_mgr = get_auth_manager()
+    auth_mgr.set_strategy(GeminiAuthStrategy())
 
     # Mock display check
     mocker.patch.object(auth_mgr, "_check_display_available", return_value=True)
@@ -222,7 +224,9 @@ async def test_run_login_flow_success(mocker):
 async def test_run_login_flow_user_closed_window(mocker):
     """Verify run_login_flow raises RuntimeError when window is closed by user."""
     from app.services.browser.auth_manager import get_auth_manager
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
     auth_mgr = get_auth_manager()
+    auth_mgr.set_strategy(GeminiAuthStrategy())
 
     mocker.patch.object(auth_mgr, "_check_display_available", return_value=True)
 
@@ -246,6 +250,39 @@ async def test_run_login_flow_user_closed_window(mocker):
     mocker.patch('asyncio.sleep', AsyncMock())
 
     with pytest.raises(RuntimeError, match="Interactive sign-in was closed by user"):
+        await auth_mgr.run_login_flow()
+
+
+@pytest.mark.asyncio
+async def test_run_login_flow_unexpected_exception_re_raised(mocker):
+    """Verify run_login_flow re-raises unexpected exceptions during polling."""
+    from app.services.browser.auth_manager import get_auth_manager
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
+    auth_mgr = get_auth_manager()
+    auth_mgr.set_strategy(GeminiAuthStrategy())
+
+    mocker.patch.object(auth_mgr, "_check_display_available", return_value=True)
+
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    # Raise an unexpected error during navigation or polling
+    mock_page.goto = AsyncMock(side_effect=ValueError("Unexpected internal error"))
+
+    mock_page_wrapper = MagicMock()
+    mock_page_wrapper.page = mock_page
+    mock_page_wrapper.close = AsyncMock()
+
+    mock_session = AsyncMock()
+
+    mock_engine = MagicMock()
+    mock_engine.get_page = AsyncMock(return_value=mock_page_wrapper)
+    mock_engine.get_session = AsyncMock(return_value=mock_session)
+    mock_engine.__aenter__ = AsyncMock(return_value=mock_engine)
+    mock_engine.__aexit__ = AsyncMock(return_value=False)
+
+    mocker.patch('app.services.browser.engine.get_browser_engine', return_value=mock_engine)
+
+    with pytest.raises(ValueError, match="Unexpected internal error"):
         await auth_mgr.run_login_flow()
 
 

@@ -72,7 +72,8 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         backoff_delays = [1.0, 2.0, 4.0]
         
         try:
-            from app.services.browser.auth_manager import get_auth_manager, AuthStatus
+            from app.services.browser.auth_manager import get_auth_manager
+            from app.services.browser.auth_types import AuthStatus
             auth_mgr = get_auth_manager()
             if auth_mgr.coordination_lock.is_locked():
                 raise HTTPException(status_code=503, detail="Authentication in progress.")
