@@ -40,13 +40,22 @@ This design provides both **speed and reliability**, ensuring flexibility depend
 
 - 🌐 **Available Endpoints**:
 
-  - **WebAI Server**:
-    - `/v1/chat/completions` (OpenAI-compatible)
-    - `/v1/models` (List all providers and models)
-    - `/gemini`
-    - `/gemini-chat`
-    - `/translate`
-    - `/v1beta/models/{model}` (Google Generative AI v1beta API)
+  ### Primary APIs
+  - `/v1/chat/completions` (OpenAI-compatible) — **Recommended**
+  - `/v1/models` (List all available providers and models)
+
+  ### Authentication APIs
+  - `/v1/auth/status` (Check authentication state and login progress)
+  - `/v1/auth/login` (Trigger browser-based login workflow)
+
+  ### Compatibility APIs
+  - `/v1beta/models/{model}` (Google Generative AI v1beta compatibility layer)
+
+  ### Legacy / Specialized APIs
+  - `/gemini` (Stateless Gemini endpoint)
+  - `/gemini-chat` (Simple conversation-oriented Gemini endpoint)
+  - `/translate` (Specialized endpoint for Translate It! integration)
+  - `/v1/gems` (List available Gemini Gems)
 
 - 🛠️ **Refactored Architecture**: Decoupled gateway logic with a lightweight provider contract.
   - **Thin Gateway**: `chat.py` acts as a clean orchestrator.
@@ -155,34 +164,49 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ## Documentation
 
+### Authentication Endpoints
+
+> `GET /v1/auth/status`
+
+Inspects the current authentication state. Returns information about whether the provider is logged in, any pending login operations, and the health of the browser session. Use the `?refresh=true` query parameter to force a lightweight check of the current session.
+
+> `POST /v1/auth/login`
+
+Triggers an isolated, browser-based login workflow. This is useful when the server is running in an environment where automatic cookie retrieval is not possible. Once triggered, the status can be monitored via the `/v1/auth/status` endpoint.
+
 ### WebAI-to-API Endpoints
-
-> `POST /gemini`
-
-Initiates a new conversation with the LLM. Each request creates a **fresh session**, making it suitable for stateless interactions.
-
-> `POST /gemini-chat`
-
-Continues a persistent conversation with the LLM without starting a new session. Ideal for use cases that require context retention between messages.
-
-> `POST /translate`
-
-Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
-Functionally identical to `/gemini-chat`, meaning it **maintains session context** across requests.
 
 > `POST /v1/chat/completions`
 
-**OpenAI-compatible endpoint** with full support for:
-- **System prompts**: Set behavior and context for the assistant
-- **Conversation history**: Maintain context across multiple turns (user/assistant messages)
-- **Streaming**: Optional streaming response support
-
-Built for seamless integration with clients that expect the OpenAI API format.
+**Primary OpenAI-compatible endpoint**. This is the recommended way to interact with the service. It supports:
+- **Multi-Provider Support**: Route requests through any configured provider.
+- **Conversation Continuation**: Use `conversation_id` to continue an existing conversation session.
+- **Streaming**: Full SSE (Server-Sent Events) support for real-time progressive responses.
+- **System Prompts & History**: Standard OpenAI message format support.
 
 > `POST /v1beta/models/{model}`
 
-**Google Generative AI v1beta API** compatible endpoint.
-Provides access to the latest Google Generative AI models with standard Google API format including safety ratings and structured responses.
+**Google Generative AI compatibility layer**.
+A lightweight implementation intended for integrations expecting the Google Generative AI v1beta protocol.
+- Supports both `generateContent` and `streamGenerateContent` actions.
+- Maps Google-style `contents` and `systemInstruction` to internal provider prompts.
+- *Note: This is a compatibility bridge and does not guarantee 100% parity with official Google SDK behavior or metadata.*
+
+> `POST /gemini`
+
+Simple stateless Gemini endpoint. Each request starts a completely new session.
+
+> `POST /gemini-chat`
+
+Simple conversation-oriented Gemini endpoint. Useful for basic stateful interactions without the full OpenAI schema complexity.
+
+> `POST /translate`
+
+Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension. It functions similarly to `/gemini-chat` but is optimized for translation tasks.
+
+> `GET /v1/gems`
+
+Lists available Gemini "Gems" associated with the account. The returned Gem IDs can be used in the `gem` field of chat requests to apply specific system instructions or personas.
 
 ---
 
