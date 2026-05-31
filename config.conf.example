@@ -15,22 +15,27 @@ name = chrome
 # Execution Strategy:
 # - webapi:    Lightweight, fast, uses unofficial API wrappers.
 # - playwright: Browser-native runtime (Chromium). Most resilient.
-# NOTE: Using a 'playwright/...' model prefix in your request will 
+# NOTE: Using a 'playwright/...' model prefix in your request will
 # automatically override this global backend configuration.
 #
 # Default Model:
 # Choose the model to be used when none is specified in the request.
 # Available models: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking, unspecified
+#
+# Optional manual Gemini WebAPI authentication.
+# Prefer browser login which stores auth state in runtime/auth/gemini.json.
+# Both cookies are required if using manual configuration.
 [Gemini]
 backend = webapi
 default_model = gemini-3-flash
+__Secure-1PSID =
+__Secure-1PSIDTS =
 
-# --- Gemini Cookies (DEPRECATED) ---
-# ⚠️ WARNING: Configuration-backed cookie storage is deprecated.
-# Active session storage has been migrated to the canonical store at runtime/auth/gemini.json.
-# Cookies provided here will only be read as a read-only fallback.
+# --- Legacy Cookie Support (DEPRECATED) ---
+# For backward compatibility only. Please migrate to [Gemini] section.
+# Both cookies are required if using legacy format.
 [Cookies]
-gemini_cookie_1psid = 
+gemini_cookie_1psid =
 gemini_cookie_1psidts = 
 
 # --- AI Services Toggle ---

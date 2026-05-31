@@ -41,47 +41,84 @@ class GeminiAuthStateLoader:
     def load_auth_state_with_fallback(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
         """
         Loads authentication cookies utilizing the prioritized hierarchy.
-        Priority 1: Load from canonical store runtime/auth/gemini.json.
-        Priority 2: Load read-only from legacy [Cookies] in config.conf (logs deprecation).
-        
+        Priority 1: Load from [Gemini] section in config.conf (canonical format).
+        Priority 2: Load from legacy [Cookies] in config.conf (logs deprecation).
+        Priority 3: Load from canonical store runtime/auth/gemini.json.
+
         Returns Tuple (cookies_data_dict, is_legacy_fallback)
+
+        Note: Fallback occurs ONLY when a source is missing required cookie values.
+        This loader does NOT perform authentication validation - that happens later
+        when Gemini WebAPI initializes or makes authenticated requests.
         """
-        # Priority 1: Canonical store
+        # Priority 1: [Gemini] section (canonical provider-scoped format)
+        if "Gemini" in CONFIG:
+            gemini_config = dict(CONFIG["Gemini"])
+            psid_val = gemini_config.get("__Secure-1PSID", "").strip()
+            psidts_val = gemini_config.get("__Secure-1PSIDTS", "").strip()
+
+            # Source is usable ONLY when BOTH cookies are present and non-empty
+            if psid_val and psidts_val:
+                # Clean up quoted values if present
+                psid_val = psid_val.strip('"')
+                psidts_val = psidts_val.strip('"')
+
+                reconstructed_cookies = [
+                    {
+                        "name": "__Secure-1PSID",
+                        "value": psid_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    },
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                ]
+                return {"cookies": reconstructed_cookies}, False
+            # If either cookie is missing or empty, fall through to next priority
+
+        # Priority 2: Legacy [Cookies] section (backward compatibility)
+        if "Cookies" in CONFIG:
+            config_cookies = dict(CONFIG["Cookies"])
+            # Only support legacy aliases - do NOT support __Secure- prefixed keys here
+            psid_val = config_cookies.get("gemini_cookie_1psid", "").strip()
+            psidts_val = config_cookies.get("gemini_cookie_1psidts", "").strip()
+
+            # Source is usable ONLY when BOTH cookies are present and non-empty
+            if psid_val and psidts_val:
+                # Clean up quoted values if present
+                psid_val = psid_val.strip('"')
+                psidts_val = psidts_val.strip('"')
+
+                logger.warning(
+                    "Legacy Gemini cookie configuration detected in [Cookies]. "
+                    "Please move cookies to the [Gemini] section. "
+                    "Support will be removed in a future release."
+                )
+                reconstructed_cookies = [
+                    {
+                        "name": "__Secure-1PSID",
+                        "value": psid_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    },
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                ]
+                return {"cookies": reconstructed_cookies}, True
+            # If either cookie is missing or empty, fall through to next priority
+
+        # Priority 3: Canonical store (lowest priority now)
         canonical = cls.load_canonical_state()
         if canonical:
             return canonical, False
-
-        # Priority 2: Legacy fallback
-        config_cookies = dict(CONFIG["Cookies"]) if "Cookies" in CONFIG else {}
-        psid_val = config_cookies.get("__Secure-1PSID") or config_cookies.get("gemini_cookie_1psid")
-        psidts_val = config_cookies.get("__Secure-1PSIDTS") or config_cookies.get("gemini_cookie_1psidts")
-        
-        if psid_val:
-            psid_val = psid_val.strip('"')
-            psidts_val = psidts_val.strip('"') if psidts_val else None
-            
-            logger.warning(
-                "AuthManager: Loaded deprecated cookies from config.conf. "
-                "Please migrate your authentication state to runtime/auth/gemini.json. "
-                "Support for configuration-based cookie storage will be removed in a future release."
-            )
-            # Reconstruct into canonical-like state dictionary format
-            reconstructed_cookies = [
-                {
-                    "name": "__Secure-1PSID",
-                    "value": psid_val,
-                    "domain": ".google.com",
-                    "path": "/"
-                }
-            ]
-            if psidts_val:
-                reconstructed_cookies.append({
-                    "name": "__Secure-1PSIDTS",
-                    "value": psidts_val,
-                    "domain": ".google.com",
-                    "path": "/"
-                })
-            return {"cookies": reconstructed_cookies}, True
 
         return None, False
 
