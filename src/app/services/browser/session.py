@@ -425,9 +425,12 @@ class ProviderSession:
 
         if self.name == "gemini":
             from app.services.browser.auth_loader import GeminiAuthStateLoader
-            auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
-            if auth_data:
-                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(auth_data)
+            from app.services.providers.gemini.auth_selector import GeminiAuthSelector
+            auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+            if auth_candidate:
+                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(
+                    auth_candidate.auth_data
+                )
         else:
             if self._validate_state_file():
                 context_args["storage_state"] = self.state_path

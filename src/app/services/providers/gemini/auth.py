@@ -21,11 +21,12 @@ class GeminiAuthStrategy:
         Perform lightweight status checks for Gemini.
         Returns a dict with 'playwright' and 'webapi' status strings.
         """
-        from app.services.browser.auth_loader import GeminiAuthStateLoader
+        from app.services.providers.gemini.auth_selector import GeminiAuthSelector
         
         # 1. Check Playwright/JSON status
-        auth_data, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
-        playwright_status = AuthStatus.VALID_SESSION if auth_data else AuthStatus.NO_SESSION
+        auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+        is_legacy = auth_candidate.is_legacy if auth_candidate else False
+        playwright_status = AuthStatus.VALID_SESSION if auth_candidate else AuthStatus.NO_SESSION
         
         # 2. Check direct WebAPI client status
         webapi_status = AuthStatus.INVALID

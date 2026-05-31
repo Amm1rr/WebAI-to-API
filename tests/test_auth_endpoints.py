@@ -3,6 +3,25 @@ from unittest.mock import MagicMock, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.browser.auth_manager import get_auth_manager, LoginState, AuthStatus
+from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
+
+
+def auth_candidate(source_type="gemini_config", is_legacy=False):
+    return GeminiAuthCandidate(
+        source_name="[Gemini] config",
+        source_type=source_type,
+        auth_data={
+            "cookies": [
+                {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+                {"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"},
+            ],
+            "origins": [],
+        },
+        is_legacy=is_legacy,
+        supports_webapi_cookie_auth=True,
+        supports_playwright_storage=True,
+        migration_needed=is_legacy,
+    )
 
 @pytest.mark.asyncio
 async def test_get_auth_status_endpoint(mocker):
@@ -84,6 +103,42 @@ def test_in_memory_auth_lock():
     # Redundant release should be safe
     lock.release()
     assert not lock.is_locked()
+
+
+def test_gemini_refresh_status_uses_selector_candidate(mocker):
+    from app.services.browser.auth_loader import GeminiAuthStateLoader
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
+
+    selector = mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([auth_candidate()]),
+    )
+    load_fallback = mocker.patch.object(GeminiAuthStateLoader, "load_auth_state_with_fallback")
+    browser_extractor = mocker.patch("app.utils.browser.get_cookie_from_browser")
+    client_factory = mocker.patch("app.services.providers.gemini.client.MyGeminiClient")
+
+    status = GeminiAuthStrategy().refresh_status()
+
+    assert status["playwright"] == AuthStatus.VALID_SESSION
+    assert status["is_legacy"] is False
+    selector.assert_called_once()
+    load_fallback.assert_not_called()
+    browser_extractor.assert_not_called()
+    client_factory.assert_not_called()
+
+
+def test_gemini_refresh_status_preserves_legacy_selector_metadata(mocker):
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
+
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([auth_candidate(source_type="legacy_cookies", is_legacy=True)]),
+    )
+
+    status = GeminiAuthStrategy().refresh_status()
+
+    assert status["playwright"] == AuthStatus.VALID_SESSION
+    assert status["is_legacy"] is True
 
 
 def test_auth_manager_multi_worker_warning(mocker):
@@ -284,5 +339,3 @@ async def test_run_login_flow_unexpected_exception_re_raised(mocker):
 
     with pytest.raises(ValueError, match="Unexpected internal error"):
         await auth_mgr.run_login_flow()
-
-

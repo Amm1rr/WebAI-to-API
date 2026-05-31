@@ -107,6 +107,34 @@ def test_json_fallback_candidate_available_for_playwright_storage(mocker):
     assert candidate.supports_playwright_storage is True
 
 
+def test_first_playwright_storage_candidate_uses_first_supported_candidate(mocker):
+    gemini_auth = auth_data("gemini_psid")
+    legacy_auth = auth_data("legacy_psid")
+    patch_sources(
+        mocker,
+        gemini=gemini_auth,
+        legacy=legacy_auth,
+    )
+
+    candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+
+    assert candidate.source_type == "gemini_config"
+    assert candidate.auth_data == gemini_auth
+
+
+def test_first_playwright_storage_candidate_preserves_legacy_metadata(mocker):
+    patch_sources(
+        mocker,
+        legacy=auth_data("legacy_psid"),
+    )
+
+    candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+
+    assert candidate.source_type == "legacy_cookies"
+    assert candidate.is_legacy is True
+    assert candidate.migration_needed is True
+
+
 def test_missing_sources_are_skipped(mocker):
     gemini_source, legacy_source, json_source = patch_sources(
         mocker,

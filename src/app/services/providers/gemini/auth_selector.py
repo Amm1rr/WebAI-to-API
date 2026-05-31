@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, Optional
 
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 
@@ -47,3 +47,14 @@ class GeminiAuthSelector:
                 supports_playwright_storage=True,
                 migration_needed=is_legacy,
             )
+
+    @classmethod
+    def first_playwright_storage_candidate(cls) -> Optional[GeminiAuthCandidate]:
+        return next(
+            (
+                candidate
+                for candidate in cls.iter_candidates()
+                if candidate.supports_playwright_storage
+            ),
+            None,
+        )
