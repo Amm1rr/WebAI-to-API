@@ -106,6 +106,21 @@ Authentication is a decoupled lifecycle managed via `AuthManager` and specialize
 - **Login Flow**: `/v1/auth/login` is a non-blocking trigger that initiates a browser-based workflow. It returns `202 Accepted` to indicate the process has started.
 - **Recovery**: Authentication state is checked by providers at the start of each request. If auth is missing, providers must raise a `503 Service Unavailable` with a clear instruction to log in.
 
+Authentication source handling is intentionally split by responsibility:
+
+| Responsibility | Owner | Contract |
+| :--- | :--- | :--- |
+| Discovery | `AuthLoader` | Finds available auth material, but does not decide the winning source. |
+| Selection | Provider-specific selector | Defines source priority and fallback sequencing. Gemini uses `GeminiAuthSelector`. |
+| Validation | Backend implementation | Validates whether selected auth material is usable for that backend. |
+| Activation | Backend implementation | Activates a WebAPI client or browser context. |
+| Caching | `AuthManager` | Owns cached status returned by `/v1/auth/status`. |
+| Login/recovery orchestration | `AuthManager` and provider auth strategy | Coordinates login, status refresh, and provider-specific post-login recovery. |
+
+For Gemini, selector priority is `[Gemini]` canonical cookies, then legacy `[Cookies]` cookies, then `runtime/auth/gemini.json`. WebAPI performs account-status validation and client activation after selection, including guest fallback decisions. Playwright performs browser storage-state activation after selection. Neither `AuthLoader` nor `GeminiAuthSelector` validates account status.
+
+Legacy `[Cookies]` configuration remains supported. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained as a deprecated compatibility path and is no longer part of the primary runtime selection flow.
+
 ## 10. Provider Routing Contract
 
 The architecture enforces a "Thin Gateway" pattern with an encapsulated strategy layer:

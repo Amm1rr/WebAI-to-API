@@ -9,6 +9,33 @@ This document specifies the interface and responsibilities for logical provider 
 - **The Adapter (Execution Strategy) owns**: The technical implementation of a specific backend (e.g., Playwright or WebAPI).
 - **The Browser-Native Adapter owns**: Request-scoped browser logic, page-level event listeners, observer injection, and prompt emulation.
 
+### 1.1 Authentication Ownership Boundaries
+
+Authentication ownership is split by responsibility:
+
+| Responsibility | Owner | Notes |
+| :--- | :--- | :--- |
+| Discovery | `AuthLoader` | Finds available auth material such as `[Gemini]` cookies, legacy `[Cookies]`, `runtime/auth/gemini.json`, or browser state. Discovery does not decide which source wins. |
+| Selection | Provider-specific selector | Gemini source ordering and fallback sequencing are owned by `GeminiAuthSelector`. |
+| Validation | Backend implementation | WebAPI validates cookies through account status evaluation. Playwright validates browser/storage usability through browser-context activation. |
+| Activation | Backend implementation | WebAPI activates a direct Gemini client. Playwright activates storage state in a browser context. |
+| Caching | `AuthManager` | Owns cached auth status exposed by `/v1/auth/status`. |
+| Login and recovery orchestration | `AuthManager` plus provider auth strategy | `AuthManager` coordinates login/status flow; provider strategies perform provider-specific login and post-login recovery hooks. |
+
+`AuthLoader` and `GeminiAuthSelector` must not validate account status, create backend clients, activate browser contexts, or decide WebAPI guest-mode fallback. Backend implementations consume selected candidates and decide whether they are usable for that backend.
+
+For Gemini, source selection order is:
+
+```text
+[Gemini] canonical cookies
+        ↓
+legacy [Cookies] cookies
+        ↓
+runtime/auth/gemini.json
+```
+
+Legacy `[Cookies]` configuration remains supported for backward compatibility. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained only as a deprecated compatibility path and is no longer part of the primary runtime selection flow.
+
 ### Forbidden Behaviors:
 - Providers/Adapters must NEVER call `browser.close()` or `context.close()` directly.
 - Providers/Adapters must NEVER recreate `BrowserContext` or sessions directly; they must escalate to the authoritative session layer.
@@ -151,4 +178,3 @@ Provider implementations define their own recovery mechanism and must document t
   * For Gemini WebAPI, returns `true` when an existing or restored `ChatSession` was reused.
   * For Gemini Playwright, returns `true` when an existing in-memory `PersistentTab` was reused. URL-backed provider-side recovery after a restart may still report `false` because no in-memory tab was reused.
   * Stateless providers may omit the field or define backend-specific semantics.
-

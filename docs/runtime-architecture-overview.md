@@ -34,6 +34,13 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - **Gemini Playwright:** Uses provider-side Gemini conversation URLs and in-memory `PersistentTab` reuse. It does not use SQLite snapshots for normal conversation continuity.
 - **Stateless Providers:** Some providers, such as Atlas, forward each request independently and do not persist `conversation_id` state locally.
 
+### 5. Authentication Ownership Model
+- **Discovery:** `AuthLoader` discovers available auth material only. Discovery includes provider config cookies, legacy cookie configuration, JSON storage state, and browser state where applicable.
+- **Selection:** Provider-specific selectors own priority ordering and fallback sequencing. For Gemini, `GeminiAuthSelector` enumerates `[Gemini]` cookies, legacy `[Cookies]` cookies, then `runtime/auth/gemini.json`.
+- **Validation and Activation:** Backend implementations decide whether a selected candidate is usable. Gemini WebAPI validates cookies through account status evaluation and activates the direct client, including guest fallback decisions. Gemini Playwright activates storage state through browser-context setup.
+- **Caching and Orchestration:** `AuthManager` owns auth status caching, `/v1/auth/status` refresh orchestration, login triggering, and post-login recovery orchestration. It does not own provider-specific source selection or backend activation.
+- **Compatibility:** Legacy `[Cookies]` remains supported. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained as a deprecated compatibility path, not as the primary runtime selection mechanism.
+
 ---
 
 ## Architectural Principles
