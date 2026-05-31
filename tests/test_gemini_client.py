@@ -2,8 +2,8 @@ import pytest
 import json
 import configparser
 from unittest.mock import AsyncMock, MagicMock
-from app.services.gemini_client import init_gemini_client
-import app.services.gemini_client as gemini_client_module
+from app.services.providers.gemini.client import init_gemini_client
+import app.services.providers.gemini.client as gemini_client_module
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_init_gemini_client_available(mocker):
         "Cookies": {"__Secure-1PSID": "valid_psid", "__Secure-1PSIDTS": "valid_psidts"},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
     mocker.patch('app.services.browser.auth_loader.CONFIG', mock_config)
 
     # Mock MyGeminiClient
@@ -33,12 +33,12 @@ async def test_init_gemini_client_available(mocker):
     mock_client_instance.client = mock_inner_client
     
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         return_value=mock_client_instance
     )
 
     # Mock get_cookie_from_browser so it's not called
-    mock_get_cookies = mocker.patch('app.services.gemini_client.get_cookie_from_browser')
+    mock_get_cookies = mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser')
 
     # Execute
     res = await init_gemini_client()
@@ -67,7 +67,7 @@ async def test_init_gemini_client_unauthenticated_retained(mocker):
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
     # Mock MyGeminiClient
     mock_client_instance = AsyncMock()
@@ -77,7 +77,7 @@ async def test_init_gemini_client_unauthenticated_retained(mocker):
     mock_client_instance.client = mock_inner_client
 
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         return_value=mock_client_instance
     )
 
@@ -93,7 +93,7 @@ async def test_init_gemini_client_unauthenticated_retained(mocker):
     )
 
     # Mock get_cookie_from_browser to return empty
-    mock_get_cookies = mocker.patch('app.services.gemini_client.get_cookie_from_browser', return_value=None)
+    mock_get_cookies = mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser', return_value=None)
 
     # Execute
     res = await init_gemini_client()
@@ -124,7 +124,7 @@ async def test_init_gemini_client_location_rejected_discarded_and_fallback(mocke
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
     # Mock initial loader client (LOCATION_REJECTED)
     mock_loader_client = AsyncMock()
@@ -142,7 +142,7 @@ async def test_init_gemini_client_location_rejected_discarded_and_fallback(mocke
 
     # Side effect for MyGeminiClient creation: 1st loader, 2nd browser fallback
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         side_effect=[mock_loader_client, mock_fallback_client]
     )
 
@@ -159,7 +159,7 @@ async def test_init_gemini_client_location_rejected_discarded_and_fallback(mocke
 
     # Mock get_cookie_from_browser to return valid browser cookies
     mock_get_cookies = mocker.patch(
-        'app.services.gemini_client.get_cookie_from_browser',
+        'app.services.providers.gemini.client.get_cookie_from_browser',
         return_value={"__Secure-1PSID": "browser_psid"}
     )
 
@@ -198,7 +198,7 @@ async def test_init_gemini_client_playwright_state_fallback(mocker):
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
     # Mock loader client (UNAUTHENTICATED)
     mock_loader_client = AsyncMock()
@@ -216,7 +216,7 @@ async def test_init_gemini_client_playwright_state_fallback(mocker):
 
     # Side effect for MyGeminiClient creation: 1st loader, 2nd browser fallback
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         side_effect=[mock_loader_client, mock_fallback_client]
     )
 
@@ -233,7 +233,7 @@ async def test_init_gemini_client_playwright_state_fallback(mocker):
 
     # Mock get_cookie_from_browser to return valid browser cookies
     mock_get_cookies = mocker.patch(
-        'app.services.gemini_client.get_cookie_from_browser',
+        'app.services.providers.gemini.client.get_cookie_from_browser',
         return_value={"__Secure-1PSID": "browser_psid"}
     )
 
@@ -269,7 +269,7 @@ async def test_init_gemini_client_config_unauth_playwright_unauth(mocker):
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
     # Mock loader client (UNAUTHENTICATED)
     mock_loader_client = AsyncMock()
@@ -286,7 +286,7 @@ async def test_init_gemini_client_config_unauth_playwright_unauth(mocker):
     mock_browser_client.client = mock_inner_browser
 
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         side_effect=[mock_loader_client, mock_browser_client]
     )
 
@@ -303,7 +303,7 @@ async def test_init_gemini_client_config_unauth_playwright_unauth(mocker):
 
     # Mock get_cookie_from_browser to return valid browser cookies
     mock_get_cookies = mocker.patch(
-        'app.services.gemini_client.get_cookie_from_browser',
+        'app.services.providers.gemini.client.get_cookie_from_browser',
         return_value={"__Secure-1PSID": "browser_psid"}
     )
 
@@ -339,7 +339,7 @@ async def test_init_gemini_client_playwright_available_browser_available(mocker)
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
     # Mock loader client (AVAILABLE)
     mock_loader_client = AsyncMock()
@@ -349,7 +349,7 @@ async def test_init_gemini_client_playwright_available_browser_available(mocker)
     mock_loader_client.client = mock_inner_loader
 
     mock_my_gemini_client_class = mocker.patch(
-        'app.services.gemini_client.MyGeminiClient',
+        'app.services.providers.gemini.client.MyGeminiClient',
         return_value=mock_loader_client
     )
 
@@ -365,7 +365,7 @@ async def test_init_gemini_client_playwright_available_browser_available(mocker)
     )
 
     # Mock get_cookie_from_browser so it's not called
-    mock_get_cookies = mocker.patch('app.services.gemini_client.get_cookie_from_browser')
+    mock_get_cookies = mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser')
 
     # Execute
     res = await init_gemini_client()
@@ -396,9 +396,9 @@ async def test_init_gemini_client_all_unavailable(mocker):
         "Proxy": {"http_proxy": ""},
         "Playwright": {"auth_state_dir": "auth_state"}
     })
-    mocker.patch('app.services.gemini_client.CONFIG', mock_config)
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
 
-    mock_my_gemini_client_class = mocker.patch('app.services.gemini_client.MyGeminiClient')
+    mock_my_gemini_client_class = mocker.patch('app.services.providers.gemini.client.MyGeminiClient')
     
     # Mock GeminiAuthStateLoader to return None (no cookies available)
     mock_load_fallback = mocker.patch(
@@ -406,7 +406,7 @@ async def test_init_gemini_client_all_unavailable(mocker):
         return_value=(None, False)
     )
     
-    mock_get_cookies = mocker.patch('app.services.gemini_client.get_cookie_from_browser', return_value=None)
+    mock_get_cookies = mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser', return_value=None)
 
     # Execute
     res = await init_gemini_client()
