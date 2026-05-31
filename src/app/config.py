@@ -46,7 +46,7 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     if "Cookies" not in config:
         config["Cookies"] = {}
     if "AI" not in config:
-        config["AI"] = {"default_model_gemini": "gemini-3-flash"}
+        config["AI"] = {}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
     if "Playwright" not in config:
@@ -81,10 +81,20 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         is_headless = env_headless.strip().lower() in ("1", "true", "yes", "on")
         config["Playwright"]["headless"] = "true" if is_headless else "false"
 
+    # Resolve Gemini default model with legacy fallback
+    # Precedence: [Gemini] default_model > [AI] default_model_gemini > hardcoded default
+    legacy_gemini_model = config.get("AI", "default_model_gemini", fallback=None)
+    
     if "Gemini" not in config:
         config["Gemini"] = {
-            "backend": "webapi"
+            "backend": "webapi",
+            "default_model": legacy_gemini_model or "gemini-3-flash"
         }
+    else:
+        if "backend" not in config["Gemini"]:
+            config["Gemini"]["backend"] = "webapi"
+        if "default_model" not in config["Gemini"]:
+            config["Gemini"]["default_model"] = legacy_gemini_model or "gemini-3-flash"
     
     # Validate Gemini backend
     gemini_backend = config["Gemini"].get("backend", "webapi").lower().strip()

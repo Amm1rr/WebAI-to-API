@@ -15,14 +15,19 @@ name = chrome
 [AI]
 default_ai = gemini
 
-# --- Gemini Model Configuration ---
-# Choose the model to be used when Gemini is selected as the AI.
-# Available models (gemini-webapi >= 2.0.0):
-# - gemini-3-pro
-# - gemini-3-flash
-# - gemini-3-flash-thinking
-# - unspecified                (use account default)
-default_model_gemini = gemini-3-flash
+# --- Gemini Configuration ---
+# Configure the Google Gemini provider.
+#
+# Execution Strategy:
+# - webapi:    Lightweight, fast, uses unofficial API wrappers.
+# - playwright: Browser-native runtime (Chromium). Most resilient.
+#
+# Default Model:
+# Choose the model to be used when none is specified in the request.
+# Available models: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking, unspecified
+[Gemini]
+backend = webapi
+default_model = gemini-3-flash
 
 # --- Gemini Cookies (DEPRECATED) ---
 # ⚠️ WARNING: Configuration-backed cookie storage is deprecated.
@@ -45,13 +50,6 @@ gemini = true
 [Atlas]
 api_key = 
 base_url = https://api.atlascloud.ai/v1
-
-# --- Gemini Execution Strategy ---
-# Choose the backend adapter for Gemini execution.
-# - webapi:    Lightweight, fast, uses unofficial API wrappers.
-# - playwright: Browser-native runtime (Chromium). Most resilient.
-[Gemini]
-backend = webapi
 
 # --- Proxy Configuration ---
 # The app, use this proxy to connect gemini servers.

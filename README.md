@@ -249,12 +249,11 @@ If the cookies are left empty, the application will automatically retrieve them 
 # Default AI service.
 default_ai = gemini
 
-# Default model for Gemini (options: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking)
-default_model_gemini = gemini-3-flash
-
-# Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
-gemini_cookie_1psid =
-gemini_cookie_1psidts =
+[Gemini]
+# Choose the backend adapter (webapi or playwright)
+backend = webapi
+# Default model to use when none is specified in the request
+default_model = gemini-3-flash
 
 [EnabledAI]
 # Enable or disable AI services.
