@@ -56,12 +56,18 @@ class GeminiAuthStateLoader:
     @classmethod
     def load_auth_state_with_fallback(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
         """
+        Deprecated compatibility path for legacy callers.
+
         Loads authentication cookies utilizing the prioritized hierarchy.
         Priority 1: Load from [Gemini] section in config.conf (canonical format).
         Priority 2: Load from legacy [Cookies] in config.conf (logs deprecation).
         Priority 3: Load from canonical store runtime/auth/gemini.json.
 
         Returns Tuple (cookies_data_dict, is_legacy_fallback)
+
+        Production Gemini auth source selection is owned by GeminiAuthSelector.
+        Keep this method behavior unchanged until downstream compatibility risk is
+        intentionally retired.
 
         Note: Fallback occurs ONLY when a source is missing required cookie values.
         This loader does NOT perform authentication validation - that happens later
