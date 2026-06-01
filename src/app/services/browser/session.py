@@ -480,10 +480,31 @@ class ProviderSession:
         if self.name == "gemini":
             from app.services.browser.auth_loader import GeminiAuthStateLoader
             from app.services.providers.gemini.auth_selector import GeminiAuthSelector
-            auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+            allow_unauthenticated_bootstrap_context = (
+                getattr(self.engine, "is_bootstrap", False)
+                and self.enable_persistence
+            )
+            if allow_unauthenticated_bootstrap_context:
+                auth_candidate = next(
+                    (
+                        candidate
+                        for candidate in GeminiAuthSelector.iter_candidates()
+                        if candidate.supports_playwright_storage
+                    ),
+                    None,
+                )
+            else:
+                auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
             if auth_candidate:
                 context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(
                     auth_candidate.auth_data
+                )
+            elif allow_unauthenticated_bootstrap_context:
+                logger.info(
+                    "ProviderSession(%s): Initializing unauthenticated bootstrap context "
+                    "for explicit login state creation.",
+                    self.name,
+                    extra={"generation": self.engine.browser_generation}
                 )
             else:
                 raise RuntimeError(
