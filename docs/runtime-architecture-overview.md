@@ -133,6 +133,3 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 Strictly adhere to the authoritative ownership and lock hierarchy specified in the Runtime Contracts. Never bypass the `ManagedPage` resource owner, and ensure all cleanup logic is idempotent, best-effort, and shielded. Terminal shutdown is an irreversible state transition. Runtime components must fail fast rather than attempting lifecycle resurrection. Raw Playwright page ownership, manual semaphore handling, or out-of-band lifecycle recovery are forbidden.
 
 ---
-
-## License
-This project is open-source under the [MIT License](LICENSE).

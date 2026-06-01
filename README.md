@@ -399,7 +399,15 @@ For Docker setup and deployment instructions, please refer to the [Docker.md](Do
 
 ## License 📜
 
-This project is open source under the [MIT License](LICENSE).
+Starting from v0.5.0, WebAI-to-API is licensed under GNU AGPLv3.
+
+Versions released before v0.5.0 remain available under the MIT License.
+
+Commercial licensing options are available. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for details.
+
+## Contributing
+
+By submitting contributions to this project, you agree to the terms described in [CLA.md](CLA.md).
 
 ---
 
