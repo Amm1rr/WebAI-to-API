@@ -105,11 +105,9 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 
 ## Supported Models
 
-| Model                     | Description               |
-| ------------------------- | ------------------------- |
-| `gemini-3-pro`            | Most capable Gemini model |
-| `gemini-3-flash`          | Fast and efficient model  |
-| `gemini-3-flash-thinking` | Enhanced reasoning model  |
+Available models may vary depending on the configured provider and backend.
+
+Use the `/v1/models` endpoint to retrieve the current list of supported models.
 
 ---
 
