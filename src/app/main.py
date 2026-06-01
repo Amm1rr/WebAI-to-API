@@ -10,7 +10,7 @@ from app.services.browser.auth_manager import get_auth_manager
 from app.logger import logger
 
 # Import endpoint routers
-from app.endpoints import gemini, chat, google_generative, auth
+from app.endpoints import gemini, chat, google_generative, auth, system
 
 import os
 import signal
@@ -122,3 +122,4 @@ app.include_router(gemini.router)
 app.include_router(chat.router)
 app.include_router(google_generative.router)
 app.include_router(auth.router)
+app.include_router(system.router)
