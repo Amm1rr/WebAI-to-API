@@ -23,6 +23,8 @@ class GeminiRequest(BaseModel):
     model: str = Field(default="gemini-3-flash", description="Model to use for Gemini.")
     files: Optional[List[str]] = []
     gem: Optional[str] = Field(default=None, examples=[None], description="Gem ID or name to use as system prompt.")
+    stream: Optional[bool] = False
+    conversation_id: Optional[str] = Field(default=None, description="Cryptographically secure token to maintain chat state.")
 
 class OpenAIChatRequest(BaseModel):
     messages: List[dict]
@@ -32,6 +34,7 @@ class OpenAIChatRequest(BaseModel):
     tools: Optional[List[dict]] = None
     tool_choice: Optional[Any] = None
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
+    conversation_id: Optional[str] = Field(default=None, description="ID to continue an existing browser conversation.")
 
 class Part(BaseModel):
     text: Optional[str] = None

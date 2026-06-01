@@ -1,0 +1,106 @@
+import asyncio
+import re
+from typing import Optional, Any
+from playwright.async_api import Page
+from app.services.browser.base_adapter import BaseProviderAdapter
+from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
+from app.logger import logger
+from app.services.browser.errors import TransientSessionError
+
+class GeminiProviderAdapter(BaseProviderAdapter):
+    """
+    Concrete adapter for the Google Gemini Web interface.
+    Implements only the minimal DOM selectors, form inputs, URL parsing,
+    and authentication heuristics, with zero changes to orchestration.
+    """
+    def __init__(self, ui_wait_timeout: int = 15000):
+        self.ui_wait_timeout = ui_wait_timeout
+
+    @property
+    def provider_name(self) -> str:
+        return "gemini"
+
+    async def check_authentication(self, page: Page) -> bool:
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
+        try:
+            if "accounts.google.com" in page.url and "/signin" in page.url:
+                return False
+            signin_button = page.get_by_role("button", name=re.compile(r"sign in", re.IGNORECASE))
+            try:
+                count = await signin_button.count()
+                if count > 0:
+                    if await signin_button.first.is_visible():
+                        return False
+            except (PlaywrightTimeoutError, PlaywrightError, asyncio.TimeoutError) as e:
+                # Only known transient Playwright/connection issues are transient
+                raise TransientSessionError(f"Transient error during authentication DOM check: {e}") from e
+            return True
+        except TransientSessionError:
+            raise
+        except (PlaywrightTimeoutError, PlaywrightError, asyncio.TimeoutError) as e:
+            # Outer navigation or target closure Playwright issues are transient
+            raise TransientSessionError(f"Transient failure during authentication navigation check: {e}") from e
+
+    def extract_conversation_id(self, url: str) -> Optional[str]:
+        match = re.search(r"/app/([a-z0-9]+)", url)
+        if match:
+            return match.group(1)
+        return None
+
+    async def submit_prompt(self, page: Page, prompt: str, state: Optional[Any] = None) -> bool:
+        # 1. Historical Marking (Response Ownership)
+        await page.evaluate(
+            f"() => document.querySelectorAll('{SELECTORS['RESPONSE_CONTAINER']}').forEach(el => el.setAttribute('data-gemini-historical', 'true'))"
+        )
+        
+        if state and hasattr(state, "active_tab") and state.active_tab:
+            state.active_tab.heartbeat("prompt_fill")
+            
+        input_locator = page.locator(SELECTORS["INPUT"]).first
+        await input_locator.click()
+        await input_locator.focus()
+        await input_locator.fill(prompt)
+        await page.keyboard.press("End")
+        await asyncio.sleep(0.1)
+        
+        submit_button = page.get_by_role("button", name=re.compile("Send", re.I)).first
+        if await submit_button.count() == 0:
+            submit_button = page.locator(SELECTORS["SEND_BUTTON"]).first
+
+        await submit_button.wait_for(state="visible", timeout=self.ui_wait_timeout)
+        
+        if not await submit_button.is_enabled():
+            await page.keyboard.press("Space")
+            await page.keyboard.press("Backspace")
+            await asyncio.sleep(0.1)
+            
+        confirmed = False
+        for attempt in range(2):
+            if state and hasattr(state, "submission_confirmed") and state.submission_confirmed:
+                if state.submission_confirmed.is_set():
+                    confirmed = True
+                    break
+                state.submission_confirmed.clear()
+                
+            if await submit_button.is_enabled():
+                await submit_button.click()
+            else:
+                await page.keyboard.press("Enter")
+            
+            if state and hasattr(state, "submission_confirmed") and state.submission_confirmed:
+                try:
+                    # Short-lived wait while holding submit_lock
+                    async with asyncio.timeout(3.5):
+                        await state.submission_confirmed.wait()
+                        confirmed = True
+                        break
+                except asyncio.TimeoutError:
+                    if attempt == 0:
+                        logger.warning("Submission not confirmed, retrying...", extra={"request_id": getattr(state, "request_id", "unknown")})
+                        continue
+            else:
+                # If no state or event, assume submitted immediately (stateless fallback)
+                confirmed = True
+                break
+                
+        return confirmed

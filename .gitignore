@@ -15,4 +15,13 @@ htmlcov/
 .pytest_cache/
 coverage.xml
 dist/
-openspec/
+.playwright_data/
+conversation_snapshots.db
+conversation_snapshots.db-wal
+conversation_snapshots.db-shm
+
+# Runtime state
+runtime/
+
+# Legacy auth directory (backward compatibility)
+auth_state/

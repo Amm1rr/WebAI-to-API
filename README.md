@@ -9,7 +9,6 @@
 
 <p align="center">
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
-  <img src="./assets/Server-Run-G4F.png" alt="gpt4free Server" height="160" />
   <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
     <img src="./assets/ATLAS_CLOUD_LOGO_BLACK.png" alt="Atlas Cloud" height="160" />
   </a>
@@ -33,21 +32,7 @@ This project supports **three operational modes**:
 
    A direct API provider offering high-performance access to advanced models like MiniMax-M2. Ideal for developers seeking a reliable, low-latency cloud alternative with native OpenAI compatibility.
 
-3. **Fallback Web Server (gpt4free)**
-
-   > [gpt4free](https://github.com/xtekky/gpt4free)
-
-   A secondary server powered by the `gpt4free` library, offering broader access to multiple LLMs beyond Gemini, including:
-
-   - ChatGPT
-   - Claude
-   - DeepSeek
-   - Copilot
-   - HuggingFace Inference
-   - Grok
-   - ...and many more.
-
-This design provides both **speed and redundancy**, ensuring flexibility depending on your use case and available resources.
+This design provides both **speed and reliability**, ensuring flexibility depending on your use case and available resources.
 
 ---
 
@@ -55,18 +40,32 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
 - 🌐 **Available Endpoints**:
 
-  - **WebAI Server**:
-    - `/v1/chat/completions` (OpenAI-compatible)
-    - `/v1/models` (List all providers and models)
-    - `/gemini`
-    - `/gemini-chat`
-    - `/translate`
-    - `/v1beta/models/{model}` (Google Generative AI v1beta API)
+  ### Primary APIs
+  - `/v1/chat/completions` (OpenAI-compatible) — **Recommended**
+  - `/v1/models` (List all available providers and models)
+
+  ### Authentication APIs
+  - `/v1/auth/status` (Check authentication state and login progress)
+  - `/v1/auth/login` (Trigger browser-based login workflow)
+
+  ### System & Health APIs
+  - `/health` (Liveness probe for process health)
+  - `/ready` (Readiness probe for structural runtime health)
+  - `/v1/runtime/status` (Detailed runtime diagnostics and metrics)
+
+  ### Compatibility APIs
+  - `/v1beta/models/{model}` (Google Generative AI v1beta compatibility layer)
+
+  ### Legacy / Specialized APIs
+  - `/gemini` (Legacy stateless Gemini endpoint)
+  - `/gemini-chat` (Legacy in-memory conversation endpoint — does not survive restarts)
+  - `/translate` (Specialized endpoint for Translate It! integration)
+  - `/v1/gems` (List available Gemini Gems)
 
 - 🛠️ **Refactored Architecture**: Decoupled gateway logic with a lightweight provider contract.
   - **Thin Gateway**: `chat.py` acts as a clean orchestrator.
   - **Provider-Owned Complexity**: Each backend (Gemini, Atlas) manages its own transformation and streaming quirks.
-  - **Atomic Persistence**: Concurrency-safe cookie rotation and configuration updates.
+  - **Provider-Specific Continuity**: Conversation persistence depends on the selected provider/backend.
 
 <p align="center">
   <img src="./assets/Endpoints-Docs.png" alt="Endpoints" height="280" />
@@ -87,6 +86,12 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
    ```bash
    poetry install
+   ```
+
+   If you plan to use the Playwright backend, install the required browser binaries:
+
+   ```bash
+   poetry run playwright install chromium
    ```
 
 3. **Create and update the configuration file:**
@@ -116,6 +121,18 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 | `gemini-3-pro`              | Most powerful model                |
 | `gemini-3-flash`            | Fast and efficient model (default) |
 | `gemini-3-flash-thinking`   | Enhanced reasoning model           |
+
+### Provider Routing
+
+Requests to `/v1/chat/completions` are automatically routed based on the model prefix or an explicit provider field. If no prefix is found, the system falls back to the default Gemini provider, which will use the strategy defined by `[Gemini] backend`.
+
+| Model Prefix | Provider | Example |
+| ------------ | -------- | ------- |
+| *(none)*     | Gemini   | `gemini-3-flash` |
+| `playwright/`| Gemini (Playwright) | `playwright/gemini-3-pro` |
+| `atlas/`     | Atlas    | `atlas/MiniMax-M2` |
+
+---
 
 ### Example Request (Basic)
 
@@ -170,95 +187,58 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ## Documentation
 
+### Authentication Endpoints
+
+> `GET /v1/auth/status`
+
+Inspects the current authentication state. Returns information about whether the provider is logged in, any pending login operations, and the health of the browser session. Use the `?refresh=true` query parameter to force a lightweight check of the current session.
+
+> `POST /v1/auth/login`
+
+Triggers an isolated, browser-based login workflow. Opens a browser window on the HOST machine for interactive authentication.
+
+**Important:** This endpoint requires a display environment (X11/macOS/Windows) and will NOT work in headless Docker containers. For Docker + Playwright deployments, use `verify_login.py` on your host machine before starting the container.
+
 ### WebAI-to-API Endpoints
-
-> `POST /gemini`
-
-Initiates a new conversation with the LLM. Each request creates a **fresh session**, making it suitable for stateless interactions.
-
-> `POST /gemini-chat`
-
-Continues a persistent conversation with the LLM without starting a new session. Ideal for use cases that require context retention between messages.
-
-> `POST /translate`
-
-Designed for quick integration with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
-Functionally identical to `/gemini-chat`, meaning it **maintains session context** across requests.
 
 > `POST /v1/chat/completions`
 
-**OpenAI-compatible endpoint** with full support for:
-- **System prompts**: Set behavior and context for the assistant
-- **Conversation history**: Maintain context across multiple turns (user/assistant messages)
-- **Streaming**: Optional streaming response support
-
-Built for seamless integration with clients that expect the OpenAI API format.
+**Primary OpenAI-compatible endpoint**. This is the recommended way to interact with the service. It supports:
+- **Multi-Provider Support**: Route requests through any configured provider.
+- **Conversation Continuation**: Use `conversation_id` to continue an existing conversation when the selected provider/backend supports it. Gemini WebAPI uses SQLite-backed snapshots; Gemini Playwright uses Gemini provider-side conversation URLs and in-memory tab reuse; Atlas is stateless.
+- **Streaming**: Full SSE (Server-Sent Events) support for real-time progressive responses.
+- **System Prompts & History**: Standard OpenAI message format support.
 
 > `POST /v1beta/models/{model}`
 
-**Google Generative AI v1beta API** compatible endpoint.
-Provides access to the latest Google Generative AI models with standard Google API format including safety ratings and structured responses.
+**Google Generative AI compatibility layer**.
+A lightweight implementation intended for integrations expecting the Google Generative AI v1beta protocol.
+- Supports both `generateContent` and `streamGenerateContent` actions.
+- Maps Google-style `contents` and `systemInstruction` to internal provider prompts.
+- *Note: This is a compatibility bridge and does not guarantee 100% parity with official Google SDK behavior or metadata.*
+
+> `POST /gemini`
+
+**Legacy stateless Gemini endpoint**. Retained for backward compatibility. Each request starts a completely new session. New integrations should prefer `/v1/chat/completions`.
+
+> `POST /gemini-chat`
+
+**Legacy conversation-oriented Gemini endpoint**. Conversation state is maintained in memory only and **does not survive server restarts**. For provider/backend-specific conversation continuity, use `/v1/chat/completions` with `conversation_id`.
+
+> `POST /translate`
+
+Specialized endpoint maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It) browser extension.
+- **Shared Session**: Uses a shared global in-memory session (no isolation).
+- **Transient**: Does not survive server restarts.
+- **Non-Streaming**: Buffered responses only.
+- **Requirement**: The client must provide translation instructions in the prompt.
+- **Recommendation**: For isolated or provider-supported persistent translation workflows, prefer `/v1/chat/completions`.
+
+> `GET /v1/gems`
+
+Lists available Gemini "Gems" associated with the account. The returned Gem IDs can be used in the `gem` field of chat requests to apply specific system instructions or personas.
 
 ---
-
-### gpt4free Endpoints
-
-<details>
-  <summary>
-    <b>Available Endpoints (gpt4free API Layer)</b>
-  </summary>
-
-These endpoints follow the **OpenAI-compatible structure** and are powered by the `gpt4free` library.  
-For detailed usage and advanced customization, refer to the official documentation:
-
-- 📄 [Provider Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/selecting_a_provider.md)
-- 📄 [Model Documentation](https://github.com/gpt4free/g4f.dev/blob/main/docs/providers-and-models.md)
-
-```
-GET  /                              # Health check
-GET  /v1                            # Version info
-GET  /v1/models                     # List all available models
-GET  /api/{provider}/models         # List models from a specific provider
-GET  /v1/models/{model_name}        # Get details of a specific model
-
-POST /v1/chat/completions           # Chat with default configuration
-POST /api/{provider}/chat/completions
-POST /api/{provider}/{conversation_id}/chat/completions
-
-POST /v1/responses                  # General response endpoint
-POST /api/{provider}/responses
-
-POST /api/{provider}/images/generations
-POST /v1/images/generations
-POST /v1/images/generate            # Generate images using selected provider
-
-POST /v1/media/generate             # Media generation (audio/video/etc.)
-
-GET  /v1/providers                  # List all providers
-GET  /v1/providers/{provider}       # Get specific provider info
-
-POST /api/{path_provider}/audio/transcriptions
-POST /v1/audio/transcriptions       # Audio-to-text
-
-POST /api/markitdown                # Markdown rendering
-
-POST /api/{path_provider}/audio/speech
-POST /v1/audio/speech               # Text-to-speech
-
-POST /v1/upload_cookies             # Upload session cookies (browser-based auth)
-
-GET  /v1/files/{bucket_id}          # Get uploaded file from bucket
-POST /v1/files/{bucket_id}          # Upload file to bucket
-
-GET  /v1/synthesize/{provider}      # Audio synthesis
-
-POST /json/{filename}               # Submit structured JSON data
-
-GET  /media/{filename}              # Retrieve media
-GET  /images/{filename}             # Retrieve images
-```
-
-</details>
 
 ---
 
@@ -273,11 +253,40 @@ GET  /images/{filename}             # Retrieve images
     <h2>Configuration ⚙️</h2>
   </summary>
 
+### Authentication Configuration
+
+WebAI-to-API supports multiple authentication methods. Choose the approach that matches your deployment:
+
+**Method A: Manual Cookies (Gemini WebAPI)**
+- Edit `config.conf` and add your `__Secure-1PSID` and `__Secure-1PSIDTS` cookies
+- Works immediately in all environments (Docker, host, etc.)
+- No browser required
+- Best for: Quick testing, WebAPI backend deployments
+
+**Method B: Browser Login (Playwright)**
+- Run `poetry run python verify_login.py` on your HOST machine
+- Creates `runtime/auth/gemini.json` with authentication state
+- Docker container consumes this file via volume mount
+- Recommended authentication method for Playwright backend (`playwright/*` models)
+- Authentication state should be generated on the host before using Playwright models
+
+**Authentication Comparison:**
+
+| Method | Backend | Environment | Difficulty | Persistence |
+|--------|---------|-------------|------------|-------------|
+| Manual cookies | WebAPI | All | Easy | No (cookies expire) |
+| verify_login.py | Playwright | Host first | Medium | Yes (via gemini.json) |
+| browser-cookie3 | WebAPI | Host only | Easy | No (reads live browser) |
+| /v1/auth/login | Playwright | Display environment required | Easy | Yes (via gemini.json) |
+
+**For Docker + Playwright deployments:** Use Method B (`poetry run python verify_login.py`) on your host machine to generate authentication state, then restart the container.
+
+---
+
 ### Key Configuration Options
 
 | Section     | Option     | Description                                | Example Value           |
 | ----------- | ---------- | ------------------------------------------ | ----------------------- |
-| [AI]        | default_ai | Default service for `/v1/chat/completions` | `gemini`                |
 | [Browser]   | name       | Browser for cookie-based authentication    | `chrome`               |
 | [EnabledAI] | gemini     | Enable/disable Gemini service              | `true`                  |
 | [Proxy]     | http_proxy | Proxy for Gemini connections (optional)    | `http://127.0.0.1:2334` |
@@ -290,16 +299,11 @@ If the cookies are left empty, the application will automatically retrieve them 
 ### Sample `config.conf`
 
 ```ini
-[AI]
-# Default AI service.
-default_ai = gemini
-
-# Default model for Gemini (options: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking)
-default_model_gemini = gemini-3-flash
-
-# Gemini cookies (leave empty to use browser_cookies3 for automatic authentication).
-gemini_cookie_1psid =
-gemini_cookie_1psidts =
+[Gemini]
+# Choose the backend adapter (webapi or playwright)
+backend = webapi
+# Default model to use when none is specified in the request
+default_model = gemini-3-flash
 
 [EnabledAI]
 # Enable or disable AI services.
@@ -335,17 +339,23 @@ src/
 │   ├── services/              # Business logic and provider systems.
 │   │   ├── base.py            # Lightweight provider interface contract.
 │   │   ├── factory.py         # Static provider registry (lazy initialization).
-│   │   ├── providers/         # Encapsulated backend implementations.
-│   │   │   ├── gemini.py      # Browser-based session & prompt emulation.
-│   │   │   └── atlas.py       # Stateless HTTP-native integration.
-│   │   ├── gemini_client.py   # Gemini low-level client initialization.
+│   │   ├── providers/         # Encapsulated logical provider implementations.
+│   │   │   ├── gemini/        # Google Gemini logical provider package.
+│   │   │   │   ├── provider.py        # Gemini provider entry point & logic.
+│   │   │   │   ├── client.py          # Authoritative Gemini client manager.
+│   │   │   │   ├── auth.py            # Gemini-specific auth strategy.
+│   │   │   │   ├── session_manager.py # Persistent chat session orchestration.
+│   │   │   │   └── ...
+│   │   │   └── atlas/         # Atlas Cloud logical provider package.
+│   │   │       ├── provider.py        # Atlas provider implementation.
+│   │   │       └── ...
+│   │   ├── gemini_client.py   # [DEPRECATED] Compatibility shim for Gemini client.
 │   │   └── ...
 │   └── utils/
 │       ├── config_utils.py    # Atomic, non-blocking config persistence.
 │       ├── streaming.py       # Shared SSE normalization utility.
-│       └── browser.py         # Browser-based cookie retrieval.
-├── models/                    # Model wrappers.
-└── schemas/                   # Pydantic validation schemas.
+│       ├── browser.py         # Browser-based cookie retrieval.
+└── ...
 ```
 
 ---
@@ -356,10 +366,10 @@ src/
 
 The project is built on a modular architecture designed for scalability and ease of maintenance. Its primary components are:
 
-- **app/endpoints/chat.py**: Acts as a thin orchestrator that resolves the correct provider via the `ProviderFactory` and delegates the completion request.
-- **app/services/factory.py**: A static registry that lazily initializes provider instances based on model prefixes or explicit provider flags.
-- **app/services/providers/**: Encapsulates provider-specific logic. Each provider (e.g., `GeminiProvider`) is responsible for its own request mapping, response normalization, and streaming mechanics.
-- **app/utils/config_utils.py**: Ensures operational safety by providing atomic, non-blocking configuration persistence for volatile state like rotated cookies.
+- **app/endpoints/chat.py**: Acts as a thin orchestrator that resolves the correct logical provider via the `ProviderFactory` and delegates the completion request.
+- **app/services/factory.py**: A static registry that lazily initializes logical provider instances based on model prefixes or explicit provider flags.
+- **app/services/providers/**: Encapsulates provider-specific logic. Each logical provider (e.g., `GeminiProvider`) represents an LLM vendor and owns its shared logic (tool parsing, prompt transformation) while orchestrating one or more technical execution **Adapters** (e.g., Playwright vs. WebAPI).
+- **app/utils/config_utils.py**: Ensures operational safety by providing atomic, non-blocking configuration persistence.
 
 ### How It Works
 
@@ -372,8 +382,8 @@ The project is built on a modular architecture designed for scalability and ease
 3. **Delegated Implementation:**  
    Each provider implements a lightweight contract. The orchestrator remains clean, while the providers handle implementation-heavy work like prompt transformation, tool-call parsing, and internal streaming states.
 
-4. **Normalization & Persistence:**  
-   Responses are normalized to OpenAI format at the provider/SSE boundary. Any state changes (like cookie rotation) are persisted atomically to prevent configuration corruption.
+4. **Normalization & Continuity:**
+   Responses are normalized to OpenAI format at the provider/SSE boundary. Conversation continuity is backend-specific: WebAPI-backed sessions can use local snapshots, browser-backed sessions can use provider conversation URLs, and stateless providers forward independent requests.
 
 ---
 

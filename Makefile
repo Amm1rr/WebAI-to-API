@@ -27,3 +27,7 @@ down:
 
 push:
 	docker push cornatul/webai.ai:latest
+
+export-reqs:
+	poetry export -f requirements.txt --output requirements.txt --without-hashes
+

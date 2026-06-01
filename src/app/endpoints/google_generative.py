@@ -97,7 +97,12 @@ def _make_google_response(response_text: str, tools=None) -> dict:
     }
 
 
-@router.post("/v1beta/models/{model_path:path}")
+@router.post(
+    "/v1beta/models/{model_path:path}",
+    tags=["Compatibility"],
+    summary="Google Generative AI Compatibility Endpoint",
+    description="Compatibility endpoint that accepts Google Generative AI style requests and returns Google-style responses. Intended for integration compatibility and not guaranteed to provide full protocol parity with official Google SDKs."
+)
 async def google_generative_generate(model_path: str, request: GoogleGenerativeRequest):
     try:
         gemini_client = get_gemini_client()
@@ -137,14 +142,39 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
         prompt_parts.append(_build_prompt_from_contents(request.contents))
         prompt = "\n\n".join(p for p in prompt_parts if p)
 
+        if is_streaming:
+            async def sse_generator():
+                try:
+                    async for chunk in await gemini_client.generate_content_stream(prompt, model_name):
+                        if chunk.text_delta:
+                            partial_response = {
+                                "candidates": [{
+                                    "content": {
+                                        "parts": [{"text": chunk.text_delta}],
+                                        "role": "model",
+                                    },
+                                    "finishReason": None,
+                                    "index": 0,
+                                }],
+                            }
+                            yield f"data: {json.dumps(partial_response)}\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    raise
+                except Exception as e:
+                    logger.error(f"Error in Google Generative progressive streaming: {e}", exc_info=True)
+
+            return StreamingResponse(
+                sse_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                }
+            )
+
         response = await gemini_client.generate_content(prompt, model_name)
         google_response = _make_google_response(response.text, request.tools)
-
-        if is_streaming:
-            async def sse_stream():
-                yield f"data: {json.dumps(google_response)}\n\n"
-            return StreamingResponse(sse_stream(), media_type="text/event-stream")
-
         return google_response
 
     except Exception as e:

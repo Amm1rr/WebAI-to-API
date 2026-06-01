@@ -1,7 +1,6 @@
 # Configuration File for WebAI-to-API Server
 # -------------------------------------------
 # ⚠️ Note: This file is *only* used by the WebAI-to-API server.
-# It is NOT intended for use with gpt4free providers.
 
 # --- Browser Settings ---
 # Set the browser that will be used for any required operations.
@@ -10,26 +9,48 @@
 [Browser]
 name = chrome
 
-# --- AI Provider Settings ---
-# Select the default AI service.
-# Currently supported: gemini, atlas
-[AI]
-default_ai = gemini
+# --- Authentication Methods ---
+# WebAI-to-API supports multiple authentication approaches:
+#
+# 1. MANUAL COOKIES (Gemini WebAPI):
+#    - Add __Secure-1PSID and __Secure-1PSIDTS below
+#    - Works immediately, no browser required
+#
+# 2. BROWSER LOGIN (Playwright):
+#    - Run: poetry run python verify_login.py (on HOST machine, not in Docker)
+#    - Creates runtime/auth/gemini.json with authentication state
+#    - Docker container automatically consumes this file
+#    - Required for: playwright/* model requests
+#
+# For Docker + Playwright deployments: Use Method 2 (verify_login.py)
 
-# --- Gemini Model Configuration ---
-# Choose the model to be used when Gemini is selected as the AI.
-# Available models (gemini-webapi >= 2.0.0):
-# - gemini-3-pro
-# - gemini-3-flash
-# - gemini-3-flash-thinking
-# - unspecified                (use account default)
-default_model_gemini = gemini-3-flash
+# --- Gemini Configuration ---
+# Configure the Google Gemini provider.
+#
+# Execution Strategy:
+# - webapi:    Lightweight, fast, uses unofficial API wrappers.
+# - playwright: Browser-native runtime (Chromium). Most resilient.
+# NOTE: Using a 'playwright/...' model prefix in your request will
+# automatically override this global backend configuration.
+#
+# Default Model:
+# Choose the model to be used when none is specified in the request.
+# Available models: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking, unspecified
+#
+# Optional manual Gemini WebAPI authentication.
+# Prefer browser login which stores auth state in runtime/auth/gemini.json.
+# Both cookies are required if using manual configuration.
+[Gemini]
+backend = webapi
+default_model = gemini-3-flash
+__Secure-1PSID =
+__Secure-1PSIDTS =
 
-# --- Gemini Cookies ---
-# Provide your authentication cookies for Gemini here.
-# You can either paste them manually or log in via browser to generate them.
+# --- Legacy Cookie Support (DEPRECATED) ---
+# For backward compatibility only. Please migrate to [Gemini] section.
+# Both cookies are required if using legacy format.
 [Cookies]
-gemini_cookie_1psid = 
+gemini_cookie_1psid =
 gemini_cookie_1psidts = 
 
 # --- AI Services Toggle ---
@@ -38,9 +59,68 @@ gemini_cookie_1psidts =
 [EnabledAI]
 gemini = true
 
+# --- Atlas Cloud Configuration ---
+# API key and endpoint for the Atlas Cloud provider.
+#
+# Precedence Order:
+# OS Env > .env.local > .env > config.conf > defaults
+#
+# NOTE: For production, Docker, or CI/CD deployments, it is highly 
+# recommended to use environment variables (ATLASCLOUD_API_KEY, 
+# ATLASCLOUD_BASE_URL) rather than committing secrets to this file.
+[Atlas]
+api_key = 
+base_url = https://api.atlascloud.ai/v1
+
 # --- Proxy Configuration ---
 # The app, use this proxy to connect gemini servers.
 # Its usefull to fix errors like 403 or restricted connections
 # Example: http_proxy = http://127.0.0.1:2334
 [Proxy]
-http_proxy =
+http_proxy = 
+
+# --- Playwright Settings ---
+# Settings for the browser automation engine.
+[Playwright]
+# Run in headless mode (true/false)
+# Note: Set to false for verify_login.py interactive login
+# Docker containers use PLAYWRIGHT_HEADLESS=true environment variable
+headless = false
+
+# Directory for provider browser storage state files
+# This directory is mounted as a volume in Docker deployments
+# AUTHENTICATION STATE: runtime/auth/gemini.json is created by verify_login.py
+auth_state_dir = runtime/auth
+
+# Concurrency locking backend for on-demand authentication coordination.
+# Default: in_memory (process-bound). Swapping this is required for production
+# multi-worker/Gunicorn or horizontally scaled SaaS deployments to avoid races.
+# Supported future values: redis, postgres.
+auth_lock_backend = in_memory
+
+# =====================================================================
+# --- Advanced Playwright Engine Tuning ---
+# ⚠️ Only modify these if you understand the runtime architecture.
+# =====================================================================
+
+# -- Capacity Limits --
+# Maximum concurrent pages across all sessions (HARD LIMIT via semaphore)
+max_concurrent_pages = 5
+
+# Global soft-cap for total open pages across all sessions (eviction threshold)
+max_total_tabs = 50
+
+# Maximum conversations to keep in the LRU registry per provider
+max_persistent_conversations = 20
+
+# -- Timeouts (Milliseconds) --
+# Passed directly to Playwright underlying APIs.
+navigation_timeout = 30000
+ui_wait_timeout = 15000
+
+# -- Timeouts (Seconds) --
+# Used by Python asyncio layer for application-level lifecycle management.
+chunk_timeout = 90
+total_request_timeout = 120
+idle_conversation_timeout = 900
+lease_timeout = 180
