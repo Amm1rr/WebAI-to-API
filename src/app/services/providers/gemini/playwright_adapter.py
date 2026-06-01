@@ -77,9 +77,10 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         self.config = PlaywrightAdapterConfig.load()
 
     async def chat_completions(self, request: OpenAIChatRequest, cid: str, is_new_conversation: bool, tools_prompt: str) -> Any:
-        request_id = str(uuid.uuid4()).replace("-", "_")
+        # Use HTTP request_id if available (from middleware), otherwise generate
+        request_id = getattr(request, "_http_request_id", None) or str(uuid.uuid4()).replace("-", "_")
         start_time = time.monotonic()
-        
+
         page_lease = None
         observer_task = None
         state = None
@@ -151,20 +152,25 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                         if payload.get("type") == "ready":
                             state.js_ready.set()
                             return
-                        
+
                         if payload.get("type") in ("started", "chunk", "rewrite", "done"):
                             if not state.submission_confirmed.is_set():
                                 state.submission_confirmed.set()
 
                         if payload.get("type") == "started":
-                            return 
-                            
+                            return
+
                         try:
                             queue.put_nowait(payload)
                             state.max_queue_depth = max(state.max_queue_depth, queue.qsize())
                         except asyncio.QueueFull:
                             state.dropped_chunks += 1
                             state.queue_overflow = True
+                            # Log queue overflow event (silent data loss detection)
+                            logger.error(
+                                f"Queue overflow during streaming: {state.dropped_chunks} chunks dropped",
+                                extra={"request_id": state.request_id, "dropped_chunks": state.dropped_chunks, "max_queue_depth": state.max_queue_depth}
+                            )
                         except Exception as e:
                             logger.warning(f"Bridge emit failure: {e}")
                             state.page_poisoned = True
@@ -265,6 +271,15 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
             is_stream = request.stream if request.stream is not None else False
             if is_stream:
                 setup_success = True
+                logger.info(
+                    f"Stream starting: {request_id}",
+                    extra={
+                        "request_id": request_id,
+                        "conversation_id": state.conversation_id,
+                        "provider": "gemini",
+                        "model": request.model
+                    }
+                )
                 return StreamingResponse(
                     self._sse_generator(queue, request.model or "playwright/gemini", page, state, observer_task, engine, session, page_lease),
                     media_type="text/event-stream"
@@ -275,37 +290,62 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                 return resp
 
         except asyncio.CancelledError:
+            # Log cancellation for observability
+            if state:
+                logger.warning(f"Request cancelled: {state.request_id}", extra={"request_id": state.request_id})
             raise
+
         except Exception as e:
             # Map internal Playwright and provider errors to appropriate HTTP status codes
             poison_session_errors = (SessionNotAliveError, BrowserDisconnectedError, BrowserGenerationMismatchError)
             if isinstance(e, poison_session_errors) and session:
                 await session.handle_session_failure()
-            
+
+            # Build correlation header for error responses
+            correlation_headers = {}
+            if state:
+                correlation_headers["X-Request-ID"] = state.request_id
+
             if isinstance(e, SessionNotAliveError):
                 detail = str(e) if str(e) else "Authentication expired."
                 if "authentication expired" not in detail.lower():
                     detail = f"Authentication expired. {detail}"
-                raise HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
+                correlation_headers["WWW-Authenticate"] = "Bearer"
+                logger.error(f"Authentication failed: {detail}", extra={"request_id": state.request_id if state else "unknown"} if state else {})
+                raise HTTPException(status_code=401, detail=detail, headers=correlation_headers)
+
             if isinstance(e, TransientSessionError):
-                raise HTTPException(status_code=503, detail=str(e))
+                logger.error(f"Transient session error: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=503, detail=str(e), headers=correlation_headers)
+
             if isinstance(e, (asyncio.TimeoutError, PlaywrightTimeoutError)):
-                raise HTTPException(status_code=504, detail="Request timed out.")
+                logger.error(f"Request timeout: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=504, detail="Request timed out.", headers=correlation_headers)
+
             if isinstance(e, BrowserDisconnectedError):
-                raise HTTPException(status_code=502, detail="Underlying browser process disconnected.")
+                logger.error(f"Browser disconnected: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=502, detail="Underlying browser process disconnected.", headers=correlation_headers)
+
             if isinstance(e, BrowserGenerationMismatchError):
-                raise HTTPException(status_code=503, detail="Browser generation rollover mismatch.")
+                logger.error(f"Browser generation mismatch: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=503, detail="Browser generation rollover mismatch.", headers=correlation_headers)
+
             if isinstance(e, PlaywrightError):
                 if "closed" in str(e).lower():
-                    raise HTTPException(status_code=503, detail="Browser session unavailable.")
-                raise HTTPException(status_code=502, detail="Browser interaction failure.")
+                    logger.error(f"Browser session closed: {e}", extra={"request_id": state.request_id} if state else {})
+                    raise HTTPException(status_code=503, detail="Browser session unavailable.", headers=correlation_headers)
+                logger.error(f"Browser interaction failure: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=502, detail="Browser interaction failure.", headers=correlation_headers)
+
             if isinstance(e, (BrowserShuttingDownError, LeaseInvalidatedError, QueueOverflowError, ConversationBusyError)):
-                raise HTTPException(status_code=503 if not isinstance(e, (LeaseInvalidatedError, ConversationBusyError)) else 409, detail=str(e))
-            
+                logger.error(f"Runtime error: {e}", extra={"request_id": state.request_id} if state else {})
+                raise HTTPException(status_code=503 if not isinstance(e, (LeaseInvalidatedError, ConversationBusyError)) else 409, detail=str(e), headers=correlation_headers)
+
             if isinstance(e, HTTPException): raise
-            
-            logger.error(f"Unexpected error in GeminiPlaywrightAdapter: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Internal server error.")
+
+            logger.error(f"Unexpected error in GeminiPlaywrightAdapter: {e}", exc_info=True, extra={"request_id": state.request_id} if state else {})
+            raise HTTPException(status_code=500, detail="Internal server error.", headers=correlation_headers)
+
         finally:
             if not setup_success:
                 if page_lease or observer_task:
@@ -313,10 +353,20 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
     async def _sse_generator(self, queue: asyncio.Queue, model: str, page: Page, state: PlaywrightRequestState, observer_task: Optional[asyncio.Task], engine: Any, session: Any, lease: ManagedPage):
         from app.utils.streaming import format_sse_chunk, get_done_chunk
-        
+        request_id = state.request_id
+        stream_start_time = time.monotonic()
+        stream_cancelled = False
+
         try:
+            # Check for queue overflow at stream start (silent data loss detection)
+            if state.queue_overflow:
+                logger.error(
+                    f"Queue overflow detected at stream start: {state.dropped_chunks} chunks dropped",
+                    extra={"request_id": request_id, "dropped_chunks": state.dropped_chunks, "max_queue_depth": state.max_queue_depth}
+                )
+                raise QueueOverflowError("Event queue saturated")
+
             while True:
-                if state.queue_overflow: raise QueueOverflowError("Event queue saturated")
                 try:
                     if not state.conversation_id and not state.active_tab:
                         async with state.lock:
@@ -328,7 +378,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
                     payload = await asyncio.wait_for(queue.get(), timeout=self.config.chunk_timeout)
                     if payload.get("type") == "done": break
-                    
+
                     if state.active_tab:
                         self._validate_tab_generation(state.active_tab, engine.browser_generation)
 
@@ -344,14 +394,31 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                             chunk["reused_conversation"] = state.reused_conversation
                         yield await format_sse_chunk(chunk)
                 except asyncio.TimeoutError: break
+
             yield await get_done_chunk()
+
         except (asyncio.CancelledError, GeneratorExit):
+            # Stream cancellation logging (only for cancellation, not completion)
+            duration = time.monotonic() - stream_start_time
+            logger.warning(
+                f"Stream cancelled: {request_id}",
+                extra={"request_id": request_id, "duration": f"{duration:.2f}s", "reason": "client_disconnect"}
+            )
+            stream_cancelled = True
             try:
                 stop_button = page.locator(SELECTORS["STOP_BUTTON"]).first
                 if await stop_button.is_visible(): await stop_button.click()
             except: pass
             raise
+
         finally:
+            # Stream completion logging (only for successful completion)
+            if not stream_cancelled:
+                duration = time.monotonic() - stream_start_time
+                logger.info(
+                    f"Stream completed: {request_id}",
+                    extra={"request_id": request_id, "duration": f"{duration:.2f}s", "has_sent_text": state.has_sent_text}
+                )
             await self._cleanup(observer_task, state, lease, session)
 
     async def _get_buffered_response(self, queue: asyncio.Queue, model: str, page: Page, state: PlaywrightRequestState, observer_task: Optional[asyncio.Task], engine: Any, session: Any, lease: ManagedPage):
