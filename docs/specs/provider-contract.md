@@ -112,6 +112,20 @@ Providers must implement the following logic in their `chat_completions` impleme
 - Use the adapter's `submit_prompt` method.
 - Verify submission success via bridge signals before proceeding to stream generation.
 
+#### Gemini Playwright Model Selection
+
+Gemini Playwright adapters MAY support UI-level model selection. When implemented, the following requirements apply:
+
+Requirements:
+
+- Requested models MUST be validated before prompt submission.
+- Model selection MUST occur while holding `session.submit_lock`.
+- Browser-native adapters own the low-level UI interaction required to perform model selection.
+- Unsupported, unavailable, or subscription-gated models MUST fail explicitly.
+- Silent fallback to another Gemini model is forbidden.
+- Providers MUST verify that the selected model matches the requested model before prompt submission.
+- Model selection depends on the Gemini web UI and may require selector updates if the provider interface changes.
+
 ### 7.4 Mandatory Cleanup
 - **Async Shield Rationale**: All teardown logic MUST be wrapped in `asyncio.shield`. This prevents task cancellation from interrupting the cleanup sequence, which would otherwise cause critical resource leaks (stale locks, semaphore permits, or callback registry entries).
 - **Idempotency Invariant**: Cleanup paths and `ManagedPage.close()` MUST be idempotent. Teardown logic must be safe for multiple concurrent or sequential executions during task cancellation races.

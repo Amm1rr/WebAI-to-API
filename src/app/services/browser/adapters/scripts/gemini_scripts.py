@@ -10,8 +10,17 @@ SELECTORS = {
     "INPUT": 'div[contenteditable="true"][role="textbox"], textarea.gds-body-l, textarea[placeholder*="Gemini"]',
     "SEND_BUTTON": 'button.send-button, button[aria-label*="Send message"], [data-test-id="send-button"]',
     "STOP_BUTTON": 'button[aria-label*="Stop"], .stop-button',
-    "RESPONSE_CONTAINER": 'message-content, .message-content, [data-test-id="message-content"]'
+    "RESPONSE_CONTAINER": 'message-content, .message-content, [data-test-id="message-content"]',
+    "MODEL_PICKER": 'button[aria-label*="Open mode picker"]',
+    "MODEL_OPTION": '[role="menuitem"], [role="option"], .mat-mdc-menu-item'
 }
+
+MODEL_PICKER_FALLBACK_SELECTORS = [
+    'button[aria-label*="Select model"]',
+    'button:has-text("Gemini")',
+    '[data-test-id="model-selector"]',
+    '.input-area-switch-label',
+]
 
 POLL_INTERVAL_MS = 50
 COMPLETION_CHECK_MS = 100

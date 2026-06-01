@@ -114,11 +114,22 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
 
+# Normalization mapping for Playwright backend: OpenAI ID -> Gemini UI Label
+# Keep ONLY runtime-verified and fully implemented direct-select models.
+# NOTE: "Thinking" models are deferred until submenu handling is implemented.
+PLAYWRIGHT_GEMINI_MODEL_UI_LABELS = {
+    "gemini-3.1-pro": "Pro",
+    "gemini-3.5-flash": "Flash",
+    "gemini-3.1-flash-lite": "Flash-Lite",
+}
+
 def get_gemini_models() -> List[dict]:
     """Return the canonical list of supported Gemini models in OpenAI format."""
     from gemini_webapi.constants import Model
     ts = int(time.time())
-    return [
+    
+    # 1. Standard WebAPI Models
+    models = [
         {
             "id": model.model_name,
             "object": "model",
@@ -128,6 +139,17 @@ def get_gemini_models() -> List[dict]:
         for model in Model
         if model != Model.UNSPECIFIED
     ]
+    
+    # 2. Playwright-native Models
+    for model_id in PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.keys():
+        models.append({
+            "id": f"playwright/{model_id}",
+            "object": "model",
+            "created": ts,
+            "owned_by": "google",
+        })
+    
+    return models
 
 def format_files(files: Optional[List[Union[str, Path]]]) -> Optional[List[Path]]:
     """Convert a list of file paths (strings or Path objects) to Path objects."""

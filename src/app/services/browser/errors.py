@@ -49,3 +49,11 @@ class QueueOverflowError(RequestError):
 class ConversationBusyError(RequestError):
     """Raised when a request is made for a conversation that is already active with another request."""
     pass
+
+class ModelNotFoundError(RequestError):
+    """Raised when a requested model is not found in the provider's UI."""
+    pass
+
+class GatedModelError(RequestError):
+    """Raised when a requested model is gated behind a subscription (paywall)."""
+    pass
