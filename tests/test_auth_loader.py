@@ -748,3 +748,108 @@ gemini_cookie_1psidts = legacy_psidts
     cookie_dict = {c["name"]: c["value"] for c in cookies}
     assert cookie_dict["__Secure-1PSID"] == "test_psid"
     assert cookie_dict["__Secure-1PSIDTS"] == "test_psidts"
+
+def test_gemini_legacy_format_uppercase(mocker, caplog):
+    """
+    Test: Uppercase legacy aliases in [Cookies] section.
+    """
+    mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
+
+    mock_config = {
+        "Gemini": {},
+        "Cookies": {
+            "gemini_cookie_1PSID": '"upper_psid"',
+            "gemini_cookie_1PSIDTS": "upper_psidts"
+        },
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+
+    assert is_legacy is True
+    assert loaded is not None
+    cookies = loaded["cookies"]
+    cookie_dict = {c["name"]: c["value"] for c in cookies}
+    assert cookie_dict["__Secure-1PSID"] == "upper_psid"
+    assert cookie_dict["__Secure-1PSIDTS"] == "upper_psidts"
+    assert any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
+
+
+def test_gemini_legacy_format_standard_keys(mocker, caplog):
+    """
+    Test: Standard __Secure- keys in [Cookies] section (PR #87 parity).
+    """
+    mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
+
+    mock_config = {
+        "Gemini": {},
+        "Cookies": {
+            "__Secure-1PSID": '"standard_in_legacy_psid"',
+            "__Secure-1PSIDTS": "standard_in_legacy_psidts"
+        },
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+
+    assert is_legacy is True
+    assert loaded is not None
+    cookies = loaded["cookies"]
+    cookie_dict = {c["name"]: c["value"] for c in cookies}
+    assert cookie_dict["__Secure-1PSID"] == "standard_in_legacy_psid"
+    assert cookie_dict["__Secure-1PSIDTS"] == "standard_in_legacy_psidts"
+    assert any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
+
+def test_gemini_legacy_format_whitespace_fallback(mocker, caplog):
+    """
+    Test: Whitespace-only or quoted-empty values in [Cookies] should not block fallback.
+    """
+    mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
+
+    mock_config = {
+        "Gemini": {},
+        "Cookies": {
+            "gemini_cookie_1psid": '  "  "  ',  # Whitespace and quotes
+            "gemini_cookie_1PSID": '   ',       # Just whitespace
+            "__Secure-1PSID": 'valid_psid',     # Valid fallback
+            "gemini_cookie_1psidts": 'valid_psidts'
+        },
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+
+    assert is_legacy is True
+    assert loaded is not None
+    cookies = loaded["cookies"]
+    cookie_dict = {c["name"]: c["value"] for c in cookies}
+    assert cookie_dict["__Secure-1PSID"] == "valid_psid"
+    assert cookie_dict["__Secure-1PSIDTS"] == "valid_psidts"
+
+def test_gemini_config_format_whitespace_hardening(mocker, caplog):
+    """
+    Test: Whitespace or quotes in [Gemini] section are correctly hardened.
+    """
+    mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
+
+    mock_config = {
+        "Gemini": {
+            "__Secure-1PSID": '  "valid_psid"  ',
+            "__Secure-1PSIDTS": '  valid_psidts  '
+        },
+        "Cookies": {},
+        "Playwright": {}
+    }
+    mocker.patch("app.services.browser.auth_loader.CONFIG", mock_config)
+
+    loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
+
+    assert is_legacy is False
+    assert loaded is not None
+    cookies = loaded["cookies"]
+    cookie_dict = {c["name"]: c["value"] for c in cookies}
+    assert cookie_dict["__Secure-1PSID"] == "valid_psid"
+    assert cookie_dict["__Secure-1PSIDTS"] == "valid_psidts"

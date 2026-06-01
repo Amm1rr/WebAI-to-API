@@ -97,71 +97,33 @@ class GeminiAuthStateLoader:
         #     - verification of external consumers
         #     - migration of remaining compatibility tests
         # Priority 1: [Gemini] section (canonical provider-scoped format)
-        if "Gemini" in CONFIG:
-            gemini_config = dict(CONFIG["Gemini"])
-            psid_val = gemini_config.get("__Secure-1PSID", "").strip()
-            psidts_val = gemini_config.get("__Secure-1PSIDTS", "").strip()
-
-            # Source is usable ONLY when BOTH cookies are present and non-empty
-            if psid_val and psidts_val:
-                # Clean up quoted values if present
-                psid_val = psid_val.strip('"')
-                psidts_val = psidts_val.strip('"')
-
-                reconstructed_cookies = [
-                    {
-                        "name": "__Secure-1PSID",
-                        "value": psid_val,
-                        "domain": ".google.com",
-                        "path": "/"
-                    },
-                    {
-                        "name": "__Secure-1PSIDTS",
-                        "value": psidts_val,
-                        "domain": ".google.com",
-                        "path": "/"
-                    }
-                ]
-                return {"cookies": reconstructed_cookies}, False
-            # If either cookie is missing or empty, fall through to next priority
+        data, is_legacy = cls.get_gemini_config_source()
+        if data:
+            return data, is_legacy
 
         # Priority 2: Legacy [Cookies] section (backward compatibility)
-        if "Cookies" in CONFIG:
-            config_cookies = dict(CONFIG["Cookies"])
-            # Only support legacy aliases - do NOT support __Secure- prefixed keys here
-            psid_val = config_cookies.get("gemini_cookie_1psid", "").strip()
-            psidts_val = config_cookies.get("gemini_cookie_1psidts", "").strip()
+        data, is_legacy = cls.get_legacy_cookie_source()
+        if data:
+            return data, is_legacy
 
-            # Source is usable ONLY when BOTH cookies are present and non-empty
-            if psid_val and psidts_val:
-                # Clean up quoted values if present
-                psid_val = psid_val.strip('"')
-                psidts_val = psidts_val.strip('"')
-
-                _warn_legacy_gemini_cookie_config_once()
-                reconstructed_cookies = [
-                    {
-                        "name": "__Secure-1PSID",
-                        "value": psid_val,
-                        "domain": ".google.com",
-                        "path": "/"
-                    },
-                    {
-                        "name": "__Secure-1PSIDTS",
-                        "value": psidts_val,
-                        "domain": ".google.com",
-                        "path": "/"
-                    }
-                ]
-                return {"cookies": reconstructed_cookies}, True
-            # If either cookie is missing or empty, fall through to next priority
-
-        # Priority 3: Canonical store (lowest priority now)
-        canonical = cls.load_canonical_state()
-        if canonical:
-            return canonical, False
+        # Priority 3: Canonical store runtime/auth/gemini.json (lowest priority)
+        data, is_legacy = cls.get_json_source()
+        if data:
+            return data, is_legacy
 
         return None, False
+
+    @classmethod
+    def _normalize_config_value(cls, value: Optional[str]) -> Optional[str]:
+        """
+        Normalizes a configuration value by stripping whitespace and double quotes.
+        Returns None if the result is an empty string.
+        """
+        if value is None:
+            return None
+        
+        normalized = value.strip().strip('"').strip()
+        return normalized if normalized else None
 
     @classmethod
     def get_gemini_config_source(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
@@ -174,15 +136,11 @@ class GeminiAuthStateLoader:
             return None, False
 
         gemini_config = dict(CONFIG["Gemini"])
-        psid_val = gemini_config.get("__Secure-1PSID", "").strip()
-        psidts_val = gemini_config.get("__Secure-1PSIDTS", "").strip()
+        psid_val = cls._normalize_config_value(gemini_config.get("__Secure-1PSID"))
+        psidts_val = cls._normalize_config_value(gemini_config.get("__Secure-1PSIDTS"))
 
         # Source is usable ONLY when BOTH cookies are present and non-empty
         if psid_val and psidts_val:
-            # Clean up quoted values if present
-            psid_val = psid_val.strip('"')
-            psidts_val = psidts_val.strip('"')
-
             reconstructed_cookies = [
                 {
                     "name": "__Secure-1PSID",
@@ -212,16 +170,22 @@ class GeminiAuthStateLoader:
             return None, False
 
         config_cookies = dict(CONFIG["Cookies"])
-        # Only support legacy aliases - do NOT support __Secure- prefixed keys here
-        psid_val = config_cookies.get("gemini_cookie_1psid", "").strip()
-        psidts_val = config_cookies.get("gemini_cookie_1psidts", "").strip()
+        # Support all legacy and standard key variants for backward compatibility
+        # Select the first normalized non-empty candidate
+        psid_val = (
+            cls._normalize_config_value(config_cookies.get("gemini_cookie_1psid")) or 
+            cls._normalize_config_value(config_cookies.get("gemini_cookie_1PSID")) or 
+            cls._normalize_config_value(config_cookies.get("__Secure-1PSID"))
+        )
+        
+        psidts_val = (
+            cls._normalize_config_value(config_cookies.get("gemini_cookie_1psidts")) or 
+            cls._normalize_config_value(config_cookies.get("gemini_cookie_1PSIDTS")) or 
+            cls._normalize_config_value(config_cookies.get("__Secure-1PSIDTS"))
+        )
 
         # Source is usable ONLY when BOTH cookies are present and non-empty
         if psid_val and psidts_val:
-            # Clean up quoted values if present
-            psid_val = psid_val.strip('"')
-            psidts_val = psidts_val.strip('"')
-
             _warn_legacy_gemini_cookie_config_once()
             reconstructed_cookies = [
                 {
