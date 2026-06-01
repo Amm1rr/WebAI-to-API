@@ -2,7 +2,7 @@
 import json
 import time
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
@@ -93,12 +93,20 @@ async def list_models():
     summary="OpenAI-Compatible Chat Completions",
     description="Primary OpenAI-compatible chat endpoint. Supports streaming responses, conversation_id-based conversations, and provider routing. This is the recommended API for new integrations."
 )
-async def chat_completions(request: OpenAIChatRequest):
+async def chat_completions(request: OpenAIChatRequest, http_request: Request):
+    # Attach HTTP request_id for observability (will be used by adapter if present)
+    # The middleware sets request.state.request_id
+    if hasattr(http_request.state, "request_id"):
+        # Attach to the Pydantic model as an extra attribute (not validated).
+        # NOTE: This is for observability only and NOT part of the API contract.
+        # Clients should NOT rely on this field.
+        object.__setattr__(request, "_http_request_id", http_request.state.request_id)
+
     # Resolve provider and model name via the static factory
     provider, resolved_model = ProviderFactory.get_provider(request)
-    
+
     # Update the request with the resolved model name so the provider gets the clean version
     request.model = resolved_model
-    
+
     # Delegate implementation-heavy work to the provider
     return await provider.chat_completions(request)
