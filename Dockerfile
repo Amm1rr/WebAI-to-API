@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.52.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.60.0-noble
 
 # Install Requirements
 WORKDIR /app
