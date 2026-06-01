@@ -28,7 +28,7 @@ ENVIRONMENT=development
 
 ---
 
-### 🚀 Build & Run
+### Build & Run
 
 > Use `make` commands for simplified usage.
 
@@ -39,7 +39,7 @@ make build         # Regular build
 make build-fresh   # Force clean build (no cache)
 ```
 
-#### ▶️ Run the server
+#### Run the server
 
 ```bash
 make up
@@ -58,7 +58,7 @@ make stop
 
 ---
 
-### 🧠 Development Notes
+### Development Notes
 
 - **Reloading**: In development, the server uses `uvicorn --reload` for live updates.
 - **Logging**: On container start, it prints the current environment with colors (🟡 dev / ⚪ production).
@@ -125,7 +125,7 @@ For production deployments using the **Playwright backend** (`playwright/*` mode
 - Authentication persists across container restarts via the volume mount
 - To refresh authentication, re-run `poetry run python verify_login.py` on the host and restart the container
 
-#### ⚡ Quick Start with Playwright
+#### Quick Start with Playwright
 
 For a quick Playwright setup:
 
@@ -150,7 +150,7 @@ poetry run playwright install chromium
 
 ---
 
-### ❓ Frequently Asked Questions
+### Frequently Asked Questions
 
 **Q: Where is authentication stored?**
 
@@ -168,7 +168,7 @@ A: Yes. Run `poetry run python verify_login.py` on your host machine, then resta
 
 ---
 
-### 📦 File Structure for Docker
+### File Structure for Docker
 
 Key files:
 
@@ -184,7 +184,7 @@ Runtime-generated files are persisted through `./runtime:/app/runtime`.
 
 ---
 
-### ✅ Best Practices
+### Best Practices
 
 - Don't use `ENVIRONMENT=development` in **production**.
 - Avoid bind mounts (`volumes`) in production to ensure image consistency.
