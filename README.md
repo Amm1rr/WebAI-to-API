@@ -83,6 +83,12 @@ This design provides both **speed and reliability**, ensuring flexibility depend
    poetry install
    ```
 
+   If you plan to use the Playwright backend, install the required browser binaries:
+
+   ```bash
+   poetry run playwright install chromium
+   ```
+
 3. **Create and update the configuration file:**
 
    ```bash
@@ -256,7 +262,7 @@ WebAI-to-API supports multiple authentication methods. Choose the approach that 
 - Run `poetry run python verify_login.py` on your HOST machine
 - Creates `runtime/auth/gemini.json` with authentication state
 - Docker container consumes this file via volume mount
-- Required for: Playwright backend (`playwright/*` models)
+- Recommended authentication method for Playwright backend (`playwright/*` models)
 - Authentication state should be generated on the host before using Playwright models
 
 **Authentication Comparison:**
@@ -266,7 +272,7 @@ WebAI-to-API supports multiple authentication methods. Choose the approach that 
 | Manual cookies | WebAPI | All | Easy | No (cookies expire) |
 | verify_login.py | Playwright | Host first | Medium | Yes (via gemini.json) |
 | browser-cookie3 | WebAPI | Host only | Easy | No (reads live browser) |
-| /v1/auth/login | Playwright | Host only | Easy | Yes (via gemini.json) |
+| /v1/auth/login | Playwright | Display environment required | Easy | Yes (via gemini.json) |
 
 **For Docker + Playwright deployments:** Use Method B (`poetry run python verify_login.py`) on your host machine to generate authentication state, then restart the container.
 
