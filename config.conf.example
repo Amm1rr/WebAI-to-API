@@ -44,3 +44,21 @@ gemini = true
 # Example: http_proxy = http://127.0.0.1:2334
 [Proxy]
 http_proxy =
+
+# --- Astraflow Provider Settings ---
+# Astraflow by UCloud — OpenAI-compatible platform supporting 200+ models (global endpoint)
+# Sign up / get API key: https://astraflow.ucloud-global.com
+# China endpoint sign up: https://astraflow.ucloud.cn
+#
+# You may supply your key here OR via environment variables:
+#   Global endpoint: ASTRAFLOW_API_KEY
+#   China  endpoint: ASTRAFLOW_CN_API_KEY
+[Astraflow]
+# Global endpoint API key (used when use_cn_endpoint = false)
+api_key =
+# China endpoint API key (used when use_cn_endpoint = true)
+cn_api_key =
+# Set to true to use the China endpoint (https://api.modelverse.cn/v1)
+use_cn_endpoint = false
+# Default model to use when none is specified in the request
+default_model = gpt-4o
