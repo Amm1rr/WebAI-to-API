@@ -25,12 +25,15 @@ WebAI-to-API combines browser-native automation with WebAPI-based provider integ
 
 ---
 
-## Supported Providers
+## Available Providers
 
-| Provider | Available Backends |
-|----------|-------------------|
-| Gemini | WebAPI, Playwright |
-| Atlas Cloud | Native API |
+### Gemini
+
+Provides access to Google Gemini models through either the WebAPI backend or a browser-native Playwright runtime.
+
+### Atlas Cloud
+
+Provides access to cloud-hosted AI models through a native API integration powered by [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API).
 
 ---
 
