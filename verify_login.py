@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 import re
+from contextlib import suppress
 
 # Add src to sys.path to allow imports
 sys.path.append(os.path.join(os.getcwd(), "src"))
@@ -10,6 +11,64 @@ from app.services.browser.engine import get_browser_engine
 from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
 from playwright.async_api import Error as PlaywrightError
 from app.logger import logger
+
+
+async def _wait_for_stdin_enter():
+    """
+    Wait for ENTER without occupying the default executor with a blocking
+    stdin read. This lets browser/page shutdown win the bootstrap wait race.
+    """
+    loop = asyncio.get_running_loop()
+    done = loop.create_future()
+    fd = sys.stdin.fileno()
+
+    def on_stdin_ready():
+        with suppress(Exception):
+            loop.remove_reader(fd)
+        if not done.done():
+            sys.stdin.readline()
+            done.set_result("enter")
+
+    loop.add_reader(fd, on_stdin_ready)
+    try:
+        return await done
+    finally:
+        with suppress(Exception):
+            loop.remove_reader(fd)
+
+
+async def _wait_for_browser_shutdown(engine, page, session, poll_interval=0.25):
+    while True:
+        if engine.is_shutting_down:
+            return "engine_shutdown"
+        try:
+            if page.is_closed():
+                return "page_closed"
+        except PlaywrightError:
+            return "page_closed"
+        except Exception:
+            return "page_closed"
+        if not session.is_alive:
+            return "session_closed"
+        await asyncio.sleep(poll_interval)
+
+
+async def _wait_for_completion_signal(engine, page, session, stdin_waiter=None):
+    stdin_waiter = stdin_waiter or _wait_for_stdin_enter
+    wait_tasks = {
+        asyncio.create_task(stdin_waiter()): "stdin",
+        asyncio.create_task(_wait_for_browser_shutdown(engine, page, session)): "browser",
+    }
+
+    done, pending = await asyncio.wait(wait_tasks.keys(), return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    finished = done.pop()
+    return await finished
+
 
 async def verify_login():
     """
@@ -43,6 +102,7 @@ async def verify_login():
         print("2. Once you reach the chat interface, this utility will automatically detect it.")
         print("3. The persistent state will be saved atomically to the target file.")
         print("4. Press ENTER in this terminal to complete verification and close.")
+        print("   You may also close the browser window to finish after login is detected.")
         print("="*60 + "\n")
         
         login_detected = False
@@ -76,8 +136,7 @@ async def verify_login():
  
         # Wait for user to press Enter in a non-blocking way for the loop
         try:
-            # Using run_in_executor to not block the event loop while waiting for input
-            await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
+            await _wait_for_completion_signal(engine, page, session)
         except KeyboardInterrupt:
             pass
         finally:
