@@ -165,3 +165,23 @@ Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 2. **Stability**: Legacy and Specialized endpoints must remain stable even if their underlying implementation is refactored.
 3. **Contracts over Wrappers**: The structural API contracts defined here take precedence over any convenience wrappers or documentation summaries.
 4. **Deprecation**: Removal of public endpoints should follow a documented deprecation process.
+
+## 12. System and Runtime Endpoints
+
+The system exposes dedicated endpoints for health monitoring and runtime observability.
+
+### `/health` (Liveness)
+- **Purpose**: Indicates if the Python process is alive and responsive.
+- **Semantics**: Returns `200 OK` if the app is running and not in a terminal shutdown state.
+- **Safety**: Strictly side-effect-free. Does not bootstrap the `BrowserEngine`.
+
+### `/ready` (Readiness)
+- **Purpose**: Indicates if the structural runtime is capable of accepting and processing browser-native requests.
+- **Semantics**: Returns `200 OK` if the `BrowserEngine` is initialized, the browser process is connected, and at least one `ProviderSession` is structurally alive.
+- **Exclusion**: **Does not validate authentication**. A node is considered structurally ready even if authentication is expired.
+- **Safety**: Side-effect-free. Does not trigger recovery or browser launches.
+
+### `/v1/runtime/status` (Diagnostics)
+- **Purpose**: Provides deep observability into the hardened runtime's internal state.
+- **Payload**: Includes engine generation, browser connectivity, active lease counts, registry sizes, and cached authentication summary.
+- **Safety**: Strictly side-effect-free. Does not refresh authentication or trigger recovery.

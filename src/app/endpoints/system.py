@@ -15,7 +15,15 @@ def get_existing_browser_engine() -> Optional[BrowserEngine]:
 @router.get(
     "/health",
     summary="Liveness Probe",
-    description="Returns 200 if the application is alive and not shutting down. Side-effect free."
+    description=(
+        "Standard liveness check. Returns 200 if the application process is alive and "
+        "the BrowserEngine is not in a terminal shutdown state. This endpoint is "
+        "strictly side-effect-free and does not trigger browser initialization or recovery."
+    ),
+    responses={
+        200: {"description": "Application is healthy and running."},
+        503: {"description": "Application is in terminal shutdown state."}
+    }
 )
 async def health():
     engine = get_existing_browser_engine()
@@ -27,7 +35,16 @@ async def health():
 @router.get(
     "/ready",
     summary="Readiness Probe",
-    description="Returns 200 if the structural runtime is ready to accept work. Does not check auth."
+    description=(
+        "Standard readiness check. Returns 200 only if the structural runtime is fully "
+        "initialized and capable of accepting work. This includes verifying the browser "
+        "process connectivity and session liveness. This endpoint is side-effect-free, "
+        "does not validate authentication, and does not trigger recovery logic."
+    ),
+    responses={
+        200: {"description": "Runtime is ready to accept requests."},
+        503: {"description": "Runtime is not initialized, browser is disconnected, or no sessions are alive."}
+    }
 )
 async def ready():
     engine = get_existing_browser_engine()
@@ -60,7 +77,12 @@ async def ready():
 @router.get(
     "/v1/runtime/status",
     summary="Runtime Diagnostics",
-    description="Returns detailed diagnostics about the hardened browser runtime. Side-effect free."
+    description=(
+        "Returns a detailed diagnostic payload regarding the internal state of the "
+        "hardened browser runtime. Includes engine status, browser generation, lease "
+        "usage, and a cached summary of authentication status. This endpoint is "
+        "strictly side-effect-free and does not refresh authentication or trigger recovery."
+    )
 )
 async def runtime_status():
     engine = get_existing_browser_engine()

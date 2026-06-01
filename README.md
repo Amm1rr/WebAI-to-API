@@ -48,6 +48,11 @@ This design provides both **speed and reliability**, ensuring flexibility depend
   - `/v1/auth/status` (Check authentication state and login progress)
   - `/v1/auth/login` (Trigger browser-based login workflow)
 
+  ### System & Health APIs
+  - `/health` (Liveness probe for process health)
+  - `/ready` (Readiness probe for structural runtime health)
+  - `/v1/runtime/status` (Detailed runtime diagnostics and metrics)
+
   ### Compatibility APIs
   - `/v1beta/models/{model}` (Google Generative AI v1beta compatibility layer)
 
