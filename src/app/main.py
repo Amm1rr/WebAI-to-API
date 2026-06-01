@@ -1,7 +1,8 @@
 # src/app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+import uuid
 
 from app.services.providers.gemini.client import init_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.gemini.session_manager import init_session_managers
@@ -100,6 +101,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """
+    Request ID middleware for observability.
+
+    Generates a unique request_id for each HTTP request, stores it in
+    request.state for downstream access, and returns it in response header.
+    """
+    request_id = str(uuid.uuid4()).replace("-", "_")
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 # Register the endpoint routers for WebAI-to-API
 app.include_router(gemini.router)
