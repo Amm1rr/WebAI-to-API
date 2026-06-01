@@ -200,13 +200,13 @@ This separation allows providers and backends to implement authentication workfl
 
 Detailed runtime guarantees are documented separately:
 
-* `runtime-architecture-overview.md`
-* `provider-contract.md`
-* `concurrency-model.md`
-* `streaming-pipeline.md`
-* `lifecycle-and-recovery.md`
-* `error-policy.md`
-* `api-contract.md`
-* `docker-deployment.md`
+* [Runtime Architecture Overview](specs/runtime-architecture-overview.md)
+* [Provider Contract](specs/provider-contract.md)
+* [Concurrency Model](specs/concurrency-model.md)
+* [Streaming Pipeline](specs/streaming-pipeline.md)
+* [Lifecycle and Recovery](specs/lifecycle-and-recovery.md)
+* [Error Policy](specs/error-policy.md)
+* [API Contract](specs/api-contract.md)
+* [Docker Deployment Model](specs/docker-deployment.md)
 
 These documents are authoritative for runtime behavior and implementation invariants.

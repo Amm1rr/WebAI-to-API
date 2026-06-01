@@ -88,14 +88,14 @@ Providers must implement:
 
 Authoritative technical invariants and behavioral guarantees are codified in the following specifications. **If any summary in this guide conflicts with a detailed contract document, the contract document takes precedence.**
 
-- **[Concurrency Model](docs/concurrency-model.md)**: Governs lock hierarchy, semaphore ownership, lease invalidation, cancellation safety, and background loop authority.
-- **[Lifecycle and Recovery](docs/lifecycle-and-recovery.md)**: Governs engine state machine, terminal shutdown invariants, generation rollover semantics, and authoritative recovery boundaries.
-- **[Provider Contract](docs/provider-contract.md)**: Governs provider adapter responsibilities, page poisoning rules, page ownership boundaries, and escalation semantics.
-- **[Streaming Pipeline](docs/streaming-pipeline.md)**: Governs SSE ordering guarantees, rewrite-resilient normalization, bridge callback lifecycle, and queue overflow semantics.
-- **[Error Policy](docs/error-policy.md)**: Governs runtime error semantics, classification boundaries, authoritative recovery, and cancellation-safe cleanup.
-- **[API Contract](docs/api-contract.md)**: Governs authoritative API contracts, endpoint classifications (Primary vs Legacy), persistence guarantees, and compatibility boundaries.
-- **[Architecture Overview](docs/runtime-architecture-overview.md)**: High-level strategic vision, architectural principles, component relationships, and strategic roadmap.
-- **[Docker Deployment Model](docs/docker-deployment.md)**: Governs the containerized execution environment, environment orchestration, and volume persistence policies.
+- **[Concurrency Model](docs/specs/concurrency-model.md)**: Governs lock hierarchy, semaphore ownership, lease invalidation, cancellation safety, and background loop authority.
+- **[Lifecycle and Recovery](docs/specs/lifecycle-and-recovery.md)**: Governs engine state machine, terminal shutdown invariants, generation rollover semantics, and authoritative recovery boundaries.
+- **[Provider Contract](docs/specs/provider-contract.md)**: Governs provider adapter responsibilities, page poisoning rules, page ownership boundaries, and escalation semantics.
+- **[Streaming Pipeline](docs/specs/streaming-pipeline.md)**: Governs SSE ordering guarantees, rewrite-resilient normalization, bridge callback lifecycle, and queue overflow semantics.
+- **[Error Policy](docs/specs/error-policy.md)**: Governs runtime error semantics, classification boundaries, authoritative recovery, and cancellation-safe cleanup.
+- **[API Contract](docs/specs/api-contract.md)**: Governs authoritative API contracts, endpoint classifications (Primary vs Legacy), persistence guarantees, and compatibility boundaries.
+- **[Architecture Overview](docs/specs/runtime-architecture-overview.md)**: High-level strategic vision, architectural principles, component relationships, and strategic roadmap.
+- **[Docker Deployment Model](docs/specs/docker-deployment.md)**: Governs the containerized execution environment, environment orchestration, and volume persistence policies.
 
 ---
 
