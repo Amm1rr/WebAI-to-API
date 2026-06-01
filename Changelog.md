@@ -1,20 +1,32 @@
-### Changelog – WebAI to API
+### WebAI to API
 
-#### v0.5.0 – Draft
+#### v0.5.0 – 2026-06-01
 
 ##### Added
 
-- Added AtlasCloud provider support
-- Added unit tests
+- Added `Atlas Cloud` provider support.
+- Added health, readiness, and runtime diagnostics endpoints.
+- Added provider-scoped authentication configuration.
+- Added contributor and commercial licensing framework.
+- Expanded automated test coverage across core runtime components.
 
 ##### Fixed
 
-- Added missing `nodriver` and `platformdirs` dependencies to `pyproject.toml` for `g4f` server compatibility.
-- Unified server runner functions to implement a consistent and graceful shutdown mechanism.
+- Restored `Playwright` bootstrap authentication flow.
+- Improved authentication source discovery and fallback behavior.
+- Hardened browser lifecycle, session recovery, and shutdown handling.
+- Fixed Playwright interaction timeout configuration.
+- Fixed authentication issues related to cookie configuration and loading.
 
 ##### Changed
 
-- Updated project structure and package organization
+- Migrated to a provider-centric architecture with unified backend routing.
+- Unified Gemini WebAPI and Playwright execution models behind a common provider layer.
+- Removed the legacy `g4f` integration and related dependencies.
+- Improved runtime observability, diagnostics, and request correlation.
+- Updated Docker deployment guidance and Playwright onboarding workflow.
+- Expanded architecture documentation and runtime specifications.
+- Relicensed the project from MIT to GNU AGPLv3 starting with v0.5.0.
 
 ---
 
