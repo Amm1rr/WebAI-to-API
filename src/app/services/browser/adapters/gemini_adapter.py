@@ -3,7 +3,7 @@ import re
 from typing import Optional, Any
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 from app.services.browser.base_adapter import BaseProviderAdapter
-from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
+from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS, MODEL_PICKER_FALLBACK_SELECTORS
 from app.logger import logger
 from app.services.browser.errors import TransientSessionError, ModelNotFoundError, GatedModelError
 
@@ -110,12 +110,6 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         Locate the model picker button using primary and fallback selectors.
         """
         primary = SELECTORS["MODEL_PICKER"]
-        fallbacks = [
-            'button[aria-label*="Select model"]',
-            'button:has-text("Gemini")',
-            '[data-test-id="model-selector"]',
-            '.input-area-switch-label'
-        ]
         
         # Try primary first
         picker = page.locator(primary).first
@@ -123,7 +117,7 @@ class GeminiProviderAdapter(BaseProviderAdapter):
             return picker
             
         # Try fallbacks
-        for selector in fallbacks:
+        for selector in MODEL_PICKER_FALLBACK_SELECTORS:
             picker = page.locator(selector).first
             if await picker.count() > 0:
                 return picker

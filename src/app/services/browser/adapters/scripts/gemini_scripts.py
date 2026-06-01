@@ -15,6 +15,13 @@ SELECTORS = {
     "MODEL_OPTION": '[role="menuitem"], [role="option"], .mat-mdc-menu-item'
 }
 
+MODEL_PICKER_FALLBACK_SELECTORS = [
+    'button[aria-label*="Select model"]',
+    'button:has-text("Gemini")',
+    '[data-test-id="model-selector"]',
+    '.input-area-switch-label',
+]
+
 POLL_INTERVAL_MS = 50
 COMPLETION_CHECK_MS = 100
 
