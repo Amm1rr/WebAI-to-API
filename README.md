@@ -184,7 +184,9 @@ Inspects the current authentication state. Returns information about whether the
 
 > `POST /v1/auth/login`
 
-Triggers an isolated, browser-based login workflow. This is useful when the server is running in an environment where automatic cookie retrieval is not possible. Once triggered, the status can be monitored via the `/v1/auth/status` endpoint.
+Triggers an isolated, browser-based login workflow. Opens a browser window on the HOST machine for interactive authentication.
+
+**Important:** This endpoint requires a display environment (X11/macOS/Windows) and will NOT work in headless Docker containers. For Docker + Playwright deployments, use `verify_login.py` on your host machine before starting the container.
 
 ### WebAI-to-API Endpoints
 
@@ -239,6 +241,36 @@ Lists available Gemini "Gems" associated with the account. The returned Gem IDs 
   <summary>
     <h2>Configuration ⚙️</h2>
   </summary>
+
+### Authentication Configuration
+
+WebAI-to-API supports multiple authentication methods. Choose the approach that matches your deployment:
+
+**Method A: Manual Cookies (Gemini WebAPI)**
+- Edit `config.conf` and add your `__Secure-1PSID` and `__Secure-1PSIDTS` cookies
+- Works immediately in all environments (Docker, host, etc.)
+- No browser required
+- Best for: Quick testing, WebAPI backend deployments
+
+**Method B: Browser Login (Playwright)**
+- Run `poetry run python verify_login.py` on your HOST machine
+- Creates `runtime/auth/gemini.json` with authentication state
+- Docker container consumes this file via volume mount
+- Required for: Playwright backend (`playwright/*` models)
+- Authentication state should be generated on the host before using Playwright models
+
+**Authentication Comparison:**
+
+| Method | Backend | Environment | Difficulty | Persistence |
+|--------|---------|-------------|------------|-------------|
+| Manual cookies | WebAPI | All | Easy | No (cookies expire) |
+| verify_login.py | Playwright | Host first | Medium | Yes (via gemini.json) |
+| browser-cookie3 | WebAPI | Host only | Easy | No (reads live browser) |
+| /v1/auth/login | Playwright | Host only | Easy | Yes (via gemini.json) |
+
+**For Docker + Playwright deployments:** Use Method B (`poetry run python verify_login.py`) on your host machine to generate authentication state, then restart the container.
+
+---
 
 ### Key Configuration Options
 

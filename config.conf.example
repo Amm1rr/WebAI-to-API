@@ -9,6 +9,21 @@
 [Browser]
 name = chrome
 
+# --- Authentication Methods ---
+# WebAI-to-API supports multiple authentication approaches:
+#
+# 1. MANUAL COOKIES (Gemini WebAPI):
+#    - Add __Secure-1PSID and __Secure-1PSIDTS below
+#    - Works immediately, no browser required
+#
+# 2. BROWSER LOGIN (Playwright):
+#    - Run: poetry run python verify_login.py (on HOST machine, not in Docker)
+#    - Creates runtime/auth/gemini.json with authentication state
+#    - Docker container automatically consumes this file
+#    - Required for: playwright/* model requests
+#
+# For Docker + Playwright deployments: Use Method 2 (verify_login.py)
+
 # --- Gemini Configuration ---
 # Configure the Google Gemini provider.
 #
@@ -68,9 +83,13 @@ http_proxy =
 # Settings for the browser automation engine.
 [Playwright]
 # Run in headless mode (true/false)
+# Note: Set to false for verify_login.py interactive login
+# Docker containers use PLAYWRIGHT_HEADLESS=true environment variable
 headless = false
 
 # Directory for provider browser storage state files
+# This directory is mounted as a volume in Docker deployments
+# AUTHENTICATION STATE: runtime/auth/gemini.json is created by verify_login.py
 auth_state_dir = runtime/auth
 
 # Concurrency locking backend for on-demand authentication coordination.
