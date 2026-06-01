@@ -1,11 +1,11 @@
 import asyncio
 import re
 from typing import Optional, Any
-from playwright.async_api import Page
+from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 from app.services.browser.base_adapter import BaseProviderAdapter
 from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
 from app.logger import logger
-from app.services.browser.errors import TransientSessionError
+from app.services.browser.errors import TransientSessionError, ModelNotFoundError, GatedModelError
 
 class GeminiProviderAdapter(BaseProviderAdapter):
     """
@@ -104,3 +104,101 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 break
                 
         return confirmed
+
+    async def get_active_model(self, page: Page) -> Optional[str]:
+        """
+        Detect the currently active Gemini model from the UI.
+        Returns the simplified label (e.g., 'Flash', 'Pro') or None if undetected.
+        """
+        picker = page.locator(SELECTORS["MODEL_PICKER"]).first
+        if await picker.count() == 0:
+            return None
+        
+        # Try to extract from aria-label first (most reliable)
+        aria_label = await picker.get_attribute("aria-label")
+        if aria_label and "currently " in aria_label:
+            return aria_label.split("currently ")[-1].strip()
+        
+        # Fallback to button text
+        text = await picker.inner_text()
+        if text:
+            return text.strip()
+            
+        return None
+
+    async def select_model(self, page: Page, requested_model_label: str, state: Optional[Any] = None) -> None:
+        """
+        Explicitly select a Gemini model via the UI picker.
+        Fails fast if the model is not found or selection verification fails.
+        """
+        active_model = await self.get_active_model(page)
+        if active_model and requested_model_label.lower() in active_model.lower():
+            logger.debug(f"Model selection no-op: '{active_model}' already active.", extra={"request_id": getattr(state, "request_id", "unknown")})
+            return
+
+        logger.info(f"Switching Gemini model: '{active_model}' -> '{requested_model_label}'", extra={"request_id": getattr(state, "request_id", "unknown")})
+        
+        picker = page.locator(SELECTORS["MODEL_PICKER"]).first
+        if await picker.count() == 0:
+            raise TransientSessionError("Gemini model picker not found in the UI.")
+
+        # 1. Open Picker
+        await picker.click()
+        
+        # 2. Wait for options to become visible (replaces asyncio.sleep)
+        try:
+            await page.locator(SELECTORS["MODEL_OPTION"]).first.wait_for(state="visible", timeout=3000)
+        except PlaywrightTimeoutError:
+            raise TransientSessionError("Gemini model options menu failed to open or items are not visible.")
+        
+        # 3. Find and click option
+        options = page.locator(SELECTORS["MODEL_OPTION"])
+        option_count = await options.count()
+        
+        target_option = None
+        found_labels = []
+        for i in range(option_count):
+            opt = options.nth(i)
+            label = await opt.inner_text()
+            found_labels.append(label.strip().replace("\n", " "))
+            if requested_model_label.lower() in label.lower():
+                target_option = opt
+                break
+        
+        if not target_option:
+            # Check for paywalls or gated models in the content
+            page_content = await page.content()
+            if "Try Gemini Advanced" in page_content and requested_model_label.lower() == "pro":
+                raise GatedModelError(
+                    f"Requested model '{requested_model_label}' is gated behind a Gemini Advanced subscription."
+                )
+            
+            raise ModelNotFoundError(
+                f"Requested Gemini model '{requested_model_label}' not found in the picker menu. "
+                f"Available options: {found_labels}"
+            )
+
+        await target_option.click()
+        
+        # 4. Verify Selection (polling with short timeout)
+        verification_timeout = 3.0
+        poll_interval = 0.5
+        elapsed = 0.0
+        success = False
+        last_found = None
+        
+        while elapsed < verification_timeout:
+            new_active = await self.get_active_model(page)
+            last_found = new_active
+            if new_active and requested_model_label.lower() in new_active.lower():
+                success = True
+                break
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        if not success:
+            raise TransientSessionError(
+                f"Gemini model selection verification failed. Requested: '{requested_model_label}', Found: '{last_found}'"
+            )
+        
+        logger.info(f"Gemini model successfully switched to '{last_found}'", extra={"request_id": getattr(state, "request_id", "unknown")})
