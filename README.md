@@ -61,7 +61,7 @@ This design provides both **speed and redundancy**, ensuring flexibility dependi
 
    > Atlas Cloud
 
-   Route OpenAI-compatible chat requests to Atlas Cloud by sending `provider: "atlas"` or by using a model name prefixed with `atlas/`, such as `atlas/MiniMaxAI/MiniMax-M2`.
+   Route OpenAI-compatible chat requests to Atlas Cloud by sending `provider: "atlas"` or by using a model name prefixed with `atlas/`, such as `atlas/deepseek-ai/DeepSeek-V3-0324`.
 
 ---
 
@@ -138,12 +138,29 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 ### Supported Models
 
-| Model                       | Description                        |
-| --------------------------- | ---------------------------------- |
-| `gemini-3.0-pro`            | Most powerful model                |
-| `gemini-3.0-flash`          | Fast and efficient model (default) |
-| `gemini-3.0-flash-thinking` | Enhanced reasoning model           |
-| `atlas/MiniMaxAI/MiniMax-M2` | Atlas Cloud via OpenAI-compatible API |
+| Model | Description |
+| --- | --- |
+| `gemini-3.0-pro` | Most powerful model |
+| `gemini-3.0-flash` | Fast and efficient model (default) |
+| `gemini-3.0-flash-thinking` | Enhanced reasoning model |
+| `atlas/<model-id>` | Atlas Cloud via OpenAI-compatible API, with 50 validated chat models exposed in `/v1/models` |
+
+### Validated Atlas Chat Models
+
+The local OpenAI-compatible `/v1/models` endpoint now exposes 50 validated Atlas Cloud chat models using the `atlas/` prefix. The validated set includes:
+
+- `atlas/deepseek-ai/DeepSeek-V3-0324`
+- `atlas/deepseek-ai/deepseek-r1-0528`
+- `atlas/moonshotai/Kimi-K2-Instruct`
+- `atlas/Qwen/Qwen3-Coder`
+- `atlas/google/gemini-2.5-flash`
+- `atlas/openai/gpt-5.1`
+- `atlas/openai/gpt-4o`
+- `atlas/anthropic/claude-sonnet-4.5-20250929`
+- `atlas/MiniMaxAI/MiniMax-M2`
+- `atlas/xai/grok-4-0709`
+
+Use `GET /v1/models` to retrieve the full validated list programmatically.
 
 ### Example Request (Basic)
 
@@ -159,7 +176,7 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 ```json
 {
   "provider": "atlas",
-  "model": "MiniMaxAI/MiniMax-M2",
+  "model": "deepseek-ai/DeepSeek-V3-0324",
   "messages": [{ "role": "user", "content": "Say hello from Atlas Cloud." }]
 }
 ```
@@ -168,7 +185,7 @@ You can also route using a provider-prefixed model:
 
 ```json
 {
-  "model": "atlas/MiniMaxAI/MiniMax-M2",
+  "model": "atlas/deepseek-ai/DeepSeek-V3-0324",
   "messages": [{ "role": "user", "content": "Write a one-line release note." }]
 }
 ```

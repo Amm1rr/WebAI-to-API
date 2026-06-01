@@ -9,3 +9,6 @@ generated_media
 har_and_cookies
 .env.local
 .venv
+tmp_*.json
+tmp_test_atlas_50.py
+tmp_select_verified_atlas_50.py

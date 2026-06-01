@@ -4,6 +4,7 @@ import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from app.constants.atlas_models import get_prefixed_atlas_models
 from app.logger import logger
 from schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
@@ -162,6 +163,15 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
 async def list_models():
     from gemini_webapi.constants import Model
     ts = int(time.time())
+    atlas_models = [
+        {
+            "id": model_id,
+            "object": "model",
+            "created": ts,
+            "owned_by": "atlascloud",
+        }
+        for model_id in get_prefixed_atlas_models()
+    ]
     return {
         "object": "list",
         "data": [
@@ -174,14 +184,7 @@ async def list_models():
             for model in Model
             if model != Model.UNSPECIFIED
         ]
-        + [
-            {
-                "id": "atlas/MiniMaxAI/MiniMax-M2",
-                "object": "model",
-                "created": ts,
-                "owned_by": "atlascloud",
-            }
-        ],
+        + atlas_models,
     }
 
 
