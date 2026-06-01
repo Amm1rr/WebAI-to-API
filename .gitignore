@@ -8,6 +8,12 @@ config.conf
 .env.local
 .venv
 .env
+.claude/
+.codex/
+.gemini/
+.agent/
+.agents/
+.antigravitycli/
 generated_media
 har_and_cookies
 .coverage
