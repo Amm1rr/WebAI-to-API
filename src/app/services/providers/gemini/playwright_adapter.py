@@ -25,19 +25,13 @@ from app.services.browser.errors import (
     GatedModelError
 )
 from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
-from app.services.providers.gemini.shared import convert_to_openai_format
+from app.services.providers.gemini.shared import (
+    convert_to_openai_format, 
+    PLAYWRIGHT_GEMINI_MODEL_UI_LABELS
+)
 from app.logger import logger
 from app.config import CONFIG
 from app.schemas.request import OpenAIChatRequest
-
-# Normalization mapping: OpenAI ID -> Gemini UI Label
-# Only include runtime-verified mappings as of June 2026.
-PLAYWRIGHT_GEMINI_MODEL_UI_LABELS = {
-    "gemini-3-pro": "Pro",
-    "gemini-1.5-pro": "Pro",
-    "gemini-3-flash": "Flash",
-    "gemini-1.5-flash": "Flash",
-}
 
 @dataclass(frozen=True)
 class PlaywrightAdapterConfig:
@@ -276,26 +270,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                 check_generation()
                 
                 # 5.a Explicit Model Selection
-                # Map OpenAI model IDs to Gemini UI labels
-                model_id = request.model
-                if model_id.startswith("playwright/"):
-                    model_id = model_id[len("playwright/"):]
-                
-                target_label = PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.get(model_id.lower())
-                if target_label:
-                    if state.active_tab: state.active_tab.heartbeat("model_selection")
-                    try:
-                        await adapter.select_model(page, target_label, state)
-                    except GatedModelError as e:
-                        raise HTTPException(status_code=403, detail=str(e))
-                    except ModelNotFoundError as e:
-                        raise HTTPException(status_code=400, detail=str(e))
-                elif model_id and model_id != "gemini":
-                    # If an unknown model is requested (not 'gemini' default), fail fast
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Requested model '{model_id}' has no known Playwright UI mapping. Supported: {list(PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.keys())}"
-                    )
+                await self._orchestrate_model_selection(adapter, page, request.model, state)
 
                 confirmed = await adapter.submit_prompt(page, prompt, state)
 
