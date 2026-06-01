@@ -18,7 +18,7 @@ def auth_candidate(auth_data, source_type="gemini_config", is_legacy=False):
     )
 
 
-def make_engine():
+def make_engine(is_bootstrap=False):
     context = MagicMock()
     context.on = MagicMock()
     context.new_page = AsyncMock(return_value=MagicMock())
@@ -31,6 +31,7 @@ def make_engine():
     engine.browser = browser
     engine.browser_generation = 3
     engine.is_shutting_down = False
+    engine.is_bootstrap = is_bootstrap
     return engine, browser
 
 
@@ -120,3 +121,90 @@ async def test_gemini_setup_fails_without_auth(mocker):
     
     assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
     assert "python verify_login.py" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_gemini_bootstrap_setup_allows_missing_auth_with_persistence(mocker):
+    engine, browser = make_engine(is_bootstrap=True)
+    selector = mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    mocker.patch.object(session, "close_resources", AsyncMock())
+    mocker.patch.object(session, "_eviction_loop", AsyncMock())
+    mocker.patch.object(session, "_reaper_loop", AsyncMock())
+
+    await session._setup()
+
+    selector.assert_called_once()
+    assert "storage_state" not in browser.new_context.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_gemini_bootstrap_setup_uses_existing_storage_candidate(mocker):
+    auth_data = {
+        "cookies": [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+        ],
+        "origins": [],
+    }
+    storage_state = {"cookies": auth_data["cookies"], "origins": []}
+    engine, browser = make_engine(is_bootstrap=True)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([auth_candidate(auth_data, source_type="json_store")]),
+    )
+    translate = mocker.patch(
+        "app.services.browser.auth_loader.GeminiAuthStateLoader.translate_to_playwright",
+        return_value=storage_state,
+    )
+
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    mocker.patch.object(session, "close_resources", AsyncMock())
+    mocker.patch.object(session, "_eviction_loop", AsyncMock())
+    mocker.patch.object(session, "_reaper_loop", AsyncMock())
+
+    await session._setup()
+
+    translate.assert_called_once_with(auth_data)
+    assert browser.new_context.call_args.kwargs["storage_state"] == storage_state
+
+
+@pytest.mark.asyncio
+async def test_gemini_setup_enable_persistence_without_bootstrap_still_requires_auth(mocker):
+    engine, browser = make_engine(is_bootstrap=False)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    mocker.patch.object(session, "close_resources", AsyncMock())
+    mocker.patch.object(session, "_eviction_loop", AsyncMock())
+    mocker.patch.object(session, "_reaper_loop", AsyncMock())
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await session._setup()
+
+    assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_gemini_bootstrap_without_persistence_still_requires_auth(mocker):
+    engine, browser = make_engine(is_bootstrap=True)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+
+    session = ProviderSession(engine, "gemini", enable_persistence=False)
+    mocker.patch.object(session, "close_resources", AsyncMock())
+    mocker.patch.object(session, "_eviction_loop", AsyncMock())
+    mocker.patch.object(session, "_reaper_loop", AsyncMock())
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await session._setup()
+
+    assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)

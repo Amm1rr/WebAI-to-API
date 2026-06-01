@@ -267,10 +267,13 @@ async def test_run_login_flow_success(mocker):
     mock_engine.__aenter__ = AsyncMock(return_value=mock_engine)
     mock_engine.__aexit__ = AsyncMock(return_value=False)  # DO NOT suppress exceptions
 
-    mocker.patch('app.services.browser.engine.get_browser_engine', return_value=mock_engine)
+    get_engine = mocker.patch('app.services.browser.engine.get_browser_engine', return_value=mock_engine)
 
     await auth_mgr.run_login_flow()
 
+    get_engine.assert_called_once_with(headless=False, is_bootstrap=True)
+    mock_engine.get_page.assert_called_once_with("gemini", enable_persistence=True)
+    mock_engine.get_session.assert_called_once_with("gemini", enable_persistence=True)
     mock_session.save_state.assert_called_once()
     mock_page_wrapper.close.assert_called_once()
 
