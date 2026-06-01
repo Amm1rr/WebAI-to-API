@@ -5,6 +5,8 @@ This document outlines the containerized execution environment, production-only 
 > **Status:** Production Hardening  
 > **Scope:** Containerization, Environment Orchestration, and Volume Persistence  
 
+> For user-facing Docker setup instructions, see [Docker Guide](../docker.md).
+
 ---
 
 ## 1. Purpose & Scope
