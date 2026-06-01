@@ -353,7 +353,20 @@ class ProviderSession:
 
             # Atomic Purge on generation rollover
             if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
-                logger.warning(f"Browser generation rollover ({self.last_browser_generation} -> {self.engine.browser_generation})")
+                old_generation = self.last_browser_generation
+                new_generation = self.engine.browser_generation
+                logger.warning(
+                    "ProviderSession(%s): Browser generation rollover (%s -> %s)",
+                    self.name,
+                    old_generation,
+                    new_generation,
+                    extra={
+                        "provider": self.name,
+                        "old_generation": old_generation,
+                        "new_generation": new_generation,
+                        "registry_size": len(self.conversation_registry)
+                    }
+                )
                 await self._purge_all_tabs()
 
             # 2. Check active liveness of the session-wide keepalive page
@@ -376,20 +389,37 @@ class ProviderSession:
     async def _purge_all_tabs(self):
         """Atomically clears and invalidates all tabs in registry."""
         to_close = []
+        idle_count = 0
+        leased_count = 0
+
         async with self.registry_lock:
+            initial_count = len(self.conversation_registry)
             for cid in list(self.conversation_registry.keys()):
                 tab = self.conversation_registry.pop(cid)
                 # Check status BEFORE invalidating
                 if tab.status == TabStatus.IDLE:
                     to_close.append(tab)
+                    idle_count += 1
                 else:
                     # Detached recovery for orphaned leased tab
+                    leased_count += 1
                     self._schedule_orphan_cleanup(tab)
                 tab.invalidate()
-        
+
         for t in to_close:
             await t.close()
-        logger.info(f"ProviderSession({self.name}): All tabs purged from registry.")
+
+        logger.info(
+            "ProviderSession(%s): All tabs purged from registry",
+            self.name,
+            extra={
+                "provider": self.name,
+                "total_tabs": initial_count,
+                "idle_tabs": idle_count,
+                "leased_tabs": leased_count,
+                "orphan_cleanup_scheduled": leased_count
+            }
+        )
 
     async def handle_session_failure(self):
         """Authoritative recovery execution for session failures."""
@@ -401,19 +431,43 @@ class ProviderSession:
         self._recovery_task = asyncio.create_task(self._do_session_recovery())
 
     async def _do_session_recovery(self):
+        recovery_start = time.monotonic()
         async with self.init_lock:
-            logger.warning(f"ProviderSession({self.name}): Handling escalated session failure.")
+            logger.warning(
+                "ProviderSession(%s): Session recovery started",
+                self.name,
+                extra={"provider": self.name, "generation": self.engine.browser_generation}
+            )
             # 1. Intentionally preserve the persistent auth state file.
             # We do NOT delete the storage state file during recovery because transient failures
             # (such as temporary network issues or page load delays) should not destroy persisted sessions.
             if os.path.exists(self.state_path):
                 logger.warning(
-                    f"ProviderSession({self.name}): Persistent auth state file exists at {self.state_path} "
-                    "and is intentionally preserved during recovery to survive transient failure events."
+                    "ProviderSession(%s): Persistent auth state file exists "
+                    "and is intentionally preserved during recovery to survive transient failure events.",
+                    self.name,
+                    extra={"auth_state_present": True}
                 )
-            
+
             # 2. Invalidate context to force re-setup on next ensure_healthy()
-            await self.close_resources(save_state=False)
+            try:
+                await self.close_resources(save_state=False)
+                recovery_duration = time.monotonic() - recovery_start
+                logger.info(
+                    "ProviderSession(%s): Session recovery completed",
+                    self.name,
+                    extra={"provider": self.name, "duration_seconds": round(recovery_duration, 3), "generation": self.engine.browser_generation}
+                )
+            except Exception as e:
+                recovery_duration = time.monotonic() - recovery_start
+                logger.error(
+                    "ProviderSession(%s): Session recovery failed: %s",
+                    self.name,
+                    e,
+                    exc_info=True,
+                    extra={"provider": self.name, "duration_seconds": round(recovery_duration, 3), "error": str(e)}
+                )
+                raise
 
     async def _setup(self):
         """Full re-initialization of the provider context."""
