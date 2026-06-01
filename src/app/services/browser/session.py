@@ -485,6 +485,11 @@ class ProviderSession:
                 context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(
                     auth_candidate.auth_data
                 )
+            else:
+                raise RuntimeError(
+                    "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
+                    "Please run 'python verify_login.py' to authenticate."
+                )
         else:
             if self._validate_state_file():
                 context_args["storage_state"] = self.state_path

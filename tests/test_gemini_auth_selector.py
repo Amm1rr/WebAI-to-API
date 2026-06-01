@@ -71,7 +71,7 @@ def test_canonical_gemini_candidate_has_priority(mocker):
     assert first_candidate.is_legacy is False
     assert first_candidate.migration_needed is False
     assert first_candidate.supports_webapi_cookie_auth is True
-    assert first_candidate.supports_playwright_storage is True
+    assert first_candidate.supports_playwright_storage is False
 
 
 def test_legacy_candidate_metadata_preserved(mocker):
@@ -87,7 +87,7 @@ def test_legacy_candidate_metadata_preserved(mocker):
     assert candidate.is_legacy is True
     assert candidate.migration_needed is True
     assert candidate.supports_webapi_cookie_auth is True
-    assert candidate.supports_playwright_storage is True
+    assert candidate.supports_playwright_storage is False
 
 
 def test_json_fallback_candidate_available_for_playwright_storage(mocker):
@@ -110,29 +110,45 @@ def test_json_fallback_candidate_available_for_playwright_storage(mocker):
 def test_first_playwright_storage_candidate_uses_first_supported_candidate(mocker):
     gemini_auth = auth_data("gemini_psid")
     legacy_auth = auth_data("legacy_psid")
+    json_auth = auth_data("json_psid")
     patch_sources(
         mocker,
         gemini=gemini_auth,
         legacy=legacy_auth,
+        json_source=json_auth,
     )
 
     candidate = GeminiAuthSelector.first_playwright_storage_candidate()
 
-    assert candidate.source_type == "gemini_config"
-    assert candidate.auth_data == gemini_auth
+    assert candidate.source_type == "json_store"
+    assert candidate.auth_data == json_auth
+
+
+def test_first_playwright_storage_candidate_skips_config_sources(mocker):
+    patch_sources(
+        mocker,
+        gemini=auth_data("gemini_psid"),
+        legacy=auth_data("legacy_psid"),
+        json_source=None,
+    )
+
+    candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+
+    assert candidate is None
 
 
 def test_first_playwright_storage_candidate_preserves_legacy_metadata(mocker):
+    # JSON store is not legacy, so we'll test it without legacy flag
     patch_sources(
         mocker,
-        legacy=auth_data("legacy_psid"),
+        json_source=auth_data("json_psid"),
     )
 
     candidate = GeminiAuthSelector.first_playwright_storage_candidate()
 
-    assert candidate.source_type == "legacy_cookies"
-    assert candidate.is_legacy is True
-    assert candidate.migration_needed is True
+    assert candidate.source_type == "json_store"
+    assert candidate.is_legacy is False
+    assert candidate.migration_needed is False
 
 
 def test_missing_sources_are_skipped(mocker):

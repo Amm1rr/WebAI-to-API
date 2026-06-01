@@ -16,7 +16,7 @@ class GeminiAuthStrategy:
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
         return os.path.join(auth_state_dir, "gemini.json")
 
-    def refresh_status(self) -> Dict[str, str]:
+    def refresh_status(self) -> Dict[str, Any]:
         """
         Perform lightweight status checks for Gemini.
         Returns a dict with 'playwright' and 'webapi' status strings.
@@ -24,8 +24,10 @@ class GeminiAuthStrategy:
         from app.services.providers.gemini.auth_selector import GeminiAuthSelector
         
         # 1. Check Playwright/JSON status
-        auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
-        is_legacy = auth_candidate.is_legacy if auth_candidate else False
+        candidates = list(GeminiAuthSelector.iter_candidates())
+        auth_candidate = next((c for c in candidates if c.supports_playwright_storage), None)
+        
+        is_legacy = any(c.is_legacy for c in candidates)
         playwright_status = AuthStatus.VALID_SESSION if auth_candidate else AuthStatus.NO_SESSION
         
         # 2. Check direct WebAPI client status

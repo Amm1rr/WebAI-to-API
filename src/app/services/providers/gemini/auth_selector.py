@@ -47,7 +47,7 @@ class GeminiAuthSelector:
                 auth_data=auth_data,
                 is_legacy=is_legacy,
                 supports_webapi_cookie_auth=bool(psid),
-                supports_playwright_storage=True,
+                supports_playwright_storage=(source_type == "json_store"),
                 migration_needed=is_legacy,
             )
             logger.info(
@@ -58,6 +58,7 @@ class GeminiAuthSelector:
                     "source_type": source_type,
                     "is_legacy": is_legacy,
                     "supports_webapi": bool(psid),
+                    "supports_playwright": (source_type == "json_store"),
                     "migration_needed": is_legacy
                 }
             )
@@ -80,5 +81,8 @@ class GeminiAuthSelector:
                 extra={"source_name": candidate.source_name, "source_type": candidate.source_type}
             )
         else:
-            logger.warning("AuthSelector: No Playwright-compatible auth source available")
+            logger.warning(
+                "AuthSelector: No Playwright-compatible auth source available (runtime/auth/gemini.json missing). "
+                "Please run 'python verify_login.py' to authenticate for the Playwright backend."
+            )
         return candidate

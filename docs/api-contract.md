@@ -117,7 +117,11 @@ Authentication source handling is intentionally split by responsibility:
 | Caching | `AuthManager` | Owns cached status returned by `/v1/auth/status`. |
 | Login/recovery orchestration | `AuthManager` and provider auth strategy | Coordinates login, status refresh, and provider-specific post-login recovery. |
 
-For Gemini, selector priority is `[Gemini]` canonical cookies, then legacy `[Cookies]` cookies, then `runtime/auth/gemini.json`. WebAPI performs account-status validation and client activation after selection, including guest fallback decisions. Playwright performs browser storage-state activation after selection. Neither `AuthLoader` nor `GeminiAuthSelector` validates account status.
+For Gemini, selector priority is `[Gemini]` canonical cookies, then legacy `[Cookies]` cookies, then `runtime/auth/gemini.json`.
+
+WebAPI utilizes all sources, prioritizing config cookies for direct client initialization. Playwright **strictly requires** valid browser storage state from `runtime/auth/gemini.json` and will not fall back to raw config cookies.
+
+WebAPI performs account-status validation and client activation after selection, including guest fallback decisions. Playwright performs browser storage-state activation after selection. Neither `AuthLoader` nor `GeminiAuthSelector` validates account status.
 
 Legacy `[Cookies]` configuration remains supported. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained as a deprecated compatibility path and is no longer part of the primary runtime selection flow.
 
