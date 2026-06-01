@@ -56,17 +56,52 @@ class GeminiProvider(BaseProvider):
         # 1. Resolve or generate conversation_id securely
         cid = request.conversation_id
         is_new_conversation = cid is None
+        
+        # Select adapter to determine target backend
+        adapter = self._get_adapter(request.model)
+        is_playwright = isinstance(adapter, GeminiPlaywrightAdapter)
+        
         if cid:
-            if len(cid) > 64:
+            if len(cid) > 128:
                 raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
+            
+            original_cid = cid
+            # Support transition from legacy prefixed IDs (leaked implementation details)
+            # We only strip for Playwright because real Gemini URLs must be clean.
+            if is_playwright and (cid.startswith("wa_") or cid.startswith("pw_")):
+                cid = cid[3:]
+
+            # Ownership Validation for Playwright
+            if is_playwright:
+                from app.services.providers.gemini.session_manager import get_gemini_chat_registry
+                from app.services.providers.exceptions import SnapshotNotFoundError
+                registry = get_gemini_chat_registry()
+                if registry and registry.repository:
+                    # WebAPI Ownership Validation:
+                    # Reject if the ID (stripped or prefixed) is found in the SQLite store.
+                    try:
+                        is_owned = await registry.repository.get_snapshot(cid) or await registry.repository.get_snapshot(original_cid)
+                    except SnapshotNotFoundError:
+                        is_owned = False
+
+                    if is_owned:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                "Incompatible conversation_id for Playwright backend. "
+                                "This ID identifies a WebAPI-only conversation snapshot. "
+                                "Cross-backend continuity is not supported."
+                            )
+                        )
+            # For WebAPI, we proceed with the original ID to ensure continuity for legacy wa_ IDs.
+            # New opaque IDs (unprefixed) will also work naturally.
         else:
             cid = generate_opaque_token()
 
         # 2. Build tool-calling prompt
         tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
         
-        # 3. Select adapter and delegate
-        adapter = self._get_adapter(request.model)
+        # 3. Delegate to adapter
         return await adapter.chat_completions(request, cid, is_new_conversation, tools_prompt)
 
     async def list_models(self) -> List[dict]:
