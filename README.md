@@ -1,10 +1,3 @@
-## Disclaimer
-
-> **This project is intended for research and educational purposes only.**  
-> Please refrain from any commercial use and act responsibly when deploying or modifying this tool.
-
----
-
 # WebAI-to-API
 
 <p align="center">
@@ -240,7 +233,6 @@ Lists available Gemini "Gems" associated with the account. The returned Gem IDs 
 
 ---
 
----
 
 ## Roadmap
 
@@ -410,8 +402,6 @@ Commercial licensing options are available. See [COMMERCIAL_LICENSE.md](COMMERCI
 By submitting contributions to this project, you agree to the terms described in [CLA.md](CLA.md).
 
 ---
-
-> **Note:** This is a research project. Please use it responsibly, and be aware that additional security measures and error handling are necessary for production deployments.
 
 <br>
 
