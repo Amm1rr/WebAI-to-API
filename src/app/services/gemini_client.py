@@ -39,8 +39,8 @@ async def init_gemini_client() -> bool:
             client = None
             
             if config_cookies:
-                # Strip potential double quotes from cookie values added manually by the user
-                cleaned_cookies = {k: v.strip('"') for k, v in config_cookies.items() if k in ["__Secure-1PSID", "__Secure-1PSIDTS"]}
+                # Strip potential double quotes from cookie values added manually by the user (Added gemini cookie for configs)
+                cleaned_cookies = {k: v.strip('"') for k, v in config_cookies.items() if k in ["__Secure-1PSID", "__Secure-1PSIDTS", "gemini_cookie_1psid", "gemini_cookie_1psidts", "gemini_cookie_1PSID", "gemini_cookie_1PSIDTS"]}
 
                 logger.info(f"Attempting to initialize Gemini client with {len(cleaned_cookies)} essential cookies from config...")
                 
