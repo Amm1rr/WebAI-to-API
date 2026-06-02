@@ -163,7 +163,7 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert "<th>Backend</th>" in response.text
     assert "<th>Status</th>" in response.text
     assert "<th>Auth Source</th>" in response.text
-    assert "<th>Last Validated</th>" in response.text
+    assert "<th>Last Checked</th>" in response.text
     assert "<th>Notes</th>" in response.text
     assert 'hx-get="/ui/auth/panel"' in response.text
     assert 'hx-indicator="#auth-refresh-indicator"' in response.text
@@ -192,7 +192,7 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert "<th>Backend</th>" in response.text
     assert "<th>Status</th>" in response.text
     assert "<th>Auth Source</th>" in response.text
-    assert "<th>Last Validated</th>" in response.text
+    assert "<th>Last Checked</th>" in response.text
     assert "<th>Notes</th>" in response.text
     assert "AUTHENTICATED" in response.text
     assert "[Cookies] legacy config" in response.text

@@ -12,7 +12,7 @@
           <th>Backend</th>
           <th>Status</th>
           <th>Auth Source</th>
-          <th>Last Validated</th>
+          <th>Last Checked</th>
           <th>Notes</th>
         </tr>
       </thead>
@@ -26,8 +26,8 @@
           </td>
           <td><code>{{ row.auth_source }}</code></td>
           <td>
-            {% if row.last_validated != 'n/a' %}
-              <time datetime="{{ row.last_validated }}">{{ row.last_validated }}</time>
+            {% if row.last_checked != 'n/a' %}
+              <time datetime="{{ row.last_checked }}">{{ row.last_checked }}</time>
             {% else %}
               n/a
             {% endif %}
