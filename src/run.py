@@ -59,7 +59,7 @@ def print_server_info(host: str, port: int, mode: str):
     print("\n" + "=" * 80)
     print(f"{Colors.BOLD}{Colors.YELLOW}{app_info_line}{Colors.RESET}")
     if mode == "webai":
-        print("WebAI-to-API Server is RUNNING (Primary Mode)".center(80))
+        print("WebAI-to-API Server is RUNNING".center(80))
         print("=" * 80)
         print("\n✨ Available Services:")
         print(f"  - Dashboard:      {base_url}/ui")
@@ -70,23 +70,14 @@ def print_server_info(host: str, port: int, mode: str):
             print(f"  - Default Model: {CONFIG['Gemini']['default_model']}")
         except Exception:
             print("  - Could not load config details.")
-        print("\n🔗 API Endpoints:")
-        paths = sorted(
-            list(
-                set(
-                    route.path
-                    for route in webai_app.routes
-                    if isinstance(route, APIRoute)
-                )
-            )
-        )
-        for path in paths:
-            if path.startswith("/") and path not in [
-                "/docs",
-                "/redoc",
-                "/openapi.json",
-            ]:
-                print(f"  - {base_url}{path}")
+        print("\n🔗 Primary APIs:")
+        print(f"  - POST {base_url}/v1/chat/completions")
+        print(f"  - POST {base_url}/translate")
+        print(f"  - POST {base_url}/v1beta/models/{{model_path:path}}")
+        print("\n🔗 Useful Endpoints:")
+        print(f"  - GET  {base_url}/v1/models")
+        print(f"  - GET  {base_url}/v1/auth/status")
+        print(f"  - POST {base_url}/v1/auth/login")
     print("\n" + "=" * 80)
     instruction_text = "Press Ctrl+C to Quit"
     colored_instructions = (
