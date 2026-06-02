@@ -17,6 +17,7 @@
           <tr>
             <th>Model</th>
             <th>Provider</th>
+            <th>Backend</th>
           </tr>
         </thead>
         <tbody>
@@ -24,6 +25,7 @@
             <tr>
               <td><code>{{ model.get("id", "unknown") }}</code></td>
               <td>{{ model.get("owned_by", model.get("provider", "unknown")) }}</td>
+              <td>{{ model.get("backend", "Unknown") }}</td>
             </tr>
           {% endfor %}
         </tbody>

@@ -347,6 +347,16 @@ async def test_ui_models_returns_html(mocker):
                     "id": "gemini/gemini-3-flash",
                     "object": "model",
                     "owned_by": "gemini",
+                },
+                {
+                    "id": "playwright/gemini-3.1-pro",
+                    "object": "model",
+                    "owned_by": "google",
+                },
+                {
+                    "id": "atlas/MiniMaxAI/MiniMax-M2",
+                    "object": "model",
+                    "owned_by": "atlascloud",
                 }
             ],
         },
@@ -357,8 +367,13 @@ async def test_ui_models_returns_html(mocker):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Available Models" in response.text
-    assert "<th>Object</th>" not in response.text
+    assert "<th>Backend</th>" in response.text
     assert "gemini/gemini-3-flash" in response.text
+    assert "playwright/gemini-3.1-pro" in response.text
+    assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
+    assert "WebAPI" in response.text
+    assert "Playwright" in response.text
+    assert "Atlas" in response.text
     list_models.assert_called_once()
 
 

@@ -166,6 +166,16 @@ def _conversation_delete_error(status_code: int, detail: Any) -> str:
     return str(detail) if detail else "The delete request could not be completed."
 
 
+def _model_backend(model: dict[str, Any]) -> str:
+    model_id = str(model.get("id", "") or "")
+
+    if model_id.startswith("playwright/"):
+        return "Playwright"
+    if model_id.startswith("atlas/"):
+        return "Atlas"
+    return "WebAPI"
+
+
 def _conversation_browser_context(
     request: Request,
     conversations: list[dict[str, Any]],
@@ -254,10 +264,17 @@ async def dashboard_auth_panel(request: Request):
 @router.get("/models", response_class=HTMLResponse)
 async def dashboard_models(request: Request):
     models = await list_models()
+    model_rows = [
+        {
+            **model,
+            "backend": _model_backend(model),
+        }
+        for model in models.get("data", [])
+    ]
     return templates.TemplateResponse(
         request,
         "ui/models.html",
-        _template_context(request, active_page="models", models=models),
+        _template_context(request, active_page="models", models={**models, "data": model_rows}),
     )
 
 
