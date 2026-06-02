@@ -135,6 +135,14 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         if model_id.startswith("playwright/"):
             model_id = model_id[len("playwright/"):]
 
+        provider_name = getattr(self.provider, "provider_name", None)
+        if not isinstance(provider_name, str) or not provider_name:
+            provider_name = "gemini"
+        if "/" in model_id:
+            namespace, actual_model = model_id.split("/", 1)
+            if namespace == provider_name:
+                model_id = actual_model
+
         target_label = PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.get(model_id.lower())
         if target_label:
             if state.active_tab:

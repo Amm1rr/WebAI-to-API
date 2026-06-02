@@ -15,11 +15,52 @@ class ProviderFactory:
         "gemini": GeminiProvider,
         "atlas": AtlasProvider,
     }
+    _browser_registry = {
+        "gemini": GeminiProvider,
+    }
+    _default_browser_provider = "gemini"
 
     # Backward compatibility aliases
     _ALIASES = {
-        "playwright": "gemini",
+        "playwright": _default_browser_provider,
     }
+
+    @classmethod
+    def _resolve_browser_provider(cls, browser_provider_name: Optional[str]) -> str:
+        if browser_provider_name and browser_provider_name in cls._browser_registry:
+            return browser_provider_name
+        return cls._default_browser_provider
+
+    @classmethod
+    def _resolve_legacy_playwright_model(cls, model_name: str) -> tuple[str, str]:
+        """
+        Normalize the browser-native model namespace.
+
+        Supported forms:
+        - legacy: playwright/<model>
+        - provider-aware: playwright/<provider>/<model>
+        """
+        browser_provider_name = cls._default_browser_provider
+        normalized_model = f"playwright/{model_name.strip()}"
+
+        if "/" in model_name:
+            candidate_provider, actual_model = model_name.split("/", 1)
+            candidate_provider = candidate_provider.lower().strip()
+            if candidate_provider in cls._browser_registry:
+                browser_provider_name = candidate_provider
+                normalized_model = f"playwright/{candidate_provider}/{actual_model.strip()}"
+
+        return browser_provider_name, normalized_model
+
+    @classmethod
+    def register_provider(cls, provider_name: str, provider_cls: type[BaseProvider], *, browser_native: bool = False) -> None:
+        cls._registry[provider_name] = provider_cls
+        if browser_native:
+            cls._browser_registry[provider_name] = provider_cls
+
+    @classmethod
+    def register_browser_provider(cls, provider_name: str, provider_cls: type[BaseProvider]) -> None:
+        cls.register_provider(provider_name, provider_cls, browser_native=True)
 
     @classmethod
     def get_provider(cls, request: OpenAIChatRequest) -> tuple[BaseProvider, str]:
@@ -35,6 +76,8 @@ class ProviderFactory:
             provider_name = request.provider.lower().strip()
             if provider_name in cls._registry:
                 provider_key = provider_name
+            elif provider_name in cls._browser_registry:
+                provider_key = provider_name
             elif provider_name in cls._ALIASES:
                 provider_key = cls._ALIASES[provider_name]
         
@@ -45,11 +88,17 @@ class ProviderFactory:
             if prefix in cls._registry:
                 provider_key = prefix
                 model_name = actual_model.strip()
+            elif prefix in cls._browser_registry:
+                provider_key = prefix
+                model_name = f"playwright/{prefix}/{actual_model.strip()}"
             elif prefix in cls._ALIASES:
-                provider_key = cls._ALIASES[prefix]
-                # Note: We keep the original model_name (including prefix) 
-                # so the GeminiProvider can interpret it as a directive 
-                # to use the Playwright adapter.
+                browser_provider, normalized_model = cls._resolve_legacy_playwright_model(actual_model.strip())
+                provider_key = browser_provider
+                model_name = normalized_model
+            elif prefix == "playwright":
+                browser_provider, normalized_model = cls._resolve_legacy_playwright_model(actual_model.strip())
+                provider_key = browser_provider
+                model_name = normalized_model
 
         if provider_key not in cls._instances:
             cls._instances[provider_key] = cls._registry[provider_key]()

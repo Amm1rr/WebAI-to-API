@@ -45,6 +45,14 @@ def test_get_provider_model_prefix_gemini():
     assert isinstance(provider, GeminiProvider)
     assert model == "gemini-3-flash"
 
+def test_get_provider_model_prefix_playwright_browser_namespace_gemini():
+    """Verify ProviderFactory routes provider-aware browser namespaces to Gemini."""
+    request = OpenAIChatRequest(messages=[], model="playwright/gemini/gemini-3-flash")
+    provider, model = ProviderFactory.get_provider(request)
+
+    assert isinstance(provider, GeminiProvider)
+    assert model == "playwright/gemini/gemini-3-flash"
+
 def test_get_provider_unknown_prefix_defaults_to_gemini():
     """Verify ProviderFactory defaults to Gemini for unknown model prefixes."""
     request = OpenAIChatRequest(messages=[], model="unknown/model")
