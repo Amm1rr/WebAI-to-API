@@ -110,3 +110,19 @@ async def chat_completions(request: OpenAIChatRequest, http_request: Request):
 
     # Delegate implementation-heavy work to the provider
     return await provider.chat_completions(request)
+
+
+@router.delete(
+    "/v1/conversations/{conversation_id}",
+    tags=["Chat"],
+    summary="Delete Gemini WebAPI Conversation",
+    description="Deletes a Gemini WebAPI conversation by local conversation_id. Playwright and Atlas conversations are not supported."
+)
+async def delete_conversation(conversation_id: str):
+    provider, _ = ProviderFactory.get_provider(
+        OpenAIChatRequest(messages=[], provider="gemini")
+    )
+    delete_handler = getattr(provider, "delete_conversation", None)
+    if delete_handler is None:
+        raise HTTPException(status_code=400, detail="Conversation deletion is not supported for this provider.")
+    return await delete_handler(conversation_id)

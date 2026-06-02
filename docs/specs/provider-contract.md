@@ -192,3 +192,9 @@ Provider implementations define their own recovery mechanism and must document t
   * For Gemini WebAPI, returns `true` when an existing or restored `ChatSession` was reused.
   * For Gemini Playwright, returns `true` when an existing in-memory `PersistentTab` was reused. URL-backed provider-side recovery after a restart may still report `false` because no in-memory tab was reused.
   * Stateless providers may omit the field or define backend-specific semantics.
+
+### 11.2 Gemini WebAPI Conversation Deletion
+
+Gemini WebAPI deletion is scoped to locally persisted SQLite snapshots. The adapter extracts the remote Gemini chat ID from `session_state["metadata"][0]`, calls the Gemini WebAPI client's `delete_chat(remote_cid)`, and then removes the local `SessionRegistry` entry and SQLite snapshot.
+
+Deletion MUST NOT restore a `ChatSession` solely to discover the remote chat ID. Deletion MUST reject active or already deleting conversations with `409 Conflict`. Gemini Playwright and stateless providers do not implement this deletion contract.
