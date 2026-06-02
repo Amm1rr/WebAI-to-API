@@ -66,8 +66,6 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
         playwright_indicators.append({"label": "Legacy", "title": "Legacy fallback active", "severity": "warning"})
     if playwright.get("migration_needed"):
         playwright_indicators.append({"label": "Migration", "title": "Migration needed", "severity": "warning"})
-    if not playwright_indicators:
-        playwright_indicators.append({"label": "n/a", "title": "n/a", "severity": "neutral"})
 
     return [
         {

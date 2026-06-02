@@ -33,7 +33,7 @@
             {% endif %}
           </td>
           <td>
-            {% if row.indicators and row.indicators[0].label != 'n/a' %}
+            {% if row.indicators %}
               <div class="indicator-list">
                 {% for indicator in row.indicators %}
                   <span class="indicator-badge indicator-{{ indicator.severity }}" title="{{ indicator.title }}" aria-label="{{ indicator.title }}">

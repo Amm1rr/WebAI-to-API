@@ -225,7 +225,8 @@ async def test_ui_auth_panel_renders_n_a_when_webapi_source_missing(mocker):
 
     assert response.status_code == 200
     assert "<code>n/a</code>" in response.text
-    assert "indicator-badge" in response.text or ">n/a<" in response.text
+    assert 'title="n/a"' not in response.text
+    assert "n/a" in response.text
 
 
 @pytest.mark.asyncio
