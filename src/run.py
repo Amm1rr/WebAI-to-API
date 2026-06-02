@@ -62,6 +62,7 @@ def print_server_info(host: str, port: int, mode: str):
         print("WebAI-to-API Server is RUNNING (Primary Mode)".center(80))
         print("=" * 80)
         print("\n✨ Available Services:")
+        print(f"  - Dashboard:      {base_url}/ui")
         print(f"  - Docs (Swagger): {base_url}/docs")
         print("\n⚙️ Config.conf:")
         try:
