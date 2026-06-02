@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
@@ -77,6 +79,8 @@ async def test_ui_status_returns_html_and_uses_htmx_refresh(mocker):
     assert "text/html" in response.headers["content-type"]
     assert "Runtime Status" in response.text
     assert 'hx-get="/ui/status/panel"' in response.text
+    assert 'hx-indicator="#status-refresh-indicator"' in response.text
+    assert "Refreshing status..." in response.text
     assert "RUNNING" in response.text
     runtime_status.assert_called_once()
 
@@ -94,6 +98,8 @@ async def test_ui_status_panel_returns_fragment(mocker):
     assert "text/html" in response.headers["content-type"]
     assert "Engine" in response.text
     assert "gemini" in response.text
+    assert 'role="status"' in response.text
+    assert 'aria-live="polite"' in response.text
 
 
 @pytest.mark.asyncio
@@ -109,6 +115,8 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert "text/html" in response.headers["content-type"]
     assert "Authentication Status" in response.text
     assert 'hx-get="/ui/auth/panel"' in response.text
+    assert 'hx-indicator="#auth-refresh-indicator"' in response.text
+    assert "Refreshing auth status..." in response.text
     assert "VALID_SESSION" in response.text
     get_auth_status.assert_called_once_with(refresh=False)
 
@@ -126,6 +134,8 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert "text/html" in response.headers["content-type"]
     assert "Provider Auth" in response.text
     assert "AUTHENTICATED" in response.text
+    assert 'role="status"' in response.text
+    assert 'aria-live="polite"' in response.text
 
 
 @pytest.mark.asyncio
@@ -244,6 +254,8 @@ async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocke
     assert "This page shows locally persisted Gemini WebAPI conversation snapshots only." in response.text
     assert "Playwright and Atlas conversations are not listed here" in response.text
     assert 'hx-post="/ui/conversations/delete/confirm"' in response.text
+    assert 'hx-indicator="#conversation-action-indicator"' in response.text
+    assert 'Loading conversation action...' in response.text
     assert 'value="conv-1234567890abcdef"' in response.text
     assert "<code>conv-1234567890abcdef</code>" not in response.text
     assert "cdef" in response.text
@@ -283,9 +295,12 @@ async def test_ui_conversation_delete_confirm_renders_masked_details(mocker):
 
     assert response.status_code == 200
     assert "Confirm Delete" in response.text
+    assert 'Deleting conversation...' in response.text
     assert "<code>conv-1234567890abcdef</code>" not in response.text
     assert 'value="conv-1234567890abcdef"' in response.text
     assert "cdef" in response.text
+    assert "<label for=\"confirmation_suffix\">" in response.text
+    assert 'aria-describedby="confirmation_suffix_help"' in response.text
     assert 'name="confirmation_suffix"' in response.text
     assert 'pattern="cdef"' in response.text
     assert "secret" not in response.text
@@ -327,6 +342,7 @@ async def test_ui_conversation_delete_rejects_wrong_confirmation_without_calling
 
     assert response.status_code == 400
     assert "Type the last 4 characters" in response.text
+    assert 'role="alert"' in response.text
     delete_conversation.assert_not_called()
 
 
@@ -375,6 +391,7 @@ async def test_ui_conversation_delete_success_redirects_and_calls_helper(mocker)
 
     assert response.status_code == 200
     assert response.headers["HX-Redirect"] == "/ui/conversations"
+    assert 'role="status"' in response.text
     assert "Deleted conversation" in response.text
     delete_conversation.assert_called_once_with("conv-1234567890abcdef")
 
@@ -428,6 +445,16 @@ async def test_ui_conversation_delete_error_messages(mocker, status_code, detail
 
     assert response.status_code == status_code
     assert expected in response.text
+    assert 'role="alert"' in response.text
+
+
+def test_dashboard_docs_present():
+    docs_path = Path("docs/dashboard.md")
+    assert docs_path.exists()
+    content = docs_path.read_text(encoding="utf-8")
+    assert "administrative interface" in content
+    assert "currently have no authentication" in content
+    assert "Docker note" in content
 
 
 @pytest.mark.asyncio

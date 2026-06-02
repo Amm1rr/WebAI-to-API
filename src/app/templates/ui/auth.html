@@ -9,10 +9,15 @@
 </section>
 
 <section
+  class="refresh-section"
   hx-get="/ui/auth/panel"
   hx-trigger="every 10s"
+  hx-indicator="#auth-refresh-indicator"
   hx-swap="innerHTML"
 >
+  <p id="auth-refresh-indicator" class="loading htmx-indicator" aria-live="polite">
+    Refreshing auth status...
+  </p>
   {% include "ui/partials/auth_panel.html" %}
 </section>
 {% endblock %}

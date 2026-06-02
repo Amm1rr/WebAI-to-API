@@ -1,4 +1,4 @@
-<div class="panel">
+<div class="panel" role="status" aria-live="polite">
   <div class="panel-head">
     <h2>Engine</h2>
     <span class="badge">{{ status.engine.status }}</span>
@@ -19,7 +19,7 @@
   </dl>
 </div>
 
-<div class="panel">
+<div class="panel" role="status" aria-live="polite">
   <div class="panel-head">
     <h2>Sessions</h2>
     <span class="muted">{{ status.sessions|length if status.sessions is defined else 0 }} registered</span>

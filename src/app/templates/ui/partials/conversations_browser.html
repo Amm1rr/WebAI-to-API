@@ -1,5 +1,8 @@
 <section id="conversation-browser">
   <div id="conversation-action" class="panel action-panel">
+    <p id="conversation-action-indicator" class="loading htmx-indicator" aria-live="polite">
+      Loading conversation action...
+    </p>
     {% if conversation_action_message %}
       {% set delete_message = conversation_action_message %}
       {% set delete_error = None %}
@@ -49,8 +52,10 @@
                   <form
                     class="row-action-form"
                     hx-post="/ui/conversations/delete/confirm"
+                    hx-indicator="#conversation-action-indicator"
                     hx-target="#conversation-action"
                     hx-swap="innerHTML"
+                    hx-disabled-elt="button"
                   >
                     <input type="hidden" name="conversation_id" value="{{ conversation.id }}">
                     <button class="danger-link" type="submit">Delete</button>
