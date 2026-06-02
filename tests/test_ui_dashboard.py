@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
+from unittest.mock import AsyncMock
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 
@@ -51,11 +52,14 @@ def _auth_status_payload(
     playwright_status: str = "VALID_SESSION",
     login_state: str = "IDLE",
     playwright_last_validated: str = "2026-06-02T00:00:00Z",
+    validation_details: str = "Cached test validation.",
+    legacy_fallback_active: bool = False,
+    migration_needed: bool = False,
 ):
     gemini_webapi = {"status": webapi_status}
     if include_source:
         gemini_webapi["auth_source"] = "[Cookies] legacy config"
-    return {
+    payload = {
         "timestamp": "2026-06-02T00:00:00Z",
         "login_state": login_state,
         "gemini_webapi": gemini_webapi,
@@ -63,9 +67,14 @@ def _auth_status_payload(
             "status": playwright_status,
             "auth_state_file": "runtime/auth/gemini.json",
             "last_validated": playwright_last_validated,
-            "validation_details": "Cached test validation.",
+            "validation_details": validation_details,
         },
     }
+    if legacy_fallback_active:
+        payload["playwright"]["legacy_fallback_active"] = True
+    if migration_needed:
+        payload["playwright"]["migration_needed"] = True
+    return payload
 
 
 def _conversation_list_payload():
@@ -164,7 +173,7 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert "<th>Status</th>" in response.text
     assert "<th>Auth Source</th>" in response.text
     assert "<th>Last Checked</th>" in response.text
-    assert "<th>Notes</th>" in response.text
+    assert "<th>Indicators</th>" in response.text
     assert 'hx-get="/ui/auth/panel"' in response.text
     assert 'hx-indicator="#auth-refresh-indicator"' in response.text
     assert "Refreshing auth status..." in response.text
@@ -173,6 +182,7 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert "Playwright" in response.text
     assert 'class="badge success">AUTHENTICATED<' in response.text or 'class="badge success"' in response.text
     assert "[Cookies] legacy config" in response.text
+    assert "indicator-badge" in response.text
     get_auth_status.assert_called_once_with(refresh=False)
 
 
@@ -193,11 +203,12 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert "<th>Status</th>" in response.text
     assert "<th>Auth Source</th>" in response.text
     assert "<th>Last Checked</th>" in response.text
-    assert "<th>Notes</th>" in response.text
+    assert "<th>Indicators</th>" in response.text
     assert "AUTHENTICATED" in response.text
     assert "[Cookies] legacy config" in response.text
     assert "runtime/auth/gemini.json" in response.text
-    assert "Cached test validation." in response.text
+    assert 'title="Cached test validation."' in response.text
+    assert "Info" in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
 
@@ -213,6 +224,50 @@ async def test_ui_auth_panel_renders_n_a_when_webapi_source_missing(mocker):
 
     assert response.status_code == 200
     assert "<code>n/a</code>" in response.text
+    assert "indicator-badge" in response.text or ">n/a<" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_auth_panel_renders_legacy_and_migration_indicators(mocker):
+    mocker.patch(
+        "app.endpoints.ui.get_auth_status",
+        new=AsyncMock(
+            return_value=_auth_status_payload(
+                legacy_fallback_active=True,
+                migration_needed=True,
+            )
+        ),
+    )
+
+    response = await _get("/ui/auth/panel")
+
+    assert response.status_code == 200
+    assert "Info" in response.text
+    assert 'title="Cached test validation."' in response.text
+    assert "indicator-badge" in response.text
+
+
+def test_ui_auth_normalizer_includes_optional_indicators():
+    rows = ui_module._normalize_auth_status(
+        _auth_status_payload(legacy_fallback_active=True, migration_needed=True)
+    )
+
+    assert rows[0]["provider"] == "Gemini"
+    assert rows[0]["backend"] == "WebAPI"
+    assert rows[1]["provider"] == "Gemini"
+    assert rows[1]["backend"] == "Playwright"
+    assert rows[1]["indicators"][0] == {
+        "label": "Info",
+        "title": "Cached test validation.",
+    }
+    assert rows[1]["indicators"][1] == {
+        "label": "Legacy",
+        "title": "Legacy fallback active",
+    }
+    assert rows[1]["indicators"][2] == {
+        "label": "Migration",
+        "title": "Migration needed",
+    }
 
 
 @pytest.mark.asyncio

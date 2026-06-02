@@ -13,7 +13,7 @@
           <th>Status</th>
           <th>Auth Source</th>
           <th>Last Checked</th>
-          <th>Notes</th>
+          <th>Indicators</th>
         </tr>
       </thead>
       <tbody>
@@ -32,7 +32,19 @@
               n/a
             {% endif %}
           </td>
-          <td>{{ row.notes }}</td>
+          <td>
+            {% if row.indicators and row.indicators[0].label != 'n/a' %}
+              <div class="indicator-list">
+                {% for indicator in row.indicators %}
+                  <span class="indicator-badge" title="{{ indicator.title }}" aria-label="{{ indicator.title }}">
+                    {{ indicator.label }}
+                  </span>
+                {% endfor %}
+              </div>
+            {% else %}
+              n/a
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

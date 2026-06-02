@@ -58,16 +58,16 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
     playwright_status = _format_note_value(playwright.get("status"))
     playwright_source = _format_note_value(playwright.get("auth_state_file"))
     playwright_validated = _format_note_value(playwright.get("last_validated"))
-    playwright_notes: list[str] = []
+    playwright_indicators: list[dict[str, str]] = []
     validation_details = _format_note_value(playwright.get("validation_details"))
     if validation_details != "n/a":
-        playwright_notes.append(validation_details)
+        playwright_indicators.append({"label": "Info", "title": validation_details})
     if playwright.get("legacy_fallback_active"):
-        playwright_notes.append("legacy fallback active")
+        playwright_indicators.append({"label": "Legacy", "title": "Legacy fallback active"})
     if playwright.get("migration_needed"):
-        playwright_notes.append("migration needed")
-    if not playwright_notes:
-        playwright_notes.append("n/a")
+        playwright_indicators.append({"label": "Migration", "title": "Migration needed"})
+    if not playwright_indicators:
+        playwright_indicators.append({"label": "n/a", "title": "n/a"})
 
     return [
         {
@@ -85,7 +85,7 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
             "status": playwright_status,
             "auth_source": playwright_source,
             "last_checked": playwright_validated,
-            "notes": "; ".join(playwright_notes),
+            "indicators": playwright_indicators,
             "status_class": _status_class(playwright_status),
         },
     ]
