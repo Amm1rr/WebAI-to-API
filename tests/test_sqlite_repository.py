@@ -1,7 +1,7 @@
 # tests/test_sqlite_repository.py
 import pytest
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.services.providers.base_repository import ConversationSnapshot
 from app.services.providers.exceptions import StateIntegrityError
 from app.services.providers.sqlite_repository import SQLiteConversationRepository
@@ -102,3 +102,69 @@ async def test_repository_raises_state_integrity_error_for_corrupted_json(tmp_pa
 
     with pytest.raises(StateIntegrityError):
         await repo.get_snapshot("corrupt-json")
+
+
+@pytest.mark.asyncio
+async def test_repository_list_snapshots_sorted_by_updated_at_desc(tmp_path):
+    db_file = tmp_path / "test_snapshots.db"
+    repo = SQLiteConversationRepository(db_path=str(db_file))
+    await repo.initialize()
+
+    base_time = datetime.now(timezone.utc)
+    snapshots = [
+        ConversationSnapshot(
+            conversation_id="old",
+            provider_name="gemini",
+            session_state={"metadata": ["cid-old", "rid", "rcid"], "model_name": "flash"},
+            schema_version=1,
+            updated_at=base_time - timedelta(minutes=2),
+        ),
+        ConversationSnapshot(
+            conversation_id="new",
+            provider_name="gemini",
+            session_state={"metadata": ["cid-new", "rid", "rcid"], "model_name": "pro"},
+            schema_version=1,
+            updated_at=base_time,
+        ),
+        ConversationSnapshot(
+            conversation_id="middle",
+            provider_name="gemini",
+            session_state={"metadata": ["cid-middle", "rid", "rcid"], "model_name": "flash"},
+            schema_version=1,
+            updated_at=base_time - timedelta(minutes=1),
+        ),
+    ]
+
+    for snapshot in snapshots:
+        await repo.save_snapshot(snapshot)
+
+    listed = await repo.list_snapshots()
+
+    assert [snapshot.conversation_id for snapshot in listed] == ["new", "middle", "old"]
+
+
+@pytest.mark.asyncio
+async def test_repository_list_snapshots_filters_by_provider_name(tmp_path):
+    db_file = tmp_path / "test_snapshots.db"
+    repo = SQLiteConversationRepository(db_path=str(db_file))
+    await repo.initialize()
+
+    now = datetime.now(timezone.utc)
+    await repo.save_snapshot(ConversationSnapshot(
+        conversation_id="gemini-conv",
+        provider_name="gemini",
+        session_state={"metadata": ["cid", "rid", "rcid"], "model_name": "flash"},
+        schema_version=1,
+        updated_at=now,
+    ))
+    await repo.save_snapshot(ConversationSnapshot(
+        conversation_id="other-conv",
+        provider_name="other",
+        session_state={"metadata": ["cid", "rid", "rcid"], "model_name": "other"},
+        schema_version=1,
+        updated_at=now,
+    ))
+
+    listed = await repo.list_snapshots("gemini")
+
+    assert [snapshot.conversation_id for snapshot in listed] == ["gemini-conv"]

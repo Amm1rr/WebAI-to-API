@@ -16,6 +16,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
+| `/v1/conversations` | Primary | Yes | Lists Gemini WebAPI snapshots | No | Lists local SQLite-backed Gemini WebAPI conversations only. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for all providers. |
 | `/v1/auth/status` | Primary | Yes | N/A | No | Real-time auth state and health diagnostics. |
@@ -57,6 +58,16 @@ A boolean field injected into the response metadata:
   - `true`: An in-memory `PersistentTab` for the conversation was reused.
   - `false`: No in-memory tab was reused. The backend may still resume the provider-side Gemini thread by navigating to the conversation URL.
 - **Stateless providers**: This field may be absent or provider-defined because no local conversation state is maintained.
+
+### Listing
+
+`GET /v1/conversations` lists Gemini WebAPI conversations persisted in local SQLite snapshots only.
+
+- **Gemini WebAPI**: The runtime reads SQLite snapshots through `SessionRegistry` and `SQLiteConversationRepository`, validates snapshot schema and provider-owned `session_state`, and returns public local metadata such as `conversation_id`, `updated_at`, `model_name`, `gem_id`, provider, backend, and schema version.
+- **No Remote Calls**: Listing does not restore `ChatSession` objects and does not call Gemini remote APIs.
+- **Metadata Privacy**: Raw Gemini continuation metadata and remote Gemini chat IDs are not exposed.
+- **Gemini Playwright**: Not included because Playwright conversations are provider-side URL-backed and not SQLite-backed WebAPI snapshots.
+- **Atlas**: Not included because Atlas requests are stateless in this runtime.
 
 ### Deletion
 

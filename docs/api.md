@@ -46,6 +46,45 @@ Returns the list of available models and providers.
 
 ---
 
+### GET `/v1/conversations`
+
+Lists locally persisted Gemini WebAPI conversations stored in SQLite.
+
+This endpoint supports Gemini WebAPI conversations only. It does not restore `ChatSession` objects, call Gemini remote APIs, or include Playwright URL-backed conversations or Atlas requests.
+
+Successful response:
+
+```json
+{
+  "object": "list",
+  "provider": "gemini",
+  "backend": "webapi",
+  "count": 1,
+  "data": [
+    {
+      "id": "conversation_id",
+      "object": "conversation",
+      "provider": "gemini",
+      "backend": "webapi",
+      "model": "gemini-3-flash",
+      "gem_id": null,
+      "updated_at": "2026-06-02T12:34:56+00:00",
+      "schema_version": 1
+    }
+  ]
+}
+```
+
+Status codes:
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | Local SQLite snapshots were listed. |
+| `503` | Session registry or snapshot repository is unavailable. |
+| `500` | Snapshot data is invalid/corrupt or repository listing failed. |
+
+---
+
 ### DELETE `/v1/conversations/{conversation_id}`
 
 Deletes a Gemini WebAPI conversation identified by the local `conversation_id`.

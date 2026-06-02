@@ -220,6 +220,99 @@ async def test_delete_conversation_repository_failure_returns_500_and_clears_tom
 
 
 @pytest.mark.asyncio
+async def test_list_conversations_returns_persisted_conversation_fields(mocker, provider):
+    updated_at = datetime(2026, 6, 2, 12, 30, tzinfo=timezone.utc)
+    snapshot = ConversationSnapshot(
+        conversation_id="conv-list",
+        provider_name="gemini",
+        session_state={
+            "provider_state_version": 1,
+            "metadata": ["remote-cid-secret", "rid", "rcid", None, None, None, None, None, None, "ctx"],
+            "gem_id": "gem-123",
+            "model_name": "gemini-3-flash",
+        },
+        schema_version=1,
+        updated_at=updated_at,
+    )
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=[snapshot])
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+    get_client = mocker.patch(
+        "app.services.providers.gemini.webapi_adapter.get_gemini_client",
+        side_effect=AssertionError("list_conversations must not call Gemini remote client"),
+    )
+    deserialize = mocker.patch.object(
+        provider,
+        "deserialize_session_state",
+        side_effect=AssertionError("list_conversations must not restore ChatSession"),
+    )
+
+    result = await provider.list_conversations()
+
+    assert result == {
+        "object": "list",
+        "provider": "gemini",
+        "backend": "webapi",
+        "count": 1,
+        "data": [
+            {
+                "id": "conv-list",
+                "object": "conversation",
+                "provider": "gemini",
+                "backend": "webapi",
+                "model": "gemini-3-flash",
+                "gem_id": "gem-123",
+                "updated_at": updated_at.isoformat(),
+                "schema_version": 1,
+            }
+        ],
+    }
+    assert "metadata" not in result["data"][0]
+    assert "remote-cid-secret" not in json.dumps(result)
+    mock_registry.list_conversation_snapshots.assert_called_once_with("gemini")
+    get_client.assert_not_called()
+    deserialize.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_corrupt_snapshot_returns_500(mocker, provider):
+    snapshot = ConversationSnapshot(
+        conversation_id="conv-corrupt",
+        provider_name="gemini",
+        session_state={
+            "provider_state_version": 1,
+            "metadata": ["remote-cid-only"],
+            "gem_id": None,
+            "model_name": "gemini-3-flash",
+        },
+        schema_version=1,
+        updated_at=datetime.now(timezone.utc),
+    )
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=[snapshot])
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.list_conversations()
+
+    assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_registry_unavailable_returns_503(mocker, provider):
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.list_conversations()
+
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_stateful_buffered(mocker, provider):
     """Verify chat_completions retrieves SessionManager and executes stateful buffered response."""
     from app.schemas.request import OpenAIChatRequest
