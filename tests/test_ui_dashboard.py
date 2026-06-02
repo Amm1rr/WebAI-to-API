@@ -206,6 +206,47 @@ async def test_ui_static_assets_are_served():
 
 
 @pytest.mark.asyncio
+async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocker):
+    list_conversations = mocker.patch(
+        "app.endpoints.ui.list_conversations",
+        return_value={
+            "object": "list",
+            "provider": "gemini",
+            "backend": "webapi",
+            "count": 1,
+            "data": [
+                {
+                    "id": "conv-1234567890abcdef",
+                    "object": "conversation",
+                    "provider": "gemini",
+                    "backend": "webapi",
+                    "model": "gemini/gemini-3-flash",
+                    "gem_id": "gem-123",
+                    "updated_at": "2026-06-02T12:30:00+00:00",
+                    "schema_version": 1,
+                    "session_state": {"secret": "opaque"},
+                }
+            ],
+        },
+    )
+
+    response = await _get("/ui/conversations")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Conversation Snapshots" in response.text
+    assert "This page shows locally persisted Gemini WebAPI conversation snapshots only." in response.text
+    assert "Playwright and Atlas conversations are not listed here" in response.text
+    assert "conv-1234567890abcdef" not in response.text
+    assert "cdef" in response.text
+    assert "secret" not in response.text
+    assert "session_state" not in response.text
+    assert "hx-delete" not in response.text
+    assert "delete" not in response.text.lower()
+    list_conversations.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_ui_routes_are_excluded_from_openapi():
     paths = await _openapi_paths()
     assert "/ui" not in paths
@@ -213,3 +254,4 @@ async def test_ui_routes_are_excluded_from_openapi():
     assert "/ui/auth" not in paths
     assert "/ui/models" not in paths
     assert "/ui/playground" not in paths
+    assert "/ui/conversations" not in paths

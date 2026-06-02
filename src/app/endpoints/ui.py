@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.endpoints.auth import get_auth_status
 from app.endpoints.chat import list_models
+from app.endpoints.chat import list_conversations
 from app.endpoints.system import runtime_status
 
 
@@ -22,6 +23,16 @@ def _template_context(request: Request, **values: Any) -> dict[str, Any]:
     context = {"request": request}
     context.update(values)
     return context
+
+
+def _mask_conversation_id(conversation_id: Any) -> str:
+    if not conversation_id:
+        return "n/a"
+
+    value = str(conversation_id)
+    if len(value) <= 12:
+        return value
+    return f"{value[:6]}…{value[-4:]}"
 
 
 class DashboardStaticApp:
@@ -137,4 +148,26 @@ async def dashboard_playground(request: Request):
         request,
         "ui/playground.html",
         _template_context(request, active_page="playground", models=models),
+    )
+
+
+@router.get("/conversations", response_class=HTMLResponse)
+async def dashboard_conversations(request: Request):
+    conversation_list = await list_conversations()
+    conversations = conversation_list.get("data", [])
+    rows = []
+    for conversation in conversations:
+        row = dict(conversation)
+        row["masked_conversation_id"] = _mask_conversation_id(conversation.get("id"))
+        rows.append(row)
+
+    return templates.TemplateResponse(
+        request,
+        "ui/conversations.html",
+        _template_context(
+            request,
+            active_page="conversations",
+            conversations=rows,
+            conversation_scope_note="This page shows locally persisted Gemini WebAPI conversation snapshots only.",
+        ),
     )
