@@ -25,7 +25,10 @@
 
 <section class="panel" role="status" aria-live="polite">
   <div class="panel-head">
-    <h2>Provider Sessions</h2>
+    <div>
+      <h2>Playwright Sessions</h2>
+      <p class="muted">Browser-backed provider sessions</p>
+    </div>
     <span class="muted">{{ status.sessions|length if status.sessions is defined else 0 }} registered</span>
   </div>
   {% if status.sessions is defined and status.sessions %}
