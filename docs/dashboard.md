@@ -2,6 +2,8 @@
 
 The built-in dashboard is an administrative interface for local runtime inspection and limited operations.
 
+The `/ui/*` routes are not part of the public API contract and are excluded from the OpenAPI schema.
+
 ## Pages
 
 - `/ui` - overview
@@ -23,6 +25,13 @@ Recommended deployment options:
 - restrict access with an upstream auth gateway or similar control
 
 Do not expose the dashboard publicly unless you add a separate access-control layer.
+
+Conversation actions are scoped to locally persisted Gemini WebAPI snapshots only:
+
+- single delete applies only to a local Gemini WebAPI snapshot
+- bulk delete applies only to locally persisted Gemini WebAPI snapshots
+- Playwright and Atlas conversations are not affected
+- bulk delete is best-effort and may partially succeed
 
 ## Docker note
 

@@ -141,6 +141,7 @@ Use the `/v1/models` endpoint to retrieve the current list of supported models.
 - [Configuration Guide](docs/configuration.md)
 - [Architecture Guide](docs/architecture.md)
 - [Docker Deployment Guide](docs/docker.md)
+- [Dashboard Guide](docs/dashboard.md)
 
 Interactive API documentation is available through Swagger UI when the server is running.
 

@@ -2,6 +2,8 @@
 
 This document describes the public API surface exposed by WebAI-to-API.
 
+Dashboard routes under `/ui/*` are administrative-only pages. They are excluded from the public API contract and from the OpenAPI schema.
+
 ## Base URL
 
 ```text
