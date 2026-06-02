@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -7,6 +8,11 @@ from app.main import app
 async def _get(path: str):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         return await ac.get(path)
+
+
+async def _post(path: str, data: dict[str, str]):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        return await ac.post(path, data=data)
 
 
 async def _openapi_paths():
@@ -237,13 +243,191 @@ async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocke
     assert "Conversation Snapshots" in response.text
     assert "This page shows locally persisted Gemini WebAPI conversation snapshots only." in response.text
     assert "Playwright and Atlas conversations are not listed here" in response.text
-    assert "conv-1234567890abcdef" not in response.text
+    assert 'hx-post="/ui/conversations/delete/confirm"' in response.text
+    assert 'value="conv-1234567890abcdef"' in response.text
+    assert "<code>conv-1234567890abcdef</code>" not in response.text
     assert "cdef" in response.text
     assert "secret" not in response.text
     assert "session_state" not in response.text
     assert "hx-delete" not in response.text
-    assert "delete" not in response.text.lower()
+    assert "bulk" not in response.text.lower()
     list_conversations.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ui_conversation_delete_confirm_renders_masked_details(mocker):
+    mocker.patch(
+        "app.endpoints.ui.list_conversations",
+        return_value={
+            "object": "list",
+            "provider": "gemini",
+            "backend": "webapi",
+            "count": 1,
+            "data": [
+                {
+                    "id": "conv-1234567890abcdef",
+                    "object": "conversation",
+                    "provider": "gemini",
+                    "backend": "webapi",
+                    "model": "gemini/gemini-3-flash",
+                    "gem_id": "gem-123",
+                    "updated_at": "2026-06-02T12:30:00+00:00",
+                    "schema_version": 1,
+                    "session_state": {"secret": "opaque"},
+                }
+            ],
+        },
+    )
+
+    response = await _post("/ui/conversations/delete/confirm", {"conversation_id": "conv-1234567890abcdef"})
+
+    assert response.status_code == 200
+    assert "Confirm Delete" in response.text
+    assert "<code>conv-1234567890abcdef</code>" not in response.text
+    assert 'value="conv-1234567890abcdef"' in response.text
+    assert "cdef" in response.text
+    assert 'name="confirmation_suffix"' in response.text
+    assert 'pattern="cdef"' in response.text
+    assert "secret" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_conversation_delete_rejects_wrong_confirmation_without_calling_delete(mocker):
+    mocker.patch(
+        "app.endpoints.ui.list_conversations",
+        return_value={
+            "object": "list",
+            "provider": "gemini",
+            "backend": "webapi",
+            "count": 1,
+            "data": [
+                {
+                    "id": "conv-1234567890abcdef",
+                    "object": "conversation",
+                    "provider": "gemini",
+                    "backend": "webapi",
+                    "model": "gemini/gemini-3-flash",
+                    "gem_id": "gem-123",
+                    "updated_at": "2026-06-02T12:30:00+00:00",
+                    "schema_version": 1,
+                    "session_state": {"secret": "opaque"},
+                }
+            ],
+        },
+    )
+    delete_conversation = mocker.patch("app.endpoints.ui.delete_conversation_api")
+
+    response = await _post(
+        "/ui/conversations/delete",
+        {
+            "conversation_id": "conv-1234567890abcdef",
+            "confirmation_suffix": "0000",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Type the last 4 characters" in response.text
+    delete_conversation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ui_conversation_delete_success_redirects_and_calls_helper(mocker):
+    mocker.patch(
+        "app.endpoints.ui.list_conversations",
+        return_value={
+            "object": "list",
+            "provider": "gemini",
+            "backend": "webapi",
+            "count": 1,
+            "data": [
+                {
+                    "id": "conv-1234567890abcdef",
+                    "object": "conversation",
+                    "provider": "gemini",
+                    "backend": "webapi",
+                    "model": "gemini/gemini-3-flash",
+                    "gem_id": "gem-123",
+                    "updated_at": "2026-06-02T12:30:00+00:00",
+                    "schema_version": 1,
+                    "session_state": {"secret": "opaque"},
+                }
+            ],
+        },
+    )
+    delete_conversation = mocker.patch(
+        "app.endpoints.ui.delete_conversation_api",
+        return_value={
+            "id": "conv-1234567890abcdef",
+            "object": "conversation.deleted",
+            "deleted": True,
+            "provider": "gemini",
+            "backend": "webapi",
+        },
+    )
+
+    response = await _post(
+        "/ui/conversations/delete",
+        {
+            "conversation_id": "conv-1234567890abcdef",
+            "confirmation_suffix": "cdef",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/ui/conversations"
+    assert "Deleted conversation" in response.text
+    delete_conversation.assert_called_once_with("conv-1234567890abcdef")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status_code, detail, expected",
+    [
+        (401, "auth required", "authentication is required"),
+        (404, "missing", "no longer exists locally"),
+        (409, "busy", "currently active, busy, or already being deleted"),
+        (503, "timeout", "registry or remote Gemini service is unavailable"),
+        (500, "boom", "server-side error"),
+    ],
+)
+async def test_ui_conversation_delete_error_messages(mocker, status_code, detail, expected):
+    mocker.patch(
+        "app.endpoints.ui.list_conversations",
+        return_value={
+            "object": "list",
+            "provider": "gemini",
+            "backend": "webapi",
+            "count": 1,
+            "data": [
+                {
+                    "id": "conv-1234567890abcdef",
+                    "object": "conversation",
+                    "provider": "gemini",
+                    "backend": "webapi",
+                    "model": "gemini/gemini-3-flash",
+                    "gem_id": "gem-123",
+                    "updated_at": "2026-06-02T12:30:00+00:00",
+                    "schema_version": 1,
+                    "session_state": {"secret": "opaque"},
+                }
+            ],
+        },
+    )
+    mocker.patch(
+        "app.endpoints.ui.delete_conversation_api",
+        side_effect=HTTPException(status_code=status_code, detail=detail),
+    )
+
+    response = await _post(
+        "/ui/conversations/delete",
+        {
+            "conversation_id": "conv-1234567890abcdef",
+            "confirmation_suffix": "cdef",
+        },
+    )
+
+    assert response.status_code == status_code
+    assert expected in response.text
 
 
 @pytest.mark.asyncio

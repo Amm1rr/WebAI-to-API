@@ -8,41 +8,5 @@
   <h1>Conversation Snapshots</h1>
 </section>
 
-<section class="panel">
-  <p class="note">{{ conversation_scope_note }}</p>
-  <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
-
-  {% if conversations %}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Conversation ID</th>
-            <th>Provider</th>
-            <th>Backend</th>
-            <th>Model</th>
-            <th>Gem ID</th>
-            <th>Updated At</th>
-            <th>Schema Version</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for conversation in conversations %}
-            <tr>
-              <td><code>{{ conversation.masked_conversation_id }}</code></td>
-              <td>{{ conversation.provider }}</td>
-              <td>{{ conversation.backend }}</td>
-              <td><code>{{ conversation.model if conversation.model is not none else "n/a" }}</code></td>
-              <td><code>{{ conversation.gem_id if conversation.gem_id is not none else "n/a" }}</code></td>
-              <td>{{ conversation.updated_at }}</td>
-              <td>{{ conversation.schema_version }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% else %}
-    <p class="empty">No locally persisted Gemini WebAPI conversation snapshots were returned.</p>
-  {% endif %}
-</section>
+{% include "ui/partials/conversations_browser.html" %}
 {% endblock %}

@@ -157,6 +157,13 @@ h2 {
   font-weight: 700;
 }
 
+.badge.destructive,
+.danger {
+  background: #b42318;
+  color: #ffffff;
+  border-color: #b42318;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -301,9 +308,75 @@ button[type="button"] {
   color: var(--text);
 }
 
+.danger-link,
+.cancel-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.danger-link {
+  border: 1px solid #b42318;
+  background: #fff5f4;
+  color: #b42318;
+  cursor: pointer;
+}
+
+.cancel-link {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.alert {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.alert-success {
+  border-color: #b7e1d7;
+  background: #eef9f6;
+  color: #176b5d;
+}
+
+.alert-error {
+  border-color: #f1b4ae;
+  background: #fff4f2;
+  color: #b42318;
+}
+
+.delete-flow .delete-metrics {
+  margin-bottom: 16px;
+}
+
+.delete-form {
+  margin-top: 14px;
+}
+
+.row-action {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.row-action-form {
+  margin: 0;
+}
+
+.row-action .danger-link {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
 }
 
 .response-box {

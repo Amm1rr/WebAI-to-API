@@ -1,0 +1,68 @@
+<section id="conversation-browser">
+  <div id="conversation-action" class="panel action-panel">
+    {% if conversation_action_message %}
+      {% set delete_message = conversation_action_message %}
+      {% set delete_error = None %}
+      {% set delete_error_status = None %}
+      {% include "ui/partials/conversation_delete_result.html" %}
+    {% elif conversation_action_error %}
+      {% set delete_message = None %}
+      {% set delete_error = conversation_action_error %}
+      {% set delete_error_status = conversation_action_error_status %}
+      {% include "ui/partials/conversation_delete_result.html" %}
+    {% else %}
+      <p class="note">Use Delete on a row to open a confirmation panel for a single Gemini WebAPI snapshot.</p>
+      <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
+    {% endif %}
+  </div>
+
+  <section class="panel">
+    <p class="note">{{ conversation_scope_note }}</p>
+    <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
+
+    {% if conversations %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Conversation ID</th>
+              <th>Provider</th>
+              <th>Backend</th>
+              <th>Model</th>
+              <th>Gem ID</th>
+              <th>Updated At</th>
+              <th>Schema Version</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for conversation in conversations %}
+              <tr>
+                <td><code>{{ conversation.masked_conversation_id }}</code></td>
+                <td>{{ conversation.provider }}</td>
+                <td>{{ conversation.backend }}</td>
+                <td><code>{{ conversation.model if conversation.model is not none else "n/a" }}</code></td>
+                <td><code>{{ conversation.gem_id if conversation.gem_id is not none else "n/a" }}</code></td>
+                <td>{{ conversation.updated_at }}</td>
+                <td>{{ conversation.schema_version }}</td>
+                <td class="row-action">
+                  <form
+                    class="row-action-form"
+                    hx-post="/ui/conversations/delete/confirm"
+                    hx-target="#conversation-action"
+                    hx-swap="innerHTML"
+                  >
+                    <input type="hidden" name="conversation_id" value="{{ conversation.id }}">
+                    <button class="danger-link" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">No locally persisted Gemini WebAPI conversation snapshots were returned.</p>
+    {% endif %}
+  </section>
+</section>

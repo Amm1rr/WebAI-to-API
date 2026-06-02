@@ -1,0 +1,13 @@
+<div class="delete-result">
+  {% if delete_message %}
+    <div class="alert alert-success">{{ delete_message }}</div>
+  {% else %}
+    <div class="alert alert-error">
+      {{ delete_error or "The delete request could not be completed." }}
+    </div>
+  {% endif %}
+
+  {% if delete_error_status %}
+    <p class="note">Status {{ delete_error_status }}</p>
+  {% endif %}
+</div>
