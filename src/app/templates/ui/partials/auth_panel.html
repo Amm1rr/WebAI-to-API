@@ -36,7 +36,7 @@
             {% if row.indicators and row.indicators[0].label != 'n/a' %}
               <div class="indicator-list">
                 {% for indicator in row.indicators %}
-                  <span class="indicator-badge" title="{{ indicator.title }}" aria-label="{{ indicator.title }}">
+                  <span class="indicator-badge indicator-{{ indicator.severity }}" title="{{ indicator.title }}" aria-label="{{ indicator.title }}">
                     {{ indicator.label }}
                   </span>
                 {% endfor %}

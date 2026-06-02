@@ -219,6 +219,16 @@ h2 {
   white-space: nowrap;
 }
 
+.indicator-neutral {
+  background: #eef1f4;
+  color: #4b5563;
+}
+
+.indicator-warning {
+  background: #fff4d6;
+  color: #8a5a00;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

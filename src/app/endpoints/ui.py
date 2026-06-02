@@ -61,13 +61,13 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
     playwright_indicators: list[dict[str, str]] = []
     validation_details = _format_note_value(playwright.get("validation_details"))
     if validation_details != "n/a":
-        playwright_indicators.append({"label": "Info", "title": validation_details})
+        playwright_indicators.append({"label": "Info", "title": validation_details, "severity": "neutral"})
     if playwright.get("legacy_fallback_active"):
-        playwright_indicators.append({"label": "Legacy", "title": "Legacy fallback active"})
+        playwright_indicators.append({"label": "Legacy", "title": "Legacy fallback active", "severity": "warning"})
     if playwright.get("migration_needed"):
-        playwright_indicators.append({"label": "Migration", "title": "Migration needed"})
+        playwright_indicators.append({"label": "Migration", "title": "Migration needed", "severity": "warning"})
     if not playwright_indicators:
-        playwright_indicators.append({"label": "n/a", "title": "n/a"})
+        playwright_indicators.append({"label": "n/a", "title": "n/a", "severity": "neutral"})
 
     return [
         {

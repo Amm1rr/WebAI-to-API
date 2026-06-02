@@ -209,6 +209,7 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert "runtime/auth/gemini.json" in response.text
     assert 'title="Cached test validation."' in response.text
     assert "Info" in response.text
+    assert 'class="indicator-badge indicator-neutral"' in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
 
@@ -245,6 +246,7 @@ async def test_ui_auth_panel_renders_legacy_and_migration_indicators(mocker):
     assert "Info" in response.text
     assert 'title="Cached test validation."' in response.text
     assert "indicator-badge" in response.text
+    assert 'class="indicator-badge indicator-warning"' in response.text
 
 
 def test_ui_auth_normalizer_includes_optional_indicators():
@@ -259,14 +261,17 @@ def test_ui_auth_normalizer_includes_optional_indicators():
     assert rows[1]["indicators"][0] == {
         "label": "Info",
         "title": "Cached test validation.",
+        "severity": "neutral",
     }
     assert rows[1]["indicators"][1] == {
         "label": "Legacy",
         "title": "Legacy fallback active",
+        "severity": "warning",
     }
     assert rows[1]["indicators"][2] == {
         "label": "Migration",
         "title": "Migration needed",
+        "severity": "warning",
     }
 
 
