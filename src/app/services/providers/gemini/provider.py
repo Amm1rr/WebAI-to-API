@@ -109,6 +109,9 @@ class GeminiProvider(BaseProvider):
             raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
         return await self.webapi_adapter.delete_conversation(conversation_id)
 
+    async def delete_conversations(self) -> dict:
+        return await self.webapi_adapter.delete_conversations()
+
     async def list_conversations(self) -> dict:
         return await self.webapi_adapter.list_conversations()
 

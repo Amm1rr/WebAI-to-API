@@ -16,7 +16,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
-| `/v1/conversations` | Primary | Yes | Lists Gemini WebAPI snapshots | No | Lists local SQLite-backed Gemini WebAPI conversations only. |
+| `/v1/conversations` | Primary | Yes | Lists/deletes Gemini WebAPI snapshots | No | GET lists local snapshots; DELETE bulk-deletes Gemini WebAPI conversations. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for all providers. |
 | `/v1/auth/status` | Primary | Yes | N/A | No | Real-time auth state and health diagnostics. |
@@ -69,7 +69,18 @@ A boolean field injected into the response metadata:
 - **Gemini Playwright**: Not included because Playwright conversations are provider-side URL-backed and not SQLite-backed WebAPI snapshots.
 - **Atlas**: Not included because Atlas requests are stateless in this runtime.
 
-### Deletion
+### Bulk Deletion
+
+`DELETE /v1/conversations` best-effort deletes all locally persisted Gemini WebAPI conversations.
+
+- **Gemini WebAPI**: The runtime lists SQLite snapshots through `SessionRegistry`, reserves each conversation with the per-conversation deletion tombstone, extracts the remote Gemini chat ID from `session_state.metadata[0]`, calls the Gemini WebAPI delete operation, then removes the local `SessionManager` and SQLite snapshot.
+- **Best Effort**: The operation is not atomic. Individual active, remote-failed, or cleanup-failed conversations are reported per item while the endpoint continues processing remaining snapshots.
+- **Status Semantics**: The endpoint returns `200 OK` whenever it can produce a bulk report, including partial failures. It does not use `207 Multi-Status`.
+- **Concurrency**: Active or already deleting conversations are skipped with per-item status `skipped_active`; they are not force deleted and the endpoint does not wait for them.
+- **Metadata Privacy**: Raw Gemini continuation metadata and remote Gemini chat IDs are not exposed in the response.
+- **Gemini Playwright and Atlas**: Not supported by this endpoint.
+
+### Single Deletion
 
 `DELETE /v1/conversations/{conversation_id}` deletes Gemini WebAPI conversations only.
 

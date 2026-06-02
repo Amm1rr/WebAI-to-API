@@ -39,6 +39,29 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
     def __init__(self, provider):
         self.provider = provider
 
+    def _get_available_gemini_client(self):
+        try:
+            gemini_client = get_gemini_client()
+        except GeminiClientNotInitializedError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+        account_status = getattr(gemini_client.client, "account_status", None)
+        status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
+        if status_name != "AVAILABLE":
+            logger.warning(f"Gemini client account status is '{status_name}'.")
+            if status_name == "UNAUTHENTICATED":
+                raise HTTPException(
+                    status_code=401,
+                    detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            raise HTTPException(
+                status_code=401 if status_name == "UNKNOWN" else 503,
+                detail=f"Gemini client is not ready (status: {status_name}).",
+            )
+
+        return gemini_client
+
     async def list_conversations(self) -> dict:
         registry = get_gemini_chat_registry()
         if not registry or not registry.repository:
@@ -84,26 +107,119 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             logger.error(f"Error listing Gemini WebAPI conversations: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error listing Gemini conversations: {str(e)}") from e
 
-    async def delete_conversation(self, conversation_id: str) -> dict:
-        try:
-            gemini_client = get_gemini_client()
-        except GeminiClientNotInitializedError as e:
-            raise HTTPException(status_code=503, detail=str(e))
+    async def delete_conversations(self) -> dict:
+        gemini_client = self._get_available_gemini_client()
 
-        account_status = getattr(gemini_client.client, "account_status", None)
-        status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
-        if status_name != "AVAILABLE":
-            logger.warning(f"Gemini client account status is '{status_name}'.")
-            if status_name == "UNAUTHENTICATED":
+        registry = get_gemini_chat_registry()
+        if not registry or not registry.repository:
+            raise HTTPException(status_code=503, detail="Session registry is not initialized.")
+
+        try:
+            snapshots = await registry.list_conversation_snapshots(self.provider.provider_name)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error listing Gemini WebAPI conversations for bulk delete: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error listing Gemini conversations: {str(e)}") from e
+
+        results = []
+        deleted_count = 0
+        failed_count = 0
+        skipped_active_count = 0
+
+        for snapshot in snapshots:
+            conversation_id = snapshot.conversation_id
+            local_cleanup_started = False
+            try:
+                await registry.begin_delete_session(conversation_id)
+            except ConversationInUseError as e:
+                skipped_active_count += 1
+                results.append({
+                    "id": conversation_id,
+                    "status": "skipped_active",
+                    "deleted": False,
+                    "error": str(e),
+                })
+                continue
+
+            try:
+                if snapshot.provider_name != self.provider.provider_name:
+                    raise StateIntegrityError("Snapshot provider does not match registry provider.")
+                if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION:
+                    raise StateIntegrityError(f"Unsupported snapshot schema version: {snapshot.schema_version}")
+
+                validated_state = self.provider.validate_session_recovery(
+                    snapshot.session_state,
+                    {"conversation_id": conversation_id},
+                )
+                metadata = validated_state.get("metadata")
+                remote_cid = metadata[0]
+
+                await gemini_client.client.delete_chat(remote_cid)
+                local_cleanup_started = True
+                await registry.complete_delete_session(conversation_id)
+
+                deleted_count += 1
+                results.append({
+                    "id": conversation_id,
+                    "status": "deleted",
+                    "deleted": True,
+                })
+            except AuthError as e:
+                if not local_cleanup_started:
+                    await registry.abort_delete_session(conversation_id)
                 raise HTTPException(
                     status_code=401,
                     detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
                     headers={"WWW-Authenticate": "Bearer"},
-                )
-            raise HTTPException(
-                status_code=401 if status_name == "UNKNOWN" else 503,
-                detail=f"Gemini client is not ready (status: {status_name}).",
-            )
+                ) from e
+            except (GeminiTimeoutError, APIError) as e:
+                if not local_cleanup_started:
+                    await registry.abort_delete_session(conversation_id)
+                failed_count += 1
+                logger.error(f"Error deleting Gemini WebAPI conversation {conversation_id}: {e}", exc_info=True)
+                results.append({
+                    "id": conversation_id,
+                    "status": "failed",
+                    "deleted": False,
+                    "error": "Gemini remote delete failed.",
+                })
+            except StateIntegrityError as e:
+                if not local_cleanup_started:
+                    await registry.abort_delete_session(conversation_id)
+                failed_count += 1
+                logger.error(f"Invalid Gemini WebAPI conversation snapshot {conversation_id}: {e}", exc_info=True)
+                results.append({
+                    "id": conversation_id,
+                    "status": "failed",
+                    "deleted": False,
+                    "error": str(e),
+                })
+            except Exception as e:
+                if not local_cleanup_started:
+                    await registry.abort_delete_session(conversation_id)
+                failed_count += 1
+                logger.error(f"Error deleting Gemini WebAPI conversation {conversation_id}: {e}", exc_info=True)
+                results.append({
+                    "id": conversation_id,
+                    "status": "failed",
+                    "deleted": False,
+                    "error": str(e),
+                })
+
+        return {
+            "object": "conversation.bulk_delete",
+            "provider": self.provider.provider_name,
+            "backend": "webapi",
+            "total": len(snapshots),
+            "deleted_count": deleted_count,
+            "failed_count": failed_count,
+            "skipped_active_count": skipped_active_count,
+            "results": results,
+        }
+
+    async def delete_conversation(self, conversation_id: str) -> dict:
+        gemini_client = self._get_available_gemini_client()
 
         registry = get_gemini_chat_registry()
         if not registry or not registry.repository:

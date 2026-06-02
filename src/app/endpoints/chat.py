@@ -129,6 +129,22 @@ async def list_conversations():
 
 
 @router.delete(
+    "/v1/conversations",
+    tags=["Chat"],
+    summary="Bulk Delete Gemini WebAPI Conversations",
+    description="Deletes all locally persisted Gemini WebAPI conversations. Playwright and Atlas conversations are not supported."
+)
+async def delete_conversations():
+    provider, _ = ProviderFactory.get_provider(
+        OpenAIChatRequest(messages=[], provider="gemini")
+    )
+    delete_handler = getattr(provider, "delete_conversations", None)
+    if delete_handler is None:
+        raise HTTPException(status_code=400, detail="Bulk conversation deletion is not supported for this provider.")
+    return await delete_handler()
+
+
+@router.delete(
     "/v1/conversations/{conversation_id}",
     tags=["Chat"],
     summary="Delete Gemini WebAPI Conversation",
