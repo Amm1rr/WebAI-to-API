@@ -5,8 +5,12 @@
   </div>
   <dl class="metrics">
     <div>
-      <dt>Gemini WebAPI</dt>
+      <dt>Gemini WebAPI Status</dt>
       <dd>{{ auth_status.gemini_webapi.status }}</dd>
+    </div>
+    <div>
+      <dt>WebAPI Auth Source</dt>
+      <dd><code>{{ auth_status.gemini_webapi.auth_source | default('n/a', true) }}</code></dd>
     </div>
     <div>
       <dt>Playwright</dt>

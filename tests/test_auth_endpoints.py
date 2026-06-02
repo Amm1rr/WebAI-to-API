@@ -30,6 +30,7 @@ async def test_get_auth_status_endpoint(mocker):
     auth_mgr.coordination_lock.release()
     auth_mgr._cached_playwright_status = AuthStatus.VALID_SESSION
     auth_mgr._cached_webapi_status = AuthStatus.AUTHENTICATED
+    auth_mgr._cached_webapi_source = None
     auth_mgr._last_validated = 1000.0
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -40,7 +41,26 @@ async def test_get_auth_status_endpoint(mocker):
     assert "timestamp" in data
     assert data["login_state"] == "IDLE"
     assert data["gemini_webapi"]["status"] == "AUTHENTICATED"
+    assert data["gemini_webapi"]["auth_source"] is None
     assert data["playwright"]["status"] == "VALID_SESSION"
+
+
+@pytest.mark.asyncio
+async def test_get_auth_status_endpoint_includes_webapi_source(mocker):
+    """Verify /v1/auth/status exposes the selected WebAPI auth source label."""
+    auth_mgr = get_auth_manager()
+    auth_mgr.coordination_lock.release()
+    auth_mgr._cached_playwright_status = AuthStatus.VALID_SESSION
+    auth_mgr._cached_webapi_status = AuthStatus.AUTHENTICATED
+    auth_mgr._cached_webapi_source = "[Cookies] legacy config"
+    auth_mgr._last_validated = 1000.0
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/v1/auth/status")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["gemini_webapi"]["auth_source"] == "[Cookies] legacy config"
 
 @pytest.mark.asyncio
 async def test_trigger_auth_login_endpoint_success(mocker):

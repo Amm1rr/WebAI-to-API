@@ -44,9 +44,17 @@ class GeminiAuthStrategy:
         except Exception as e:
             logger.debug(f"GeminiAuthStrategy: Error reading webapi status: {e}")
 
+        try:
+            from app.services.providers.gemini.client import get_gemini_client_auth_source
+            webapi_source = get_gemini_client_auth_source()
+        except Exception as e:
+            logger.debug(f"GeminiAuthStrategy: Error reading webapi auth source: {e}")
+            webapi_source = None
+
         return {
             "playwright": playwright_status,
             "webapi": webapi_status,
+            "webapi_source": webapi_source,
             "is_legacy": is_legacy
         }
 

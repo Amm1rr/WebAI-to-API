@@ -45,11 +45,14 @@ def _runtime_status_payload():
     }
 
 
-def _auth_status_payload():
+def _auth_status_payload(include_source: bool = True):
+    gemini_webapi = {"status": "AUTHENTICATED"}
+    if include_source:
+        gemini_webapi["auth_source"] = "[Cookies] legacy config"
     return {
         "timestamp": "2026-06-02T00:00:00Z",
         "login_state": "IDLE",
-        "gemini_webapi": {"status": "AUTHENTICATED"},
+        "gemini_webapi": gemini_webapi,
         "playwright": {
             "status": "VALID_SESSION",
             "auth_state_file": "runtime/auth/gemini.json",
@@ -154,6 +157,8 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert 'hx-indicator="#auth-refresh-indicator"' in response.text
     assert "Refreshing auth status..." in response.text
     assert "VALID_SESSION" in response.text
+    assert "WebAPI Auth Source" in response.text
+    assert "[Cookies] legacy config" in response.text
     get_auth_status.assert_called_once_with(refresh=False)
 
 
@@ -170,8 +175,24 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert "text/html" in response.headers["content-type"]
     assert "Provider Auth" in response.text
     assert "AUTHENTICATED" in response.text
+    assert "WebAPI Auth Source" in response.text
+    assert "[Cookies] legacy config" in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_auth_panel_renders_n_a_when_webapi_source_missing(mocker):
+    mocker.patch(
+        "app.endpoints.ui.get_auth_status",
+        return_value=_auth_status_payload(include_source=False),
+    )
+
+    response = await _get("/ui/auth/panel")
+
+    assert response.status_code == 200
+    assert "WebAPI Auth Source" in response.text
+    assert ">n/a<" in response.text or "n/a" in response.text
 
 
 @pytest.mark.asyncio

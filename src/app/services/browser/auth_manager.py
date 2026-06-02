@@ -81,6 +81,7 @@ class AuthManager:
         self._strategy = None
         self._cached_playwright_status = None
         self._cached_webapi_status = None
+        self._cached_webapi_source = None
         self._last_validated = 0.0
         self._active_login_task: Optional[asyncio.Task] = None
         self._legacy_fallback_active = False
@@ -149,6 +150,7 @@ class AuthManager:
         res = self._strategy.refresh_status()
         self._cached_playwright_status = res.get("playwright")
         self._cached_webapi_status = res.get("webapi")
+        self._cached_webapi_source = res.get("webapi_source")
         self._legacy_fallback_active = res.get("is_legacy", False)
         self._last_validated = time.time()
         
@@ -171,7 +173,8 @@ class AuthManager:
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "login_state": self.login_state,
             "gemini_webapi": {
-                "status": self._cached_webapi_status
+                "status": self._cached_webapi_status,
+                "auth_source": self._cached_webapi_source
             },
             "playwright": {
                 "status": self._cached_playwright_status,
