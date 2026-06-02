@@ -1,0 +1,81 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Playground - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Playground</p>
+  <h1>Chat Completion</h1>
+</section>
+
+<section class="playground-layout" data-playground>
+  <form class="panel playground-form" data-playground-form>
+    {% set model_rows = models.get("data", []) %}
+    <label class="field">
+      <span>Model</span>
+      <select name="model" required>
+        {% for model in model_rows %}
+          {% set model_id = model.get("id", "") %}
+          {% if model_id %}
+            <option value="{{ model_id }}">{{ model_id }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Conversation ID</span>
+      <input name="conversation_id" type="text" autocomplete="off" placeholder="Optional">
+    </label>
+
+    <label class="field">
+      <span>Prompt</span>
+      <textarea name="prompt" rows="10" required placeholder="Enter a prompt"></textarea>
+    </label>
+
+    <label class="check-field">
+      <input name="stream" type="checkbox" checked>
+      <span>Stream response</span>
+    </label>
+
+    <div class="actions">
+      <button type="submit" data-submit-button>Submit</button>
+      <button type="button" data-stop-button disabled>Stop</button>
+    </div>
+  </form>
+
+  <section class="panel playground-output">
+    <div class="panel-head">
+      <h2>Response</h2>
+      <span class="badge" data-playground-state>Idle</span>
+    </div>
+    <pre class="response-box" data-response-output></pre>
+  </section>
+
+  <section class="panel playground-meta">
+    <div class="panel-head">
+      <h2>Metadata</h2>
+    </div>
+    <dl class="metrics">
+      <div>
+        <dt>Conversation ID</dt>
+        <dd><code data-meta-conversation-id>n/a</code></dd>
+      </div>
+      <div>
+        <dt>Reused Conversation</dt>
+        <dd data-meta-reused>n/a</dd>
+      </div>
+      <div>
+        <dt>Model</dt>
+        <dd><code data-meta-model>n/a</code></dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd data-meta-status>Ready</dd>
+      </div>
+    </dl>
+  </section>
+</section>
+
+<script src="/ui/static/js/playground.js" defer></script>
+{% endblock %}

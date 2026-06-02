@@ -128,3 +128,13 @@ async def dashboard_models(request: Request):
         "ui/models.html",
         _template_context(request, active_page="models", models=models),
     )
+
+
+@router.get("/playground", response_class=HTMLResponse)
+async def dashboard_playground(request: Request):
+    models = await list_models()
+    return templates.TemplateResponse(
+        request,
+        "ui/playground.html",
+        _template_context(request, active_page="playground", models=models),
+    )

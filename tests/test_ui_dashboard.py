@@ -148,15 +148,61 @@ async def test_ui_models_returns_html(mocker):
 
 
 @pytest.mark.asyncio
+async def test_ui_playground_returns_html_and_populates_models(mocker):
+    list_models = mocker.patch(
+        "app.endpoints.ui.list_models",
+        return_value={
+            "object": "list",
+            "data": [
+                {
+                    "id": "gemini/gemini-3-flash",
+                    "object": "model",
+                    "owned_by": "gemini",
+                },
+                {
+                    "id": "atlas/MiniMaxAI/MiniMax-M2",
+                    "object": "model",
+                    "owned_by": "atlascloud",
+                },
+            ],
+        },
+    )
+
+    response = await _get("/ui/playground")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Chat Completion" in response.text
+    assert 'name="model"' in response.text
+    assert "gemini/gemini-3-flash" in response.text
+    assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
+    assert "/ui/static/js/playground.js" in response.text
+    assert 'fetch("/v1/chat/completions"' not in response.text
+    list_models.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_ui_static_assets_are_served():
     css_response = await _get("/ui/static/css/dashboard.css")
     htmx_response = await _get("/ui/static/js/htmx.min.js")
+    playground_response = await _get("/ui/static/js/playground.js")
 
     assert css_response.status_code == 200
     assert "text/css" in css_response.headers["content-type"]
     assert htmx_response.status_code == 200
     assert "javascript" in htmx_response.headers["content-type"]
     assert "htmx" in htmx_response.text.lower()
+    assert playground_response.status_code == 200
+    assert "javascript" in playground_response.headers["content-type"]
+    assert "/v1/chat/completions" in playground_response.text
+    assert "AbortController" in playground_response.text
+    assert "setCustomValidity" in playground_response.text
+    assert "reportValidity" in playground_response.text
+    assert "lastConversationId" in playground_response.text
+    assert "lastReusedConversation" in playground_response.text
+    assert "lastReusedConversationSeen" in playground_response.text
+    assert "lastModel" in playground_response.text
+    assert "prompt cannot be empty" in playground_response.text.lower()
 
 
 @pytest.mark.asyncio
@@ -166,3 +212,4 @@ async def test_ui_routes_are_excluded_from_openapi():
     assert "/ui/status" not in paths
     assert "/ui/auth" not in paths
     assert "/ui/models" not in paths
+    assert "/ui/playground" not in paths

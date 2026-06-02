@@ -214,6 +214,114 @@ code {
   font-size: 14px;
 }
 
+.playground-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 380px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.playground-form {
+  grid-row: span 2;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.field span,
+.check-field span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+select,
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+select,
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+}
+
+select,
+input {
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+textarea {
+  min-height: 220px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.check-field input {
+  width: auto;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button {
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button[type="button"] {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.response-box {
+  min-height: 320px;
+  max-height: 60vh;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;
@@ -223,5 +331,13 @@ code {
 
   .shell {
     margin-top: 22px;
+  }
+
+  .playground-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .playground-form {
+    grid-row: auto;
   }
 }
