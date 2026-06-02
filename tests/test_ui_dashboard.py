@@ -132,6 +132,8 @@ async def test_ui_status_returns_html_and_uses_htmx_refresh(mocker):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Runtime Status" in response.text
+    assert "Global Runtime" in response.text
+    assert "Provider Sessions" in response.text
     assert 'hx-get="/ui/status/panel"' in response.text
     assert 'hx-indicator="#status-refresh-indicator"' in response.text
     assert "Refreshing status..." in response.text
@@ -150,7 +152,12 @@ async def test_ui_status_panel_returns_fragment(mocker):
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Engine" in response.text
+    assert "Global Runtime" in response.text
+    assert "Provider Sessions" in response.text
+    assert "<th>Sessions</th>" not in response.text
+    assert "<th>Provider</th>" in response.text
+    assert "<th>Alive</th>" in response.text
+    assert "<th>Recovering</th>" in response.text
     assert "gemini" in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
