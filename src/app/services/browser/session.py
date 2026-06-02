@@ -1,6 +1,7 @@
-import os
 import asyncio
 import json
+import inspect
+import os
 import time
 import weakref
 from collections import OrderedDict
@@ -477,43 +478,18 @@ class ProviderSession:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
 
-        if self.name == "gemini":
-            from app.services.browser.auth_loader import GeminiAuthStateLoader
-            from app.services.providers.gemini.auth_selector import GeminiAuthSelector
-            allow_unauthenticated_bootstrap_context = (
-                getattr(self.engine, "is_bootstrap", False)
-                and self.enable_persistence
+        from app.services.browser.auth_manager import get_auth_manager
+
+        auth_strategy = get_auth_manager().get_strategy(self.name)
+        if auth_strategy and hasattr(auth_strategy, "build_playwright_context_args"):
+            strategy_context_args = auth_strategy.build_playwright_context_args(
+                enable_persistence=self.enable_persistence,
+                is_bootstrap=getattr(self.engine, "is_bootstrap", False),
             )
-            if allow_unauthenticated_bootstrap_context:
-                auth_candidate = next(
-                    (
-                        candidate
-                        for candidate in GeminiAuthSelector.iter_candidates()
-                        if candidate.supports_playwright_storage
-                    ),
-                    None,
-                )
-            else:
-                auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
-            if auth_candidate:
-                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(
-                    auth_candidate.auth_data
-                )
-            elif allow_unauthenticated_bootstrap_context:
-                logger.info(
-                    "ProviderSession(%s): Initializing unauthenticated bootstrap context "
-                    "for explicit login state creation.",
-                    self.name,
-                    extra={"generation": self.engine.browser_generation}
-                )
-            else:
-                raise RuntimeError(
-                    "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
-                    "Please run 'python verify_login.py' to authenticate."
-                )
-        else:
-            if self._validate_state_file():
-                context_args["storage_state"] = self.state_path
+            if strategy_context_args:
+                context_args.update(strategy_context_args)
+        elif self._validate_state_file():
+            context_args["storage_state"] = self.state_path
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
@@ -979,22 +955,42 @@ class ProviderSession:
         tab._cleanup_task = task
         self._orphan_cleanup_tasks.add(task)
 
-    async def _setup_page_bridge(self, page: Page):
-        """Exposes a single permanent binding on the page to prevent memory leaks."""
-        if getattr(page, "_gemini_bridge_exposed", False):
+    async def _setup_page_bridge(
+        self,
+        page: Page,
+        binding_name: str = "__browser_bridge",
+        callbacks_attr: str = "_browser_bridge_callbacks",
+    ):
+        """Expose a permanent request bridge binding on the page for a provider."""
+        page_state = vars(page)
+        exposed_bindings = page_state.get("_browser_bridge_exposed_bindings")
+        if exposed_bindings is None:
+            exposed_bindings = set()
+            page._browser_bridge_exposed_bindings = exposed_bindings
+        if binding_name in exposed_bindings:
+            if callbacks_attr not in page_state:
+                setattr(page, callbacks_attr, {})
             return
-        
-        # Lock to serialize bridge setup on the same page
-        lock = getattr(page, "_gemini_bridge_lock", None)
+
+        # Lock to serialize bridge setup on the same page.
+        lock = page_state.get("_browser_bridge_lock")
         if lock is None:
             lock = asyncio.Lock()
-            page._gemini_bridge_lock = lock
+            page._browser_bridge_lock = lock
 
         async with lock:
-            if getattr(page, "_gemini_bridge_exposed", False):
+            page_state = vars(page)
+            exposed_bindings = page_state.get("_browser_bridge_exposed_bindings")
+            if exposed_bindings is None:
+                exposed_bindings = set()
+                page._browser_bridge_exposed_bindings = exposed_bindings
+            if binding_name in exposed_bindings:
+                if callbacks_attr not in page_state:
+                    setattr(page, callbacks_attr, {})
                 return
-            
-            page._gemini_callbacks = {}
+
+            if callbacks_attr not in page_state:
+                setattr(page, callbacks_attr, {})
             
             async def page_bridge(source, payload):
                 req_id = payload.get("requestId")
@@ -1007,7 +1003,7 @@ class ProviderSession:
                     extra={"request_id": req_id, "payload_type": payload.get("type")}
                 )
                 
-                callbacks = getattr(page, "_gemini_callbacks", {})
+                callbacks = vars(page).get(callbacks_attr, {})
                 callback = callbacks.get(req_id)
                 if not callback:
                     logger.error(
@@ -1031,6 +1027,8 @@ class ProviderSession:
                         exc_info=True,
                         extra={"request_id": req_id}
                     )
-                    
-            await page.expose_binding("__gemini_bridge", page_bridge)
-            page._gemini_bridge_exposed = True
+
+            expose_result = page.expose_binding(binding_name, page_bridge)
+            if inspect.isawaitable(expose_result):
+                await expose_result
+            exposed_bindings.add(binding_name)

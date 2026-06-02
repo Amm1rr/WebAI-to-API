@@ -37,7 +37,8 @@ async def lifespan(app: FastAPI):
     # Register Gemini Auth Strategy
     try:
         from app.services.providers.gemini.auth import GeminiAuthStrategy
-        get_auth_manager().set_strategy(GeminiAuthStrategy())
+        gemini_auth_strategy = GeminiAuthStrategy()
+        get_auth_manager().register_strategy(gemini_auth_strategy.provider_name, gemini_auth_strategy)
         logger.info("Gemini authentication strategy registered.")
     except Exception as e:
         logger.error(f"Failed to register Gemini auth strategy: {e}")

@@ -123,6 +123,8 @@ PLAYWRIGHT_GEMINI_MODEL_UI_LABELS = {
     "gemini-3.1-flash-lite": "Flash-Lite",
 }
 
+PLAYWRIGHT_GEMINI_PROVIDER_NAMESPACE = "playwright/gemini"
+
 def get_gemini_models() -> List[dict]:
     """Return the canonical list of supported Gemini models in OpenAI format."""
     from gemini_webapi.constants import Model
@@ -144,6 +146,12 @@ def get_gemini_models() -> List[dict]:
     for model_id in PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.keys():
         models.append({
             "id": f"playwright/{model_id}",
+            "object": "model",
+            "created": ts,
+            "owned_by": "google",
+        })
+        models.append({
+            "id": f"{PLAYWRIGHT_GEMINI_PROVIDER_NAMESPACE}/{model_id}",
             "object": "model",
             "created": ts,
             "owned_by": "google",

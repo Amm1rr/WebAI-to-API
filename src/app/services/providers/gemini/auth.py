@@ -11,6 +11,49 @@ class GeminiAuthStrategy:
     Gemini-specific authentication workflow strategy.
     Implements login flows, status checks, and recovery for Google Gemini.
     """
+    provider_name = "gemini"
+
+    def build_playwright_context_args(self, *, enable_persistence: bool, is_bootstrap: bool) -> Dict[str, Any]:
+        """
+        Build Playwright context arguments for Gemini session bootstrap.
+
+        This owns Gemini-specific auth source selection and storage-state translation.
+        """
+        from app.services.providers.gemini.auth_selector import GeminiAuthSelector
+
+        allow_unauthenticated_bootstrap_context = is_bootstrap and enable_persistence
+        if allow_unauthenticated_bootstrap_context:
+            auth_candidate = next(
+                (
+                    candidate
+                    for candidate in GeminiAuthSelector.iter_candidates()
+                    if candidate.supports_playwright_storage
+                ),
+                None,
+            )
+        else:
+            auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
+
+        if auth_candidate:
+            from app.services.browser.auth_loader import GeminiAuthStateLoader
+
+            return {
+                "storage_state": GeminiAuthStateLoader.translate_to_playwright(
+                    auth_candidate.auth_data
+                )
+            }
+
+        if allow_unauthenticated_bootstrap_context:
+            logger.info(
+                "GeminiAuthStrategy: Initializing unauthenticated bootstrap context "
+                "for explicit login state creation."
+            )
+            return {}
+
+        raise RuntimeError(
+            "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
+            "Please run 'python verify_login.py' to authenticate."
+        )
 
     def get_state_path(self) -> str:
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -174,7 +217,7 @@ class GeminiAuthStrategy:
         from app.services.factory import ProviderFactory
         
         logger.info("GeminiAuthStrategy: Clearing and closing registered Gemini provider in ProviderFactory...")
-        await ProviderFactory.close_provider("gemini")
+        await ProviderFactory.close_provider(self.provider_name)
 
         logger.info("GeminiAuthStrategy: Re-initializing direct Gemini WebAPI client...")
         init_success = await init_gemini_client()

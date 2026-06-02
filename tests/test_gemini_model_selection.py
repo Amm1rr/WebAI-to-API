@@ -279,6 +279,14 @@ async def test_get_gemini_models_discovery_consistency():
     ]
     for model_id in verified_playwright_models:
         assert model_id in model_ids, f"Expected {model_id} to be advertised"
+
+    canonical_playwright_models = [
+        "playwright/gemini/gemini-3.1-pro",
+        "playwright/gemini/gemini-3.5-flash",
+        "playwright/gemini/gemini-3.1-flash-lite",
+    ]
+    for model_id in canonical_playwright_models:
+        assert model_id in model_ids, f"Expected canonical browser namespace model {model_id} to be advertised"
         
     # 2. Verify specific unverified aliases are NOT advertised
     unverified = [
@@ -316,6 +324,27 @@ async def test_orchestrate_model_selection_versioned_aliases():
     mock_browser_adapter.select_model.assert_any_call(mock_page, "Flash", mock_state)
     mock_browser_adapter.select_model.assert_any_call(mock_page, "Pro", mock_state)
     mock_browser_adapter.select_model.assert_any_call(mock_page, "Flash-Lite", mock_state)
+
+@pytest.mark.asyncio
+async def test_orchestrate_model_selection_browser_namespace_aliases():
+    """Verify provider-aware browser namespaces normalize to the same Gemini UI labels."""
+    adapter = GeminiPlaywrightAdapter(MagicMock())
+    mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
+    mock_browser_adapter.select_model = AsyncMock()
+    mock_page = MagicMock()
+    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state.active_tab = MagicMock()
+
+    await adapter._orchestrate_model_selection(
+        mock_browser_adapter, mock_page, "playwright/gemini/gemini-3.5-flash", mock_state
+    )
+    await adapter._orchestrate_model_selection(
+        mock_browser_adapter, mock_page, "playwright/gemini/gemini-3.1-pro", mock_state
+    )
+
+    assert mock_browser_adapter.select_model.call_count == 2
+    mock_browser_adapter.select_model.assert_any_call(mock_page, "Flash", mock_state)
+    mock_browser_adapter.select_model.assert_any_call(mock_page, "Pro", mock_state)
 
 @pytest.mark.asyncio
 async def test_orchestrate_model_selection_unsupported_aliases_fail():
