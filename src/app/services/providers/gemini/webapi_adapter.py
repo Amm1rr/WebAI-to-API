@@ -39,6 +39,51 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
     def __init__(self, provider):
         self.provider = provider
 
+    async def list_conversations(self) -> dict:
+        registry = get_gemini_chat_registry()
+        if not registry or not registry.repository:
+            raise HTTPException(status_code=503, detail="Session registry is not initialized.")
+
+        try:
+            snapshots = await registry.list_conversation_snapshots(self.provider.provider_name)
+            data = []
+            for snapshot in snapshots:
+                if snapshot.provider_name != self.provider.provider_name:
+                    raise StateIntegrityError("Snapshot provider does not match registry provider.")
+                if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION:
+                    raise StateIntegrityError(f"Unsupported snapshot schema version: {snapshot.schema_version}")
+
+                validated_state = self.provider.validate_session_recovery(
+                    snapshot.session_state,
+                    {"conversation_id": snapshot.conversation_id},
+                )
+                data.append({
+                    "id": snapshot.conversation_id,
+                    "object": "conversation",
+                    "provider": self.provider.provider_name,
+                    "backend": "webapi",
+                    "model": validated_state.get("model_name"),
+                    "gem_id": validated_state.get("gem_id"),
+                    "updated_at": snapshot.updated_at.isoformat(),
+                    "schema_version": snapshot.schema_version,
+                })
+
+            return {
+                "object": "list",
+                "provider": self.provider.provider_name,
+                "backend": "webapi",
+                "count": len(data),
+                "data": data,
+            }
+        except HTTPException:
+            raise
+        except StateIntegrityError as e:
+            logger.error(f"Invalid Gemini WebAPI conversation snapshot: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Invalid conversation snapshot: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"Error listing Gemini WebAPI conversations: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error listing Gemini conversations: {str(e)}") from e
+
     async def delete_conversation(self, conversation_id: str) -> dict:
         try:
             gemini_client = get_gemini_client()

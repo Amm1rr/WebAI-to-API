@@ -112,6 +112,22 @@ async def chat_completions(request: OpenAIChatRequest, http_request: Request):
     return await provider.chat_completions(request)
 
 
+@router.get(
+    "/v1/conversations",
+    tags=["Chat"],
+    summary="List Gemini WebAPI Conversations",
+    description="Lists locally persisted Gemini WebAPI conversations stored in SQLite. Playwright and Atlas conversations are not included."
+)
+async def list_conversations():
+    provider, _ = ProviderFactory.get_provider(
+        OpenAIChatRequest(messages=[], provider="gemini")
+    )
+    list_handler = getattr(provider, "list_conversations", None)
+    if list_handler is None:
+        raise HTTPException(status_code=400, detail="Conversation listing is not supported for this provider.")
+    return await list_handler()
+
+
 @router.delete(
     "/v1/conversations/{conversation_id}",
     tags=["Chat"],

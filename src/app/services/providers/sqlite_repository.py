@@ -4,7 +4,7 @@ import json
 import asyncio
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from app.config import get_default_conversation_snapshot_db
 from app.logger import logger
 from app.services.providers.base_repository import IConversationRepository, ConversationSnapshot
@@ -39,6 +39,22 @@ class SQLiteConversationRepository(IConversationRepository):
             cursor.execute(query, params)
             return cursor.fetchone()
 
+    def _row_to_snapshot(self, row: tuple) -> ConversationSnapshot:
+        try:
+            state_dict = json.loads(row[2])
+            updated_dt = datetime.fromisoformat(row[4])
+            return ConversationSnapshot(
+                conversation_id=row[0],
+                provider_name=row[1],
+                session_state=state_dict,
+                schema_version=row[3],
+                updated_at=updated_dt
+            )
+        except Exception as e:
+            conversation_id = row[0] if row else "<unknown>"
+            logger.error(f"Error deserializing conversation snapshot {conversation_id}: {e}", exc_info=True)
+            raise StateIntegrityError(f"Corrupted conversation snapshot: {conversation_id}") from e
+
     async def initialize(self) -> None:
         """Create database tables and set WAL mode."""
         await asyncio.to_thread(self.initialize_sync)
@@ -72,19 +88,7 @@ class SQLiteConversationRepository(IConversationRepository):
             )
             if not row:
                 return None
-            try:
-                state_dict = json.loads(row[2])
-                updated_dt = datetime.fromisoformat(row[4])
-                return ConversationSnapshot(
-                    conversation_id=row[0],
-                    provider_name=row[1],
-                    session_state=state_dict,
-                    schema_version=row[3],
-                    updated_at=updated_dt
-                )
-            except Exception as e:
-                logger.error(f"Error deserializing conversation snapshot {conversation_id}: {e}", exc_info=True)
-                raise StateIntegrityError(f"Corrupted conversation snapshot: {conversation_id}") from e
+            return self._row_to_snapshot(row)
         return await asyncio.to_thread(_get)
 
     async def save_snapshot(self, snapshot: ConversationSnapshot) -> None:
@@ -116,6 +120,34 @@ class SQLiteConversationRepository(IConversationRepository):
                 (conversation_id,)
             )
         await asyncio.to_thread(_delete)
+
+    async def list_snapshots(self, provider_name: Optional[str] = None) -> List[ConversationSnapshot]:
+        """List conversation snapshots ordered by updated_at descending."""
+        def _list():
+            self._ensure_parent_dir()
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                if provider_name is None:
+                    cursor.execute(
+                        """
+                        SELECT conversation_id, provider_name, session_state, schema_version, updated_at
+                        FROM conversation_snapshots
+                        ORDER BY updated_at DESC
+                        """
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT conversation_id, provider_name, session_state, schema_version, updated_at
+                        FROM conversation_snapshots
+                        WHERE provider_name = ?
+                        ORDER BY updated_at DESC
+                        """,
+                        (provider_name,)
+                    )
+                return [self._row_to_snapshot(row) for row in cursor.fetchall()]
+
+        return await asyncio.to_thread(_list)
 
     async def prune_stale_snapshots(self, cutoff: datetime) -> int:
         """Delete snapshots older than cutoff and return the number of rows deleted."""

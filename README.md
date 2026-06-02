@@ -93,6 +93,14 @@ curl -X DELETE http://localhost:6969/v1/conversations/{conversation_id}
 
 This endpoint deletes Gemini WebAPI conversations created through local SQLite-backed conversation snapshots. Playwright and Atlas conversations are not supported.
 
+### List Gemini WebAPI Conversations
+
+```bash
+curl http://localhost:6969/v1/conversations
+```
+
+This endpoint lists locally persisted Gemini WebAPI conversation snapshots from SQLite. It does not restore conversations or call Gemini remote APIs. Playwright and Atlas conversations are not included.
+
 ### Playwright Backend
 
 ```bash

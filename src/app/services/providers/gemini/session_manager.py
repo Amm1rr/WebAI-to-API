@@ -317,6 +317,12 @@ class SessionRegistry:
         cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_PERIOD_DAYS)
         return await self.repository.prune_stale_snapshots(cutoff)
 
+    async def list_conversation_snapshots(self, provider_name: str = "gemini") -> List[ConversationSnapshot]:
+        """List persisted conversation snapshots for the requested provider."""
+        if not self.repository:
+            raise SnapshotNotFoundError("Conversation snapshot repository is not initialized.")
+        return await self.repository.list_snapshots(provider_name)
+
     async def _restore_session(
         self,
         conversation_id: str,

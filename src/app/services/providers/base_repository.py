@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 class ProviderCapability(Enum):
     PERSISTENT_RECOVERY = auto()
@@ -42,6 +42,14 @@ class IConversationRepository(ABC):
     async def delete_snapshot(self, conversation_id: str) -> None:
         """
         Delete a conversation snapshot by conversation_id.
+        """
+        pass
+
+    @abstractmethod
+    async def list_snapshots(self, provider_name: Optional[str] = None) -> List[ConversationSnapshot]:
+        """
+        List conversation snapshots, optionally filtered by provider name.
+        Results are ordered by most recently updated first.
         """
         pass
 
