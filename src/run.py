@@ -100,12 +100,12 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=6969, help="Port number")
     args = parser.parse_args()
 
-    print("INFO:     Checking availability of server modes...")
-    # Simple check: assume WebAI is available if Gemini is enabled in config
+    print("INFO:     Checking Gemini service availability...")
+    # Preflight gate: only start the server when Gemini is enabled in config.
     webai_is_available = CONFIG.getboolean("EnabledAI", "gemini", fallback=True)
     if webai_is_available:
         print(
-            f"INFO:     ✅ {Colors.CYAN}WebAI-to-API mode is available{Colors.RESET} (Gemini client will be initialized on startup)."
+            f"INFO:     ✅ {Colors.CYAN}Gemini service is enabled; starting WebAI-to-API server.{Colors.RESET}"
         )
     else:
         print(
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         )
 
     if not webai_is_available:
-        print("\nERROR:    No server modes are available to run. Exiting.")
+        print("\nERROR:    Gemini service is disabled. Exiting.")
         sys.exit(1)
 
     # Print server information summary banner
