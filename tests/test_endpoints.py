@@ -124,3 +124,29 @@ async def test_list_conversations_endpoint_gemini_empty(mocker):
     assert response.status_code == 200
     assert response.json() == mock_response
     mock_gemini.list_conversations.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_endpoint_gemini(mocker):
+    """Verify DELETE /v1/conversations delegates to Gemini bulk deletion."""
+    mock_response = {
+        "object": "conversation.bulk_delete",
+        "provider": "gemini",
+        "backend": "webapi",
+        "total": 0,
+        "deleted_count": 0,
+        "failed_count": 0,
+        "skipped_active_count": 0,
+        "results": [],
+    }
+    mock_gemini = mocker.Mock(spec=GeminiProvider)
+    mock_gemini.delete_conversations = mocker.AsyncMock(return_value=mock_response)
+
+    mocker.patch("app.services.factory.ProviderFactory.get_provider", return_value=(mock_gemini, ""))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.delete("/v1/conversations")
+
+    assert response.status_code == 200
+    assert response.json() == mock_response
+    mock_gemini.delete_conversations.assert_called_once_with()

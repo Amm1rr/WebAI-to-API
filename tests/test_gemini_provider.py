@@ -2,12 +2,14 @@ import pytest
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import call
 from fastapi import HTTPException
-from gemini_webapi.exceptions import APIError
+from gemini_webapi.exceptions import APIError, AuthError
 from app.services.providers.base_repository import ConversationSnapshot
 from app.services.providers.exceptions import ConversationInUseError
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.session_manager import SessionRegistry
+from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
 @pytest.fixture
 def provider():
@@ -310,6 +312,262 @@ async def test_list_conversations_registry_unavailable_returns_503(mocker, provi
         await provider.list_conversations()
 
     assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_empty_list_returns_report(mocker, provider):
+    gemini_client = make_delete_client(mocker)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=[])
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    result = await provider.delete_conversations()
+
+    assert result == {
+        "object": "conversation.bulk_delete",
+        "provider": "gemini",
+        "backend": "webapi",
+        "total": 0,
+        "deleted_count": 0,
+        "failed_count": 0,
+        "skipped_active_count": 0,
+        "results": [],
+    }
+    gemini_client.client.delete_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_success_deletes_all_inactive_snapshots(mocker, provider):
+    snapshots = [
+        make_delete_snapshot("conv-a", "remote-a"),
+        make_delete_snapshot("conv-b", "remote-b"),
+    ]
+    gemini_client = make_delete_client(mocker)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
+    mock_registry.begin_delete_session = mocker.AsyncMock()
+    mock_registry.complete_delete_session = mocker.AsyncMock()
+    mock_registry.abort_delete_session = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["total"] == 2
+    assert result["deleted_count"] == 2
+    assert result["failed_count"] == 0
+    assert result["skipped_active_count"] == 0
+    assert result["results"] == [
+        {"id": "conv-a", "status": "deleted", "deleted": True},
+        {"id": "conv-b", "status": "deleted", "deleted": True},
+    ]
+    gemini_client.client.delete_chat.assert_has_awaits([
+        call("remote-a"),
+        call("remote-b"),
+    ])
+    mock_registry.complete_delete_session.assert_has_awaits([
+        call("conv-a"),
+        call("conv-b"),
+    ])
+    assert "remote-a" not in json.dumps(result)
+    assert "remote-b" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_success_removes_sqlite_snapshots(mocker, tmp_path, provider):
+    db_file = tmp_path / "test_snapshots.db"
+    repository = SQLiteConversationRepository(db_path=str(db_file))
+    await repository.initialize()
+    snapshots = [
+        make_delete_snapshot("conv-a", "remote-a"),
+        make_delete_snapshot("conv-b", "remote-b"),
+    ]
+    for snapshot in snapshots:
+        await repository.save_snapshot(snapshot)
+
+    gemini_client = make_delete_client(mocker)
+    registry = SessionRegistry(gemini_client, repository=repository)
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["deleted_count"] == 2
+    assert await repository.list_snapshots("gemini") == []
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_skips_active_and_continues(mocker, provider):
+    snapshots = [
+        make_delete_snapshot("conv-active", "remote-active"),
+        make_delete_snapshot("conv-ok", "remote-ok"),
+    ]
+    gemini_client = make_delete_client(mocker)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
+    mock_registry.begin_delete_session = mocker.AsyncMock(side_effect=[
+        ConversationInUseError("Conversation is currently in use"),
+        None,
+    ])
+    mock_registry.complete_delete_session = mocker.AsyncMock()
+    mock_registry.abort_delete_session = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["deleted_count"] == 1
+    assert result["failed_count"] == 0
+    assert result["skipped_active_count"] == 1
+    assert result["results"][0]["status"] == "skipped_active"
+    assert result["results"][0]["deleted"] is False
+    assert result["results"][1] == {"id": "conv-ok", "status": "deleted", "deleted": True}
+    gemini_client.client.delete_chat.assert_awaited_once_with("remote-ok")
+    mock_registry.abort_delete_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_remote_api_error_records_failed_and_continues(mocker, provider):
+    snapshots = [
+        make_delete_snapshot("conv-fail", "remote-fail"),
+        make_delete_snapshot("conv-ok", "remote-ok"),
+    ]
+    gemini_client = make_delete_client(mocker)
+
+    async def delete_chat(remote_cid):
+        if remote_cid == "remote-fail":
+            raise APIError("remote failed")
+
+    gemini_client.client.delete_chat = mocker.AsyncMock(side_effect=delete_chat)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
+    mock_registry.begin_delete_session = mocker.AsyncMock()
+    mock_registry.complete_delete_session = mocker.AsyncMock()
+    mock_registry.abort_delete_session = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["deleted_count"] == 1
+    assert result["failed_count"] == 1
+    assert result["skipped_active_count"] == 0
+    assert result["results"][0]["id"] == "conv-fail"
+    assert result["results"][0]["status"] == "failed"
+    assert result["results"][0]["deleted"] is False
+    assert result["results"][1] == {"id": "conv-ok", "status": "deleted", "deleted": True}
+    mock_registry.abort_delete_session.assert_called_once_with("conv-fail")
+    mock_registry.complete_delete_session.assert_called_once_with("conv-ok")
+    assert "remote-fail" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_auth_error_aborts_bulk_run(mocker, provider):
+    snapshots = [
+        make_delete_snapshot("conv-auth", "remote-auth"),
+        make_delete_snapshot("conv-later", "remote-later"),
+    ]
+    gemini_client = make_delete_client(mocker)
+    gemini_client.client.delete_chat.side_effect = AuthError("auth expired")
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
+    mock_registry.begin_delete_session = mocker.AsyncMock()
+    mock_registry.complete_delete_session = mocker.AsyncMock()
+    mock_registry.abort_delete_session = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.delete_conversations()
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+    gemini_client.client.delete_chat.assert_awaited_once_with("remote-auth")
+    mock_registry.abort_delete_session.assert_called_once_with("conv-auth")
+    mock_registry.complete_delete_session.assert_not_called()
+    mock_registry.begin_delete_session.assert_awaited_once_with("conv-auth")
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_local_cleanup_failure_records_failed_and_clears_tombstone(mocker, provider):
+    snapshot = make_delete_snapshot("conv-cleanup", "remote-cleanup")
+    gemini_client = make_delete_client(mocker)
+    repository = mocker.Mock()
+    repository.list_snapshots = mocker.AsyncMock(return_value=[snapshot])
+    repository.delete_snapshot = mocker.AsyncMock(side_effect=RuntimeError("sqlite unavailable"))
+    registry = SessionRegistry(gemini_client, repository=repository)
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["deleted_count"] == 0
+    assert result["failed_count"] == 1
+    assert result["results"][0]["id"] == "conv-cleanup"
+    assert result["results"][0]["status"] == "failed"
+    assert "conv-cleanup" not in registry._deleting
+    gemini_client.client.delete_chat.assert_called_once_with("remote-cleanup")
+    repository.delete_snapshot.assert_called_once_with("conv-cleanup")
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_tombstone_cleared_after_remote_failure(mocker, provider):
+    snapshot = make_delete_snapshot("conv-remote-fail", "remote-fail")
+    gemini_client = make_delete_client(mocker)
+    gemini_client.client.delete_chat.side_effect = APIError("remote failed")
+    repository = mocker.Mock()
+    repository.list_snapshots = mocker.AsyncMock(return_value=[snapshot])
+    repository.delete_snapshot = mocker.AsyncMock()
+    registry = SessionRegistry(gemini_client, repository=repository)
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
+
+    result = await provider.delete_conversations()
+
+    assert result["failed_count"] == 1
+    assert "conv-remote-fail" not in registry._deleting
+    repository.delete_snapshot.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_listing_failure_returns_500(mocker, provider):
+    gemini_client = make_delete_client(mocker)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = mocker.Mock()
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(side_effect=RuntimeError("sqlite unavailable"))
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.delete_conversations()
+
+    assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_delete_conversations_unauthenticated_returns_same_status_as_single_delete(mocker, provider):
+    gemini_client = make_delete_client(mocker, status_name="UNAUTHENTICATED")
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.delete_conversations()
+
+    assert exc_info.value.status_code == 401
 
 
 @pytest.mark.asyncio

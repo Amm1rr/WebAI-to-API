@@ -85,6 +85,56 @@ Status codes:
 
 ---
 
+### DELETE `/v1/conversations`
+
+Best-effort deletes all locally persisted Gemini WebAPI conversations.
+
+This endpoint lists local Gemini WebAPI SQLite snapshots, deletes each corresponding remote Gemini chat, and then deletes the local snapshot. Active conversations are skipped and reported. Playwright and Atlas conversations are not supported.
+
+Successful response, including partial failures:
+
+```json
+{
+  "object": "conversation.bulk_delete",
+  "provider": "gemini",
+  "backend": "webapi",
+  "total": 3,
+  "deleted_count": 1,
+  "failed_count": 1,
+  "skipped_active_count": 1,
+  "results": [
+    {
+      "id": "deleted_conversation_id",
+      "status": "deleted",
+      "deleted": true
+    },
+    {
+      "id": "active_conversation_id",
+      "status": "skipped_active",
+      "deleted": false,
+      "error": "Conversation is currently in use"
+    },
+    {
+      "id": "failed_conversation_id",
+      "status": "failed",
+      "deleted": false,
+      "error": "Remote Gemini delete failed"
+    }
+  ]
+}
+```
+
+Status codes:
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | Bulk operation produced a report, even if individual conversations failed or were skipped. |
+| `401` | Gemini WebAPI authentication is missing or expired before the run starts. |
+| `503` | Gemini client, session registry, or snapshot repository is unavailable before the run starts. |
+| `500` | Snapshot listing failed before a per-conversation report could be produced. |
+
+---
+
 ### DELETE `/v1/conversations/{conversation_id}`
 
 Deletes a Gemini WebAPI conversation identified by the local `conversation_id`.
