@@ -1,0 +1,48 @@
+<div class="bulk-result">
+  {% if bulk_result %}
+    {% set deleted_count = bulk_result.get("deleted_count", 0) %}
+    {% set total = bulk_result.get("total", 0) %}
+    {% set skipped_active_count = bulk_result.get("skipped_active_count", 0) %}
+    {% set failed_count = bulk_result.get("failed_count", 0) %}
+    {% set has_mixed_outcome = skipped_active_count > 0 or failed_count > 0 or deleted_count < total %}
+
+    <div class="alert {% if has_mixed_outcome %}alert-warning{% else %}alert-success{% endif %}" role="status">
+      <p class="bulk-summary">
+        Deleted {{ deleted_count }} of {{ total }} snapshots.
+        Skipped {{ skipped_active_count }} active conversations.
+        Failed {{ failed_count }} deletions.
+      </p>
+    </div>
+
+    {% if bulk_result_rows %}
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Item Summary</h2>
+          <span class="muted">{{ bulk_result_rows|length }} items</span>
+        </div>
+        <ul class="result-list">
+          {% for item in bulk_result_rows %}
+            <li>
+              <code>{{ item.masked_conversation_id }}</code>
+              <span class="result-status">{{ item.status }}</span>
+              {% if item.error %}
+                <span class="muted">{{ item.error }}</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <tbody id="conversation-rows" hx-swap-oob="outerHTML">
+      {% include "ui/partials/conversation_rows.html" %}
+    </tbody>
+  {% else %}
+    <div class="alert alert-error" role="alert">
+      {{ bulk_error or "The bulk delete request could not be completed." }}
+    </div>
+    {% if bulk_error_status %}
+      <p class="note">Status {{ bulk_error_status }}</p>
+    {% endif %}
+  {% endif %}
+</div>

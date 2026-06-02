@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.endpoints.auth import get_auth_status
 from app.endpoints.chat import list_models
 from app.endpoints.chat import delete_conversation as delete_conversation_api
+from app.endpoints.chat import delete_conversations as delete_conversations_api
 from app.endpoints.chat import list_conversations
 from app.endpoints.system import runtime_status
 
@@ -37,8 +38,8 @@ def _mask_conversation_id(conversation_id: Any) -> str:
 
 
 async def _conversation_lookup(conversation_id: str) -> dict[str, Any] | None:
-    conversation_list = await list_conversations()
-    for conversation in conversation_list.get("data", []):
+    rows = await _conversation_rows()
+    for conversation in rows:
         if conversation.get("id") == conversation_id:
             row = dict(conversation)
             row["masked_conversation_id"] = _mask_conversation_id(conversation_id)
@@ -46,6 +47,26 @@ async def _conversation_lookup(conversation_id: str) -> dict[str, Any] | None:
             row["confirmation_pattern"] = re_escape(row["confirmation_suffix"])
             return row
     return None
+
+
+async def _conversation_rows() -> list[dict[str, Any]]:
+    conversation_list = await list_conversations()
+    conversations = conversation_list.get("data", [])
+    rows = []
+    for conversation in conversations:
+        row = dict(conversation)
+        row["masked_conversation_id"] = _mask_conversation_id(conversation.get("id"))
+        rows.append(row)
+    return rows
+
+
+def _bulk_result_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for result in results:
+        row = dict(result)
+        row["masked_conversation_id"] = _mask_conversation_id(result.get("id"))
+        rows.append(row)
+    return rows
 
 
 def _conversation_delete_error(status_code: int, detail: Any) -> str:
@@ -65,18 +86,26 @@ def _conversation_delete_error(status_code: int, detail: Any) -> str:
 def _conversation_browser_context(
     request: Request,
     conversations: list[dict[str, Any]],
+    conversation_count: int | None = None,
     delete_message: str | None = None,
     delete_error: str | None = None,
     delete_error_status: int | None = None,
+    bulk_message: str | None = None,
+    bulk_error: str | None = None,
+    bulk_error_status: int | None = None,
 ) -> dict[str, Any]:
     return _template_context(
         request,
         active_page="conversations",
         conversations=conversations,
+        conversation_count=conversation_count if conversation_count is not None else len(conversations),
         conversation_scope_note="This page shows locally persisted Gemini WebAPI conversation snapshots only.",
         conversation_action_message=delete_message,
         conversation_action_error=delete_error,
         conversation_action_error_status=delete_error_status,
+        bulk_message=bulk_message,
+        bulk_error=bulk_error,
+        bulk_error_status=bulk_error_status,
     )
 
 
@@ -152,19 +181,92 @@ async def dashboard_playground(request: Request):
 
 @router.get("/conversations", response_class=HTMLResponse)
 async def dashboard_conversations(request: Request):
-    conversation_list = await list_conversations()
-    conversations = conversation_list.get("data", [])
-    rows = []
-    for conversation in conversations:
-        row = dict(conversation)
-        row["masked_conversation_id"] = _mask_conversation_id(conversation.get("id"))
-        rows.append(row)
+    rows = await _conversation_rows()
 
     return templates.TemplateResponse(
         request,
         "ui/conversations.html",
         _conversation_browser_context(request, rows),
     )
+
+
+@router.post("/conversations/delete/all/confirm", response_class=HTMLResponse)
+async def dashboard_conversation_bulk_delete_confirm(request: Request):
+    rows = await _conversation_rows()
+    return templates.TemplateResponse(
+        request,
+        "ui/partials/conversation_bulk_delete_confirm.html",
+        _template_context(
+            request,
+            bulk_count=len(rows),
+            bulk_provider="gemini",
+            bulk_backend="webapi",
+            bulk_warning=(
+                "This action may partially succeed.\n"
+                "Active conversations can be skipped.\n"
+                "Remote delete failures may occur."
+            ),
+            bulk_scope_note="Playwright and Atlas conversations are not affected.",
+        ),
+    )
+
+
+@router.post("/conversations/delete/all", response_class=HTMLResponse)
+async def dashboard_conversation_bulk_delete(request: Request, confirmation_phrase: str = Form(...)):
+    expected_phrase = "DELETE ALL"
+    if confirmation_phrase != expected_phrase:
+        rows = await _conversation_rows()
+        return templates.TemplateResponse(
+            request,
+            "ui/partials/conversation_bulk_delete_confirm.html",
+            _template_context(
+                request,
+                bulk_count=len(rows),
+                bulk_provider="gemini",
+                bulk_backend="webapi",
+                bulk_warning=(
+                    "This action may partially succeed.\n"
+                    "Active conversations can be skipped.\n"
+                    "Remote delete failures may occur."
+                ),
+                bulk_scope_note="Playwright and Atlas conversations are not affected.",
+                bulk_error="Type DELETE ALL to confirm bulk deletion.",
+            ),
+            status_code=400,
+        )
+
+    try:
+        result = await delete_conversations_api()
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            request,
+            "ui/partials/conversation_bulk_delete_result.html",
+            _template_context(
+                request,
+                bulk_error=_conversation_delete_error(exc.status_code, exc.detail),
+                bulk_error_status=exc.status_code,
+            ),
+            status_code=exc.status_code,
+        )
+
+    rows = await _conversation_rows()
+    response = templates.TemplateResponse(
+        request,
+        "ui/partials/conversation_bulk_delete_result.html",
+        _template_context(
+            request,
+            bulk_result=result,
+            bulk_result_rows=_bulk_result_rows(result.get("results", [])),
+            bulk_message=(
+                f"Deleted {result.get('deleted_count', 0)} of {result.get('total', 0)} snapshots. "
+                f"Skipped {result.get('skipped_active_count', 0)} active conversations. "
+                f"Failed {result.get('failed_count', 0)} deletions."
+            ),
+            bulk_conversation_count=len(rows),
+        ),
+    )
+    response.headers["HX-Trigger"] = "conversation-list-refresh"
+    return response
 
 
 @router.post("/conversations/delete/confirm", response_class=HTMLResponse)

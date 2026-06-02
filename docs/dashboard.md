@@ -9,7 +9,7 @@ The built-in dashboard is an administrative interface for local runtime inspecti
 - `/ui/auth` - cached authentication state
 - `/ui/models` - registered model list
 - `/ui/playground` - chat prompt playground
-- `/ui/conversations` - locally persisted Gemini WebAPI conversation snapshots
+- `/ui/conversations` - locally persisted Gemini WebAPI conversation snapshots, with single-delete and bulk-delete actions limited to Gemini WebAPI
 
 ## Security posture
 

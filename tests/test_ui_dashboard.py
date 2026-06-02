@@ -59,6 +59,39 @@ def _auth_status_payload():
     }
 
 
+def _conversation_list_payload():
+    return {
+        "object": "list",
+        "provider": "gemini",
+        "backend": "webapi",
+        "count": 2,
+        "data": [
+            {
+                "id": "conv-1234567890abcdef",
+                "object": "conversation",
+                "provider": "gemini",
+                "backend": "webapi",
+                "model": "gemini/gemini-3-flash",
+                "gem_id": "gem-123",
+                "updated_at": "2026-06-02T12:30:00+00:00",
+                "schema_version": 1,
+                "session_state": {"secret": "opaque"},
+            },
+            {
+                "id": "conv-fedcba0987654321",
+                "object": "conversation",
+                "provider": "gemini",
+                "backend": "webapi",
+                "model": "gemini/gemini-3-pro",
+                "gem_id": "gem-456",
+                "updated_at": "2026-06-02T12:31:00+00:00",
+                "schema_version": 1,
+                "session_state": {"secret": "opaque"},
+            },
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_ui_index_returns_html():
     response = await _get("/ui")
@@ -239,25 +272,7 @@ async def test_ui_html_references_static_assets():
 async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocker):
     list_conversations = mocker.patch(
         "app.endpoints.ui.list_conversations",
-        return_value={
-            "object": "list",
-            "provider": "gemini",
-            "backend": "webapi",
-            "count": 1,
-            "data": [
-                {
-                    "id": "conv-1234567890abcdef",
-                    "object": "conversation",
-                    "provider": "gemini",
-                    "backend": "webapi",
-                    "model": "gemini/gemini-3-flash",
-                    "gem_id": "gem-123",
-                    "updated_at": "2026-06-02T12:30:00+00:00",
-                    "schema_version": 1,
-                    "session_state": {"secret": "opaque"},
-                }
-            ],
-        },
+        return_value=_conversation_list_payload(),
     )
 
     response = await _get("/ui/conversations")
@@ -267,16 +282,19 @@ async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocke
     assert "Conversation Snapshots" in response.text
     assert "This page shows locally persisted Gemini WebAPI conversation snapshots only." in response.text
     assert "Playwright and Atlas conversations are not listed here" in response.text
+    assert "Delete all local Gemini WebAPI snapshots" in response.text
+    assert "2 local Gemini WebAPI snapshots currently available." in response.text
     assert 'hx-post="/ui/conversations/delete/confirm"' in response.text
+    assert 'hx-post="/ui/conversations/delete/all/confirm"' in response.text
     assert 'hx-indicator="#conversation-action-indicator"' in response.text
     assert 'Loading conversation action...' in response.text
     assert 'value="conv-1234567890abcdef"' in response.text
     assert "<code>conv-1234567890abcdef</code>" not in response.text
+    assert "<code>conv-fedcba0987654321</code>" not in response.text
     assert "cdef" in response.text
     assert "secret" not in response.text
     assert "session_state" not in response.text
     assert "hx-delete" not in response.text
-    assert "bulk" not in response.text.lower()
     list_conversations.assert_called_once()
 
 
@@ -460,6 +478,79 @@ async def test_ui_conversation_delete_error_messages(mocker, status_code, detail
     assert response.status_code == status_code
     assert expected in response.text
     assert 'role="alert"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_bulk_delete_confirm_renders_count_and_scope(mocker):
+    mocker.patch("app.endpoints.ui.list_conversations", return_value=_conversation_list_payload())
+
+    response = await _post("/ui/conversations/delete/all/confirm", {})
+
+    assert response.status_code == 200
+    assert "Confirm Bulk Delete" in response.text
+    assert "Current Snapshots" in response.text
+    assert "2" in response.text
+    assert "provider" in response.text.lower()
+    assert "backend" in response.text.lower()
+    assert "Playwright and Atlas conversations are not affected." in response.text
+    assert 'name="confirmation_phrase"' in response.text
+    assert 'placeholder="DELETE ALL"' in response.text
+    assert 'Type DELETE ALL to confirm bulk deletion.' in response.text
+    assert 'Delete all snapshots' in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_bulk_delete_blocks_wrong_phrase_without_calling_helper(mocker):
+    mocker.patch("app.endpoints.ui.list_conversations", return_value=_conversation_list_payload())
+    delete_conversations = mocker.patch("app.endpoints.ui.delete_conversations_api")
+
+    response = await _post("/ui/conversations/delete/all", {"confirmation_phrase": "delete all"})
+
+    assert response.status_code == 400
+    assert "Type DELETE ALL to confirm bulk deletion." in response.text
+    assert 'role="alert"' in response.text
+    delete_conversations.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ui_bulk_delete_success_renders_counts_and_refreshes_rows(mocker):
+    mocker.patch("app.endpoints.ui.list_conversations", return_value=_conversation_list_payload())
+    delete_conversations = mocker.patch(
+        "app.endpoints.ui.delete_conversations_api",
+        return_value={
+            "object": "conversation.bulk_delete",
+            "provider": "gemini",
+            "backend": "webapi",
+            "total": 3,
+            "deleted_count": 1,
+            "failed_count": 1,
+            "skipped_active_count": 1,
+            "results": [
+                {"id": "conv-1234567890abcdef", "status": "deleted", "deleted": True},
+                {"id": "conv-active-1111111111", "status": "skipped_active", "deleted": False, "error": "Conversation is currently in use"},
+                {
+                    "id": "conv-fedcba0987654321",
+                    "status": "failed",
+                    "deleted": False,
+                    "error": "Gemini remote delete failed.",
+                },
+            ],
+        },
+    )
+
+    response = await _post("/ui/conversations/delete/all", {"confirmation_phrase": "DELETE ALL"})
+
+    assert response.status_code == 200
+    assert 'role="status"' in response.text
+    assert "Deleted 1 of 3 snapshots." in response.text
+    assert "Skipped 1 active conversations." in response.text
+    assert "Failed 1 deletions." in response.text
+    assert "deleted" in response.text
+    assert "skipped_active" in response.text
+    assert "failed" in response.text
+    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert "conversation-list-refresh" in response.headers.get("HX-Trigger", "")
+    delete_conversations.assert_called_once_with()
 
 
 def test_dashboard_docs_present():

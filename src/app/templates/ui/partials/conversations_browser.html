@@ -19,6 +19,25 @@
     {% endif %}
   </div>
 
+  <section class="panel bulk-panel">
+    <div class="panel-head">
+      <h2>Bulk Delete</h2>
+      <span class="badge destructive">Destructive</span>
+    </div>
+    <p class="note">Delete all local Gemini WebAPI snapshots only. Playwright and Atlas conversations are not affected.</p>
+    <p class="note">{{ conversation_count }} local Gemini WebAPI snapshots currently available.</p>
+    <form
+      class="bulk-form"
+      hx-post="/ui/conversations/delete/all/confirm"
+      hx-indicator="#conversation-action-indicator"
+      hx-target="#conversation-action"
+      hx-swap="innerHTML"
+      hx-disabled-elt="button"
+    >
+      <button class="danger" type="submit">Delete all local Gemini WebAPI snapshots</button>
+    </form>
+  </section>
+
   <section class="panel">
     <p class="note">{{ conversation_scope_note }}</p>
     <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
@@ -38,31 +57,8 @@
               <th></th>
             </tr>
           </thead>
-          <tbody>
-            {% for conversation in conversations %}
-              <tr>
-                <td><code>{{ conversation.masked_conversation_id }}</code></td>
-                <td>{{ conversation.provider }}</td>
-                <td>{{ conversation.backend }}</td>
-                <td><code>{{ conversation.model if conversation.model is not none else "n/a" }}</code></td>
-                <td><code>{{ conversation.gem_id if conversation.gem_id is not none else "n/a" }}</code></td>
-                <td>{{ conversation.updated_at }}</td>
-                <td>{{ conversation.schema_version }}</td>
-                <td class="row-action">
-                  <form
-                    class="row-action-form"
-                    hx-post="/ui/conversations/delete/confirm"
-                    hx-indicator="#conversation-action-indicator"
-                    hx-target="#conversation-action"
-                    hx-swap="innerHTML"
-                    hx-disabled-elt="button"
-                  >
-                    <input type="hidden" name="conversation_id" value="{{ conversation.id }}">
-                    <button class="danger-link" type="submit">Delete</button>
-                  </form>
-                </td>
-              </tr>
-            {% endfor %}
+          <tbody id="conversation-rows">
+            {% include "ui/partials/conversation_rows.html" %}
           </tbody>
         </table>
       </div>

@@ -388,12 +388,41 @@ button:disabled {
   color: #b42318;
 }
 
+.alert-warning {
+  border-color: #f2d08a;
+  background: #fff8e7;
+  color: #8a5b00;
+}
+
 .delete-flow .delete-metrics {
   margin-bottom: 16px;
 }
 
 .delete-form {
   margin-top: 14px;
+}
+
+.bulk-panel .bulk-form {
+  margin-top: 12px;
+}
+
+.bulk-summary {
+  margin: 0;
+}
+
+.result-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.result-list li {
+  margin: 6px 0;
+}
+
+.result-status {
+  display: inline-block;
+  margin-left: 8px;
+  font-weight: 700;
 }
 
 .row-action {
