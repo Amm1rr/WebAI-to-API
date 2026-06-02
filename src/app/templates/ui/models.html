@@ -1,0 +1,38 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Models - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Models</p>
+  <h1>Available Models</h1>
+</section>
+
+<section class="panel">
+  {% set model_rows = models.get("data", []) %}
+  {% if model_rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Provider</th>
+            <th>Object</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for model in model_rows %}
+            <tr>
+              <td><code>{{ model.get("id", "unknown") }}</code></td>
+              <td>{{ model.get("owned_by", model.get("provider", "unknown")) }}</td>
+              <td>{{ model.get("object", "model") }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No models were returned by the registered providers.</p>
+  {% endif %}
+</section>
+{% endblock %}

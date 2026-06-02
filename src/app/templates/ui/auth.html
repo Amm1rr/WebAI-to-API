@@ -1,0 +1,18 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Auth - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Auth</p>
+  <h1>Authentication Status</h1>
+</section>
+
+<section
+  hx-get="/ui/auth/panel"
+  hx-trigger="every 10s"
+  hx-swap="innerHTML"
+>
+  {% include "ui/partials/auth_panel.html" %}
+</section>
+{% endblock %}

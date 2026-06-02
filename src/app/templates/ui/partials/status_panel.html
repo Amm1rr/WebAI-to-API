@@ -1,0 +1,51 @@
+<div class="panel">
+  <div class="panel-head">
+    <h2>Engine</h2>
+    <span class="badge">{{ status.engine.status }}</span>
+  </div>
+  <dl class="metrics">
+    <div>
+      <dt>Browser Connected</dt>
+      <dd>{{ status.engine.browser_connected if status.engine.browser_connected is defined else "n/a" }}</dd>
+    </div>
+    <div>
+      <dt>Generation</dt>
+      <dd>{{ status.engine.browser_generation if status.engine.browser_generation is defined else "n/a" }}</dd>
+    </div>
+    <div>
+      <dt>Bootstrap</dt>
+      <dd>{{ status.engine.is_bootstrap if status.engine.is_bootstrap is defined else "n/a" }}</dd>
+    </div>
+  </dl>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Sessions</h2>
+    <span class="muted">{{ status.sessions|length if status.sessions is defined else 0 }} registered</span>
+  </div>
+  {% if status.sessions is defined and status.sessions %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Alive</th>
+            <th>Recovering</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for name, session in status.sessions.items() %}
+            <tr>
+              <td>{{ name }}</td>
+              <td>{{ session.is_alive }}</td>
+              <td>{{ session.is_recovering }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No provider sessions are currently registered.</p>
+  {% endif %}
+</div>

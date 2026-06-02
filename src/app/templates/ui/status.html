@@ -1,0 +1,18 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Status - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Status</p>
+  <h1>Runtime Status</h1>
+</section>
+
+<section
+  hx-get="/ui/status/panel"
+  hx-trigger="every 10s"
+  hx-swap="innerHTML"
+>
+  {% include "ui/partials/status_panel.html" %}
+</section>
+{% endblock %}

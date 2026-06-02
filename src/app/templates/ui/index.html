@@ -1,0 +1,25 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Dashboard - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Dashboard</p>
+  <h1>Runtime Overview</h1>
+</section>
+
+<section class="grid">
+  <a class="tile" href="/ui/status">
+    <span class="tile-title">Status</span>
+    <span class="tile-copy">Runtime health, browser generation, and provider sessions.</span>
+  </a>
+  <a class="tile" href="/ui/auth">
+    <span class="tile-title">Auth</span>
+    <span class="tile-copy">Cached provider authentication state and login status.</span>
+  </a>
+  <a class="tile" href="/ui/models">
+    <span class="tile-title">Models</span>
+    <span class="tile-copy">Registered provider model discovery.</span>
+  </a>
+</section>
+{% endblock %}

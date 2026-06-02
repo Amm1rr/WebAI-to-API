@@ -1,0 +1,25 @@
+<div class="panel">
+  <div class="panel-head">
+    <h2>Provider Auth</h2>
+    <span class="badge">{{ auth_status.login_state }}</span>
+  </div>
+  <dl class="metrics">
+    <div>
+      <dt>Gemini WebAPI</dt>
+      <dd>{{ auth_status.gemini_webapi.status }}</dd>
+    </div>
+    <div>
+      <dt>Playwright</dt>
+      <dd>{{ auth_status.playwright.status }}</dd>
+    </div>
+    <div>
+      <dt>Last Validated</dt>
+      <dd>{{ auth_status.playwright.last_validated }}</dd>
+    </div>
+    <div>
+      <dt>Auth State File</dt>
+      <dd><code>{{ auth_status.playwright.auth_state_file }}</code></dd>
+    </div>
+  </dl>
+  <p class="note">{{ auth_status.playwright.validation_details }}</p>
+</div>
