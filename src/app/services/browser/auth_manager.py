@@ -125,7 +125,22 @@ class AuthManager:
         provider_name = provider_name or self._default_provider_name
         if provider_name == self._default_provider_name and self._strategy is not None:
             return self._strategy
-        return self._strategies.get(provider_name)
+
+        strategy = self._strategies.get(provider_name)
+        if strategy is not None:
+            return strategy
+
+        if provider_name == self._default_provider_name:
+            try:
+                from app.services.providers.gemini.auth import GeminiAuthStrategy
+
+                strategy = GeminiAuthStrategy()
+                self.register_strategy(provider_name, strategy)
+                return strategy
+            except Exception as e:
+                logger.debug("AuthManager: Failed to lazily create default Gemini auth strategy: %s", e)
+
+        return None
 
     def _empty_provider_status(self) -> Dict[str, Any]:
         return {

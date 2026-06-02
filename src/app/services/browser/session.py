@@ -478,43 +478,18 @@ class ProviderSession:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
 
-        if self.name == "gemini":
-            from app.services.browser.auth_loader import GeminiAuthStateLoader
-            from app.services.providers.gemini.auth_selector import GeminiAuthSelector
-            allow_unauthenticated_bootstrap_context = (
-                getattr(self.engine, "is_bootstrap", False)
-                and self.enable_persistence
+        from app.services.browser.auth_manager import get_auth_manager
+
+        auth_strategy = get_auth_manager().get_strategy(self.name)
+        if auth_strategy and hasattr(auth_strategy, "build_playwright_context_args"):
+            strategy_context_args = auth_strategy.build_playwright_context_args(
+                enable_persistence=self.enable_persistence,
+                is_bootstrap=getattr(self.engine, "is_bootstrap", False),
             )
-            if allow_unauthenticated_bootstrap_context:
-                auth_candidate = next(
-                    (
-                        candidate
-                        for candidate in GeminiAuthSelector.iter_candidates()
-                        if candidate.supports_playwright_storage
-                    ),
-                    None,
-                )
-            else:
-                auth_candidate = GeminiAuthSelector.first_playwright_storage_candidate()
-            if auth_candidate:
-                context_args["storage_state"] = GeminiAuthStateLoader.translate_to_playwright(
-                    auth_candidate.auth_data
-                )
-            elif allow_unauthenticated_bootstrap_context:
-                logger.info(
-                    "ProviderSession(%s): Initializing unauthenticated bootstrap context "
-                    "for explicit login state creation.",
-                    self.name,
-                    extra={"generation": self.engine.browser_generation}
-                )
-            else:
-                raise RuntimeError(
-                    "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
-                    "Please run 'python verify_login.py' to authenticate."
-                )
-        else:
-            if self._validate_state_file():
-                context_args["storage_state"] = self.state_path
+            if strategy_context_args:
+                context_args.update(strategy_context_args)
+        elif self._validate_state_file():
+            context_args["storage_state"] = self.state_path
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
