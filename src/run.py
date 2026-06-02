@@ -67,8 +67,7 @@ def print_server_info(host: str, port: int, mode: str):
         print("\n⚙️ Config.conf:")
         try:
             CONFIG = load_config()
-            print(f"  - Browser: {CONFIG['Browser']['name']}")
-            print(f"  - Model: {CONFIG['Gemini']['default_model']}")
+            print(f"  - Default Model: {CONFIG['Gemini']['default_model']}")
         except Exception:
             print("  - Could not load config details.")
         print("\n🔗 API Endpoints:")
