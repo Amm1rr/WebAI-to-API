@@ -45,18 +45,24 @@ def _runtime_status_payload():
     }
 
 
-def _auth_status_payload(include_source: bool = True):
-    gemini_webapi = {"status": "AUTHENTICATED"}
+def _auth_status_payload(
+    include_source: bool = True,
+    webapi_status: str = "AUTHENTICATED",
+    playwright_status: str = "VALID_SESSION",
+    login_state: str = "IDLE",
+    playwright_last_validated: str = "2026-06-02T00:00:00Z",
+):
+    gemini_webapi = {"status": webapi_status}
     if include_source:
         gemini_webapi["auth_source"] = "[Cookies] legacy config"
     return {
         "timestamp": "2026-06-02T00:00:00Z",
-        "login_state": "IDLE",
+        "login_state": login_state,
         "gemini_webapi": gemini_webapi,
         "playwright": {
-            "status": "VALID_SESSION",
+            "status": playwright_status,
             "auth_state_file": "runtime/auth/gemini.json",
-            "last_validated": "2026-06-02T00:00:00Z",
+            "last_validated": playwright_last_validated,
             "validation_details": "Cached test validation.",
         },
     }
@@ -153,11 +159,19 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Authentication Status" in response.text
+    assert "<th>Provider</th>" in response.text
+    assert "<th>Backend</th>" in response.text
+    assert "<th>Status</th>" in response.text
+    assert "<th>Auth Source</th>" in response.text
+    assert "<th>Last Validated</th>" in response.text
+    assert "<th>Notes</th>" in response.text
     assert 'hx-get="/ui/auth/panel"' in response.text
     assert 'hx-indicator="#auth-refresh-indicator"' in response.text
     assert "Refreshing auth status..." in response.text
-    assert "VALID_SESSION" in response.text
-    assert "WebAPI Auth Source" in response.text
+    assert "Gemini" in response.text
+    assert "WebAPI" in response.text
+    assert "Playwright" in response.text
+    assert 'class="badge success">AUTHENTICATED<' in response.text or 'class="badge success"' in response.text
     assert "[Cookies] legacy config" in response.text
     get_auth_status.assert_called_once_with(refresh=False)
 
@@ -174,9 +188,16 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Provider Auth" in response.text
+    assert "<th>Provider</th>" in response.text
+    assert "<th>Backend</th>" in response.text
+    assert "<th>Status</th>" in response.text
+    assert "<th>Auth Source</th>" in response.text
+    assert "<th>Last Validated</th>" in response.text
+    assert "<th>Notes</th>" in response.text
     assert "AUTHENTICATED" in response.text
-    assert "WebAPI Auth Source" in response.text
     assert "[Cookies] legacy config" in response.text
+    assert "runtime/auth/gemini.json" in response.text
+    assert "Cached test validation." in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
 
@@ -191,8 +212,25 @@ async def test_ui_auth_panel_renders_n_a_when_webapi_source_missing(mocker):
     response = await _get("/ui/auth/panel")
 
     assert response.status_code == 200
-    assert "WebAPI Auth Source" in response.text
-    assert ">n/a<" in response.text or "n/a" in response.text
+    assert "<code>n/a</code>" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ui_auth_panel_renders_status_classes(mocker):
+    mocker.patch(
+        "app.endpoints.ui.get_auth_status",
+        return_value=_auth_status_payload(
+            webapi_status="AUTHENTICATED",
+            playwright_status="NO_SESSION",
+            login_state="LOGIN_IN_PROGRESS",
+        ),
+    )
+
+    response = await _get("/ui/auth/panel")
+
+    assert response.status_code == 200
+    assert 'class="badge success"' in response.text
+    assert 'class="badge warning"' in response.text
 
 
 @pytest.mark.asyncio

@@ -3,27 +3,39 @@
     <h2>Provider Auth</h2>
     <span class="badge">{{ auth_status.login_state }}</span>
   </div>
-  <dl class="metrics">
-    <div>
-      <dt>Gemini WebAPI Status</dt>
-      <dd>{{ auth_status.gemini_webapi.status }}</dd>
-    </div>
-    <div>
-      <dt>WebAPI Auth Source</dt>
-      <dd><code>{{ auth_status.gemini_webapi.auth_source | default('n/a', true) }}</code></dd>
-    </div>
-    <div>
-      <dt>Playwright</dt>
-      <dd>{{ auth_status.playwright.status }}</dd>
-    </div>
-    <div>
-      <dt>Last Validated</dt>
-      <dd>{{ auth_status.playwright.last_validated }}</dd>
-    </div>
-    <div>
-      <dt>Auth State File</dt>
-      <dd><code>{{ auth_status.playwright.auth_state_file }}</code></dd>
-    </div>
-  </dl>
-  <p class="note">{{ auth_status.playwright.validation_details }}</p>
+
+  <div class="table-wrap">
+    <table class="auth-table">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Backend</th>
+          <th>Status</th>
+          <th>Auth Source</th>
+          <th>Last Validated</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in auth_rows %}
+        <tr>
+          <td>{{ row.provider }}</td>
+          <td>{{ row.backend }}</td>
+          <td>
+            <span class="badge {{ row.status_class }}">{{ row.status }}</span>
+          </td>
+          <td><code>{{ row.auth_source }}</code></td>
+          <td>
+            {% if row.last_validated != 'n/a' %}
+              <time datetime="{{ row.last_validated }}">{{ row.last_validated }}</time>
+            {% else %}
+              n/a
+            {% endif %}
+          </td>
+          <td>{{ row.notes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>

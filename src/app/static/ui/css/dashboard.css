@@ -167,11 +167,36 @@ h2 {
   font-weight: 700;
 }
 
+.badge.success {
+  background: #e6f6ec;
+  color: #1f6b3f;
+}
+
+.badge.warning {
+  background: #fff4d6;
+  color: #8a5a00;
+}
+
+.badge.danger,
 .badge.destructive,
 .danger {
   background: #b42318;
   color: #ffffff;
   border-color: #b42318;
+}
+
+.badge.neutral {
+  background: #e9edf2;
+  color: #4b5563;
+}
+
+.auth-table td,
+.auth-table th {
+  vertical-align: middle;
+}
+
+.auth-table td code {
+  white-space: nowrap;
 }
 
 .metrics {

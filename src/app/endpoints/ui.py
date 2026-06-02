@@ -27,6 +27,70 @@ def _template_context(request: Request, **values: Any) -> dict[str, Any]:
     return context
 
 
+def _status_class(status: Any) -> str:
+    value = str(status or "n/a").upper()
+    if value in {"AUTHENTICATED", "VALID_SESSION"}:
+        return "success"
+    if value in {"GUEST", "NO_SESSION", "LOGIN_IN_PROGRESS"}:
+        return "warning"
+    if value in {"EXPIRED_SESSION", "INVALID", "BLOCKED", "LOCATION_REJECTED"}:
+        return "danger"
+    return "neutral"
+
+
+def _format_note_value(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    text = str(value).strip()
+    return text if text else "n/a"
+
+
+def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
+    login_state = _format_note_value(auth_status.get("login_state"))
+    timestamp = _format_note_value(auth_status.get("timestamp"))
+    gemini_webapi = auth_status.get("gemini_webapi") or {}
+    playwright = auth_status.get("playwright") or {}
+
+    webapi_status = _format_note_value(gemini_webapi.get("status"))
+    webapi_source = _format_note_value(gemini_webapi.get("auth_source"))
+    webapi_notes = login_state if login_state != "IDLE" else "n/a"
+
+    playwright_status = _format_note_value(playwright.get("status"))
+    playwright_source = _format_note_value(playwright.get("auth_state_file"))
+    playwright_validated = _format_note_value(playwright.get("last_validated"))
+    playwright_notes: list[str] = []
+    validation_details = _format_note_value(playwright.get("validation_details"))
+    if validation_details != "n/a":
+        playwright_notes.append(validation_details)
+    if playwright.get("legacy_fallback_active"):
+        playwright_notes.append("legacy fallback active")
+    if playwright.get("migration_needed"):
+        playwright_notes.append("migration needed")
+    if not playwright_notes:
+        playwright_notes.append("n/a")
+
+    return [
+        {
+            "provider": "Gemini",
+            "backend": "WebAPI",
+            "status": webapi_status,
+            "auth_source": webapi_source,
+            "last_validated": timestamp,
+            "notes": webapi_notes,
+            "status_class": _status_class(webapi_status),
+        },
+        {
+            "provider": "Gemini",
+            "backend": "Playwright",
+            "status": playwright_status,
+            "auth_source": playwright_source,
+            "last_validated": playwright_validated,
+            "notes": "; ".join(playwright_notes),
+            "status_class": _status_class(playwright_status),
+        },
+    ]
+
+
 def _mask_conversation_id(conversation_id: Any) -> str:
     if not conversation_id:
         return "n/a"
@@ -145,7 +209,12 @@ async def dashboard_auth(request: Request):
     return templates.TemplateResponse(
         request,
         "ui/auth.html",
-        _template_context(request, active_page="auth", auth_status=auth_status),
+        _template_context(
+            request,
+            active_page="auth",
+            auth_status=auth_status,
+            auth_rows=_normalize_auth_status(auth_status),
+        ),
     )
 
 
@@ -155,7 +224,11 @@ async def dashboard_auth_panel(request: Request):
     return templates.TemplateResponse(
         request,
         "ui/partials/auth_panel.html",
-        _template_context(request, auth_status=auth_status),
+        _template_context(
+            request,
+            auth_status=auth_status,
+            auth_rows=_normalize_auth_status(auth_status),
+        ),
     )
 
 
