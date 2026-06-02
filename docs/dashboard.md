@@ -29,3 +29,7 @@ Do not expose the dashboard publicly unless you add a separate access-control la
 The default container setup exposes the service port directly. If you map that port to a public interface, you also expose the dashboard routes.
 
 Keep the dashboard reachable only from trusted clients unless you have explicit authentication in front of it.
+
+## Static assets
+
+Dashboard CSS and JavaScript assets are served by standard Starlette `StaticFiles` from `/ui/static`.

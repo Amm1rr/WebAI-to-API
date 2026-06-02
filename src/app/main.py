@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uuid
 
 from app.services.providers.gemini.client import init_gemini_client, GeminiClientNotInitializedError
@@ -96,7 +97,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.mount(
     "/ui/static",
-    ui.DashboardStaticApp(ui.STATIC_DIR),
+    StaticFiles(directory=ui.STATIC_DIR),
     name="ui_static",
 )
 

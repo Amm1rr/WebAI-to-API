@@ -1,10 +1,9 @@
 from pathlib import Path
 from typing import Any
-from mimetypes import guess_type
 from re import escape as re_escape
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.endpoints.auth import get_auth_status
@@ -79,52 +78,6 @@ def _conversation_browser_context(
         conversation_action_error=delete_error,
         conversation_action_error_status=delete_error_status,
     )
-
-
-class DashboardStaticApp:
-    """
-    Minimal mounted static asset app for the bundled dashboard assets.
-
-    The dashboard only serves small, version-controlled CSS/JS files. Keeping
-    this path buffered avoids StaticFiles/FileResponse issues in the in-process
-    test transport while preserving the mounted /ui/static contract.
-    """
-
-    def __init__(self, directory: Path):
-        self.directory = directory.resolve()
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            response = Response(status_code=404)
-            await response(scope, receive, send)
-            return
-
-        method = scope.get("method", "GET")
-        if method not in {"GET", "HEAD"}:
-            response = Response("Method Not Allowed", status_code=405)
-            await response(scope, receive, send)
-            return
-
-        root_path = scope.get("root_path", "")
-        request_path = scope.get("path", "")
-        if root_path and request_path.startswith(root_path):
-            request_path = request_path[len(root_path):]
-
-        root = self.directory
-        candidate = (root / request_path.lstrip("/")).resolve()
-        if root not in candidate.parents or not candidate.is_file():
-            response = Response("Not Found", status_code=404)
-            await response(scope, receive, send)
-            return
-
-        media_type = guess_type(str(candidate))[0] or "application/octet-stream"
-        content = b"" if method == "HEAD" else candidate.read_bytes()
-        response = Response(
-            content,
-            media_type=media_type,
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-        await response(scope, receive, send)
 
 
 @router.get("", response_class=HTMLResponse)

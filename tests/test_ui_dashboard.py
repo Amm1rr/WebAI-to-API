@@ -3,7 +3,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
+from starlette.routing import Mount
+from starlette.staticfiles import StaticFiles
 
+from app.endpoints import ui as ui_module
 from app.main import app
 
 
@@ -197,28 +200,39 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     list_models.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_ui_static_assets_are_served():
-    css_response = await _get("/ui/static/css/dashboard.css")
-    htmx_response = await _get("/ui/static/js/htmx.min.js")
-    playground_response = await _get("/ui/static/js/playground.js")
+def test_ui_static_mount_uses_staticfiles():
+    mounts = [route for route in app.routes if isinstance(route, Mount) and route.path == "/ui/static"]
+    assert len(mounts) == 1
+    assert isinstance(mounts[0].app, StaticFiles)
 
-    assert css_response.status_code == 200
-    assert "text/css" in css_response.headers["content-type"]
-    assert htmx_response.status_code == 200
-    assert "javascript" in htmx_response.headers["content-type"]
-    assert "htmx" in htmx_response.text.lower()
+
+def test_ui_static_files_exist_on_disk():
+    assert (ui_module.STATIC_DIR / "css/dashboard.css").is_file()
+    assert (ui_module.STATIC_DIR / "js/htmx.min.js").is_file()
+    assert (ui_module.STATIC_DIR / "js/playground.js").is_file()
+
+
+@pytest.mark.asyncio
+async def test_ui_html_references_static_assets():
+    response = await _get("/ui")
+
+    assert response.status_code == 200
+    assert "/ui/static/js/htmx.min.js" in response.text
+    assert "/ui/static/css/dashboard.css" in response.text
+
+    playground_response = await _get("/ui/playground")
     assert playground_response.status_code == 200
-    assert "javascript" in playground_response.headers["content-type"]
-    assert "/v1/chat/completions" in playground_response.text
-    assert "AbortController" in playground_response.text
-    assert "setCustomValidity" in playground_response.text
-    assert "reportValidity" in playground_response.text
-    assert "lastConversationId" in playground_response.text
-    assert "lastReusedConversation" in playground_response.text
-    assert "lastReusedConversationSeen" in playground_response.text
-    assert "lastModel" in playground_response.text
-    assert "prompt cannot be empty" in playground_response.text.lower()
+    assert "/ui/static/js/playground.js" in playground_response.text
+    playground_js = (ui_module.STATIC_DIR / "js/playground.js").read_text(encoding="utf-8")
+    assert "/v1/chat/completions" in playground_js
+    assert "AbortController" in playground_js
+    assert "setCustomValidity" in playground_js
+    assert "reportValidity" in playground_js
+    assert "lastConversationId" in playground_js
+    assert "lastReusedConversation" in playground_js
+    assert "lastReusedConversationSeen" in playground_js
+    assert "lastModel" in playground_js
+    assert "prompt cannot be empty" in playground_js.lower()
 
 
 @pytest.mark.asyncio
