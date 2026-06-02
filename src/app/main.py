@@ -1,7 +1,8 @@
 # src/app/main.py
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uuid
 
 from app.services.providers.gemini.client import init_gemini_client, GeminiClientNotInitializedError
@@ -10,7 +11,7 @@ from app.services.browser.auth_manager import get_auth_manager
 from app.logger import logger
 
 # Import endpoint routers
-from app.endpoints import gemini, chat, google_generative, auth, system
+from app.endpoints import gemini, chat, google_generative, auth, system, ui
 
 import os
 import signal
@@ -94,6 +95,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.mount(
+    "/ui/static",
+    StaticFiles(directory=ui.STATIC_DIR),
+    name="ui_static",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -102,20 +109,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
+class RequestIDMiddleware:
     """
     Request ID middleware for observability.
 
     Generates a unique request_id for each HTTP request, stores it in
     request.state for downstream access, and returns it in response header.
     """
-    request_id = str(uuid.uuid4()).replace("-", "_")
-    request.state.request_id = request_id
 
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request_id = str(uuid.uuid4()).replace("-", "_")
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        async def send_with_request_id(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode("ascii")))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_request_id)
+
+
+app.add_middleware(RequestIDMiddleware)
 
 # Register the endpoint routers for WebAI-to-API
 app.include_router(gemini.router)
@@ -123,3 +146,4 @@ app.include_router(chat.router)
 app.include_router(google_generative.router)
 app.include_router(auth.router)
 app.include_router(system.router)
+app.include_router(ui.router)

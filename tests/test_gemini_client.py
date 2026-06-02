@@ -96,6 +96,7 @@ async def test_init_gemini_client_available(mocker):
     assert res is True
     assert gemini_client_module._gemini_client == mock_client_instance
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     mock_my_gemini_client_class.assert_called_once()
     mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False)
     mock_get_cookies.assert_not_called()
@@ -142,6 +143,7 @@ async def test_init_gemini_client_unauthenticated_retained(mocker):
     assert res is True
     assert gemini_client_module._gemini_client == mock_client_instance
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     mock_my_gemini_client_class.assert_called_once()
     mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False)
     
@@ -199,6 +201,7 @@ async def test_init_gemini_client_location_rejected_discarded_and_fallback(mocke
     assert res is True
     assert gemini_client_module._gemini_client == mock_fallback_client
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "browser cookie fallback"
     
     # Verify all client instances were handled
     assert mock_my_gemini_client_class.call_count == 2
@@ -260,6 +263,7 @@ async def test_init_gemini_client_playwright_state_fallback(mocker):
     assert res is True
     assert gemini_client_module._gemini_client == mock_fallback_client
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "browser cookie fallback"
 
     # Verify calls
     assert mock_my_gemini_client_class.call_count == 2
@@ -316,6 +320,7 @@ async def test_init_gemini_client_config_unauth_playwright_unauth(mocker):
     assert res is True
     assert gemini_client_module._gemini_client == mock_loader_client
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
 
     assert mock_my_gemini_client_class.call_count == 2
     mock_loader_client.init.assert_called_once()
@@ -367,6 +372,7 @@ async def test_init_gemini_client_playwright_available_browser_available(mocker)
     assert res is True
     assert gemini_client_module._gemini_client == mock_loader_client
     assert gemini_client_module._initialization_error is None
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
 
     mock_my_gemini_client_class.assert_called_once()
     mock_loader_client.init.assert_called_once()
@@ -405,6 +411,7 @@ async def test_init_gemini_client_all_unavailable(mocker):
     assert res is False
     assert gemini_client_module._gemini_client is None
     assert gemini_client_module._initialization_error == "Gemini cookies not found or completely invalid in canonical store, legacy config, or browser."
+    assert gemini_client_module._gemini_client_auth_source is None
 
     mock_my_gemini_client_class.assert_not_called()
     mock_gemini_source.assert_called_once()
@@ -453,6 +460,7 @@ async def test_init_gemini_client_consumes_selector_candidates_in_order(mocker):
 
     assert res is True
     assert gemini_client_module._gemini_client is mock_cookies_client
+    assert gemini_client_module._gemini_client_auth_source == "[Cookies] legacy config"
     selector.assert_called_once()
     assert [call.kwargs["secure_1psid"] for call in mock_my_gemini_client_class.call_args_list] == [
         "gemini_psid",
@@ -513,6 +521,7 @@ async def test_init_gemini_client_source_iteration_unauth_to_avail(mocker):
     # Assertions - externally observable behavior only
     assert res is True  # Function succeeded
     assert gemini_client_module._gemini_client is mock_cookies_client  # AVAILABLE client selected
+    assert gemini_client_module._gemini_client_auth_source == "[Cookies] legacy config"
     assert attempted_sources == ["gemini", "cookies"]  # Both tried in correct order
 
 
@@ -569,6 +578,7 @@ async def test_init_gemini_client_source_chain_multiple_unauth_to_avail(mocker):
     # Assertions - externally observable behavior only
     assert res is True  # Function succeeded
     assert gemini_client_module._gemini_client is mock_json_client  # AVAILABLE client selected
+    assert gemini_client_module._gemini_client_auth_source == "gemini.json canonical store"
     assert attempted_sources == ["gemini", "cookies", "json"]  # All tried in correct order
 
 
@@ -621,6 +631,7 @@ async def test_init_gemini_client_available_short_circuit(mocker):
     # Assertions - externally observable behavior only
     assert res is True  # Function succeeded
     assert gemini_client_module._gemini_client is mock_gemini_client  # First client selected
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     assert len(attempted_sources) == 1  # Only first source tried
     assert attempted_sources == ["gemini"]
 
@@ -682,4 +693,63 @@ async def test_init_gemini_client_guest_mode_fallback_preserved(mocker):
     # Assertions - verify guest-mode client is retained and initialization succeeds
     assert res is True  # Function succeeded with guest-mode fallback
     assert gemini_client_module._gemini_client is mock_gemini_client  # Highest-priority guest fallback retained
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     assert attempted_sources == ["gemini", "cookies", "json"]  # All config sources tried
+
+
+@pytest.mark.asyncio
+async def test_init_gemini_client_json_store_source_label(mocker):
+    """Verify canonical gemini.json initialization records the canonical source label."""
+    gemini_client_module._gemini_client = None
+    gemini_client_module._initialization_error = None
+    gemini_client_module._gemini_client_auth_source = None
+
+    mock_config = configparser.ConfigParser()
+    mock_config.optionxform = str
+    mock_config.read_dict({
+        "EnabledAI": {"gemini": "true"},
+        "Proxy": {"http_proxy": ""},
+        "Playwright": {"auth_state_dir": "auth_state"}
+    })
+    mocker.patch('app.services.providers.gemini.client.CONFIG', mock_config)
+
+    mock_json_client = make_mock_client("AVAILABLE")
+    mocker.patch(
+        'app.services.providers.gemini.client.MyGeminiClient',
+        return_value=mock_json_client
+    )
+
+    mocker.patch.object(GeminiAuthStateLoader, 'get_gemini_config_source', return_value=(None, False))
+    mocker.patch.object(GeminiAuthStateLoader, 'get_legacy_cookie_source', return_value=(None, False))
+    mocker.patch.object(
+        GeminiAuthStateLoader,
+        'get_json_source',
+        return_value=({"cookies": [{"name": "__Secure-1PSID", "value": "json_psid", "domain": ".google.com"}]}, False),
+    )
+    mocker.patch('app.services.providers.gemini.client.get_cookie_from_browser')
+
+    res = await init_gemini_client()
+
+    assert res is True
+    assert gemini_client_module._gemini_client is mock_json_client
+    assert gemini_client_module._gemini_client_auth_source == "gemini.json canonical store"
+
+
+@pytest.mark.asyncio
+async def test_refresh_status_preserves_webapi_source_when_authenticated(mocker):
+    """Verify refresh_status reports the current WebAPI source without clearing it."""
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
+
+    gemini_client_module._gemini_client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client_auth_source = "[Cookies] legacy config"
+
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([auth_candidate("[Cookies] legacy config", "legacy_cookies", "cookies_psid", is_legacy=True)]),
+    )
+
+    status = GeminiAuthStrategy().refresh_status()
+
+    assert status["webapi"] == "AUTHENTICATED"
+    assert status["webapi_source"] == "[Cookies] legacy config"
+    assert gemini_client_module._gemini_client_auth_source == "[Cookies] legacy config"

@@ -1,0 +1,65 @@
+<div class="delete-flow">
+  <p id="conversation-action-indicator" class="loading htmx-indicator" aria-live="polite">
+    Preparing bulk deletion...
+  </p>
+
+  <div class="panel-head">
+    <h2>Confirm Bulk Delete</h2>
+    <span class="badge destructive">Destructive</span>
+  </div>
+
+  {% if bulk_error %}
+    <div class="alert alert-error" role="alert">{{ bulk_error }}</div>
+  {% endif %}
+
+  <dl class="metrics delete-metrics">
+    <div>
+      <dt>Current Snapshots</dt>
+      <dd>{{ bulk_count }}</dd>
+    </div>
+    <div>
+      <dt>Provider</dt>
+      <dd>{{ bulk_provider }}</dd>
+    </div>
+    <div>
+      <dt>Backend</dt>
+      <dd>{{ bulk_backend }}</dd>
+    </div>
+  </dl>
+
+  <p class="note">{{ bulk_warning | replace('\n', '<br>') | safe }}</p>
+  <p class="note">{{ bulk_scope_note }}</p>
+
+  <form
+    class="delete-form"
+    hx-post="/ui/conversations/delete/all"
+    hx-indicator="#conversation-action-indicator"
+    hx-target="#conversation-action"
+    hx-swap="innerHTML"
+    hx-disabled-elt="button"
+  >
+    <div class="field">
+      <label for="bulk_confirmation_phrase">Type DELETE ALL to confirm</label>
+      <input
+        id="bulk_confirmation_phrase"
+        name="confirmation_phrase"
+        required
+        maxlength="10"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="DELETE ALL"
+        aria-describedby="bulk_confirmation_help{% if bulk_error %} bulk_confirmation_error{% endif %}"
+        oninput="var ok=this.value==='DELETE ALL'; this.setCustomValidity(ok ? '' : 'Type DELETE ALL to confirm bulk deletion.'); var btn=this.form.querySelector('button[type=submit]'); if(btn){btn.disabled=!ok;}"
+        onblur="if(this.value!=='DELETE ALL'){this.setCustomValidity('Type DELETE ALL to confirm bulk deletion.');} else {this.setCustomValidity('');}"
+      >
+      <p id="bulk_confirmation_help" class="note">Exact phrase required. Case-sensitive.</p>
+      {% if bulk_error %}
+        <p id="bulk_confirmation_error" class="error-help" role="alert">{{ bulk_error }}</p>
+      {% endif %}
+    </div>
+    <div class="actions">
+      <button class="danger" type="submit" disabled>Delete all snapshots</button>
+      <a class="cancel-link" href="/ui/conversations">Cancel</a>
+    </div>
+  </form>
+</div>

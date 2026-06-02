@@ -22,7 +22,15 @@ class GeminiClientNotInitializedError(Exception):
 # Global variables to store the Gemini client instance and state
 _gemini_client = None
 _initialization_error = None
+_gemini_client_auth_source = None
 _gemini_client_init_lock = asyncio.Lock()
+
+
+def get_gemini_client_auth_source():
+    """
+    Return the currently selected WebAPI auth source label, if known.
+    """
+    return _gemini_client_auth_source
 
 
 async def init_gemini_client() -> bool:
@@ -30,7 +38,7 @@ async def init_gemini_client() -> bool:
     Initialize and set up the Gemini client based on the configuration and canonical storage.
     Returns True on success, False on failure.
     """
-    global _gemini_client, _initialization_error
+    global _gemini_client, _initialization_error, _gemini_client_auth_source
     
     async with _gemini_client_init_lock:
         _initialization_error = None
@@ -62,6 +70,7 @@ async def init_gemini_client() -> bool:
         os.environ["GEMINI_COOKIE_PATH"] = os.path.join(tempfile.gettempdir(), f"webai_no_cache_{unique_session_id}")
 
         best_client = None
+        best_client_source_name = None
         client = None
 
         try:
@@ -81,12 +90,15 @@ async def init_gemini_client() -> bool:
                                 if best_client:
                                     await best_client.close()
                                     best_client = None
+                                    best_client_source_name = None
                                 _gemini_client = client
+                                _gemini_client_auth_source = candidate.source_name
                                 return True
                             elif status_name == "UNAUTHENTICATED":
                                 if best_client is None:
                                     logger.info(f"Cookies from {candidate.source_name} are unauthenticated. Holding as fallback, continuing to next source...")
                                     best_client = client
+                                    best_client_source_name = candidate.source_name
                                     client = None
                                 else:
                                     logger.info(f"Cookies from {candidate.source_name} are unauthenticated. Already have a fallback candidate, closing client.")
@@ -120,12 +132,15 @@ async def init_gemini_client() -> bool:
                             if best_client:
                                 await best_client.close()
                                 best_client = None
+                                best_client_source_name = None
                             _gemini_client = client
+                            _gemini_client_auth_source = "browser cookie fallback"
                             return True
                         elif status_name == "UNAUTHENTICATED":
                             if best_client is None:
                                 logger.info("Browser cookies are unauthenticated. Holding browser client as fallback candidate.")
                                 best_client = client
+                                best_client_source_name = "browser cookie fallback"
                                 client = None
                             else:
                                 logger.info("Browser cookies are unauthenticated. Already have a fallback candidate, closing browser client.")
@@ -145,18 +160,21 @@ async def init_gemini_client() -> bool:
             if _gemini_client is None and best_client is not None:
                 logger.info("No fully authenticated AVAILABLE session found. Retaining the guest-mode client fallback candidate.")
                 _gemini_client = best_client
+                _gemini_client_auth_source = best_client_source_name
                 return True
 
             # If we got here, all attempts failed
             error_msg = "Gemini cookies not found or completely invalid in canonical store, legacy config, or browser."
             logger.error(error_msg)
             _initialization_error = error_msg
+            _gemini_client_auth_source = None
             return False
 
         except Exception as e:
             error_msg = f"Unexpected error initializing Gemini client waterfall: {e}"
             logger.error(error_msg, exc_info=True)
             _initialization_error = error_msg
+            _gemini_client_auth_source = None
             
             # Clean up any leftover active clients in case of a waterfall exception
             if client:

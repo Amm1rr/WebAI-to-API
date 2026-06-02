@@ -1,0 +1,33 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Dashboard - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Dashboard</p>
+  <h1>Runtime Overview</h1>
+</section>
+
+<section class="grid">
+  <a class="tile" href="/ui/status">
+    <span class="tile-title">Status</span>
+    <span class="tile-copy">Runtime health, browser generation, and provider sessions.</span>
+  </a>
+  <a class="tile" href="/ui/auth">
+    <span class="tile-title">Auth</span>
+    <span class="tile-copy">Cached provider authentication state and login status.</span>
+  </a>
+  <a class="tile" href="/ui/models">
+    <span class="tile-title">Models</span>
+    <span class="tile-copy">Registered provider model discovery.</span>
+  </a>
+  <a class="tile" href="/ui/playground">
+    <span class="tile-title">Playground</span>
+    <span class="tile-copy">Send a prompt through the OpenAI-compatible chat API.</span>
+  </a>
+  <a class="tile" href="/ui/conversations">
+    <span class="tile-title">Conversations</span>
+    <span class="tile-copy">Browse local Gemini WebAPI conversation snapshots.</span>
+  </a>
+</section>
+{% endblock %}

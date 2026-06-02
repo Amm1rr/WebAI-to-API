@@ -1,0 +1,67 @@
+<section id="conversation-browser">
+  <div id="conversation-action" class="panel action-panel">
+    <p id="conversation-action-indicator" class="loading htmx-indicator" aria-live="polite">
+      Loading conversation action...
+    </p>
+    {% if conversation_action_message %}
+      {% set delete_message = conversation_action_message %}
+      {% set delete_error = None %}
+      {% set delete_error_status = None %}
+      {% include "ui/partials/conversation_delete_result.html" %}
+    {% elif conversation_action_error %}
+      {% set delete_message = None %}
+      {% set delete_error = conversation_action_error %}
+      {% set delete_error_status = conversation_action_error_status %}
+      {% include "ui/partials/conversation_delete_result.html" %}
+    {% else %}
+      <p class="note">Use Delete on a row to open a confirmation panel for a single Gemini WebAPI snapshot.</p>
+      <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
+    {% endif %}
+  </div>
+
+  <section id="bulk-delete-panel" class="panel bulk-panel">
+    <div class="panel-head">
+      <h2>Bulk Delete</h2>
+      <span class="badge destructive">Destructive</span>
+    </div>
+    <p class="note">Delete all local Gemini WebAPI snapshots only. Playwright and Atlas conversations are not affected.</p>
+    <p class="note">{{ conversation_count }} local Gemini WebAPI snapshots currently available.</p>
+    <form
+      class="bulk-form"
+      hx-post="/ui/conversations/delete/all/confirm"
+      hx-indicator="#conversation-action-indicator"
+      hx-target="#bulk-delete-panel"
+      hx-swap="innerHTML"
+      hx-disabled-elt="button"
+    >
+      <button class="danger" type="submit">Delete all local Gemini WebAPI snapshots</button>
+    </form>
+  </section>
+
+  <section id="conversation-list-panel" class="panel">
+    <p class="note">{{ conversation_scope_note }}</p>
+    <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
+
+    {% if conversations %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Conversation ID</th>
+              <th>Provider</th>
+              <th>Backend</th>
+              <th>Model</th>
+              <th>Gem ID</th>
+              <th>Updated At</th>
+              <th>Schema Version</th>
+              <th></th>
+            </tr>
+          </thead>
+          {% include "ui/partials/conversation_rows.html" %}
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">No locally persisted Gemini WebAPI conversation snapshots were returned.</p>
+    {% endif %}
+  </section>
+</section>

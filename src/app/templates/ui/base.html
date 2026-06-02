@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}WebAI Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/ui/static/css/dashboard.css">
+    <script src="/ui/static/js/htmx.min.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/ui">WebAI-to-API</a>
+      <nav class="nav" aria-label="Dashboard">
+        <a href="/ui" class="{{ 'active' if active_page == 'overview' else '' }}">Overview</a>
+        <a href="/ui/status" class="{{ 'active' if active_page == 'status' else '' }}">Status</a>
+        <a href="/ui/auth" class="{{ 'active' if active_page == 'auth' else '' }}">Auth</a>
+        <a href="/ui/models" class="{{ 'active' if active_page == 'models' else '' }}">Models</a>
+        <a href="/ui/playground" class="{{ 'active' if active_page == 'playground' else '' }}">Playground</a>
+        <a href="/ui/conversations" class="{{ 'active' if active_page == 'conversations' else '' }}">Conversations</a>
+      </nav>
+    </header>
+
+    <main class="shell">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

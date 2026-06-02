@@ -1,0 +1,23 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Status - WebAI-to-API{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">Status</p>
+  <h1>Runtime Status</h1>
+</section>
+
+<section
+  class="refresh-section"
+  hx-get="/ui/status/panel"
+  hx-trigger="every 10s"
+  hx-indicator="#status-refresh-indicator"
+  hx-swap="innerHTML"
+>
+  <p id="status-refresh-indicator" class="loading htmx-indicator" aria-live="polite">
+    Refreshing status...
+  </p>
+  {% include "ui/partials/status_panel.html" %}
+</section>
+{% endblock %}

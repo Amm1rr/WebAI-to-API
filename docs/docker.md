@@ -2,6 +2,8 @@
 
 This document describes how to run WebAI-to-API using Docker and how to configure authentication for browser-based providers.
 
+The built-in dashboard under `/ui/*` is also exposed by the service. If you map the service port to a public interface, you expose the dashboard routes as well. See [Dashboard Guide](dashboard.md) for the dashboard security posture and available pages.
+
 ## Prerequisites
 
 Required software:
@@ -248,3 +250,4 @@ For Playwright deployments, preserving this directory is recommended.
 * Preserve the `runtime` directory between deployments.
 * Restart containers after refreshing authentication.
 * Use health and readiness endpoints for monitoring.
+* Do not expose the service port publicly unless you also secure the `/ui/*` dashboard routes with an external access-control layer.
