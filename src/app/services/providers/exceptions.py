@@ -18,3 +18,8 @@ class StateIntegrityError(SessionRecoveryError):
 class ProviderThreadExpiredError(SessionRecoveryError):
     """Raised when the remote provider reports that the conversation thread has expired."""
     pass
+
+
+class ConversationInUseError(SessionRecoveryError):
+    """Raised when a conversation is active or already being deleted."""
+    pass

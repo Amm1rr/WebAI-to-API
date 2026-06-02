@@ -9,7 +9,11 @@ from app.config import get_default_conversation_snapshot_db
 from app.logger import logger
 from app.services.providers.gemini.client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.base_repository import ConversationSnapshot, IConversationRepository, ProviderCapability
-from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
+from app.services.providers.exceptions import (
+    ConversationInUseError,
+    SnapshotNotFoundError,
+    StateIntegrityError,
+)
 from app.utils.tokens import generate_opaque_token
 
 # Configuration constants
@@ -187,6 +191,7 @@ class SessionRegistry:
         self.client = client
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
+        self._deleting: set[str] = set()
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
     async def update_client(self, client):
@@ -212,6 +217,9 @@ class SessionRegistry:
     ) -> SessionManager:
         """Retrieve, restore, or create a session manager. Triggers passive cleanup."""
         async with self._lock:
+            if conversation_id in self._deleting:
+                raise ConversationInUseError(f"Conversation is currently being deleted: {conversation_id}")
+
             # 1. Passive Cleanup if capacity exceeded
             if len(self._sessions) >= MAX_SESSIONS:
                 self._prune_sessions()
@@ -233,6 +241,45 @@ class SessionRegistry:
                 self._sessions[conversation_id] = SessionManager(self.client)
             
             return self._sessions[conversation_id]
+
+    async def begin_delete_session(self, conversation_id: str) -> None:
+        """
+        Reserve a conversation for deletion and block concurrent reuse.
+
+        The tombstone is intentionally held across remote delete I/O by the
+        caller, while the registry lock is only held for local state checks.
+        """
+        async with self._lock:
+            if conversation_id in self._deleting:
+                raise ConversationInUseError(f"Conversation is currently being deleted: {conversation_id}")
+
+            manager = self._sessions.get(conversation_id)
+            if manager and (manager.lock.locked() or manager.active_streams > 0):
+                raise ConversationInUseError(f"Conversation is currently in use: {conversation_id}")
+
+            self._deleting.add(conversation_id)
+
+    async def complete_delete_session(self, conversation_id: str) -> None:
+        """
+        Remove local in-memory and persistent state for a reserved deletion.
+
+        The deletion tombstone is always cleared so failed local cleanup does
+        not permanently block the conversation ID.
+        """
+        try:
+            if self.repository:
+                await self.repository.delete_snapshot(conversation_id)
+
+            async with self._lock:
+                self._sessions.pop(conversation_id, None)
+        finally:
+            async with self._lock:
+                self._deleting.discard(conversation_id)
+
+    async def abort_delete_session(self, conversation_id: str) -> None:
+        """Release a deletion reservation after a pre-cleanup failure."""
+        async with self._lock:
+            self._deleting.discard(conversation_id)
 
     async def save_session_snapshot(self, conversation_id: str, provider_adapter: Any, manager: SessionManager) -> None:
         """

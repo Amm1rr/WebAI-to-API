@@ -16,6 +16,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
+| `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for all providers. |
 | `/v1/auth/status` | Primary | Yes | N/A | No | Real-time auth state and health diagnostics. |
 | `/v1/auth/login` | Primary | Yes | N/A | No | Trigger for browser-based login workflows. |
@@ -56,6 +57,15 @@ A boolean field injected into the response metadata:
   - `true`: An in-memory `PersistentTab` for the conversation was reused.
   - `false`: No in-memory tab was reused. The backend may still resume the provider-side Gemini thread by navigating to the conversation URL.
 - **Stateless providers**: This field may be absent or provider-defined because no local conversation state is maintained.
+
+### Deletion
+
+`DELETE /v1/conversations/{conversation_id}` deletes Gemini WebAPI conversations only.
+
+- **Gemini WebAPI**: The runtime reads the SQLite snapshot, extracts the remote Gemini chat ID from `session_state.metadata[0]`, calls the Gemini WebAPI delete operation, removes the in-memory `SessionManager`, and deletes the SQLite snapshot.
+- **Gemini Playwright**: Not supported by this endpoint. Playwright conversation IDs are provider-side URL identifiers and are not SQLite-backed WebAPI snapshots.
+- **Atlas**: Not supported because Atlas requests are stateless in this runtime.
+- **Concurrency**: Active or already deleting conversations return `409 Conflict`.
 
 ## 5. Persistence Guarantees
 

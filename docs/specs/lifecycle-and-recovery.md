@@ -114,6 +114,7 @@ If the registry finds an active `SessionManager` for the given token, it reuses 
 * **Persistent Recovery**: The system utilizes a SQLite-backed repository to persist session snapshots. If a session is lost from memory (e.g., pruned due to TTL or after a server restart), the `SessionRegistry` can automatically restore the session state from the database using the supplied `conversation_id`.
 * **Durable Continuity**: For Gemini WebAPI, long-running threads can remain continuous across process restarts or container recycling, provided the `conversation_id` is preserved by the client and the corresponding SQLite snapshot exists.
 * **Missing Snapshot Behavior**: If an existing `conversation_id` is not present in memory and no valid snapshot exists, the request fails explicitly. The current implementation does not silently rebuild an existing WebAPI conversation from incoming message history.
+* **Deletion**: Gemini WebAPI deletion reserves the local `conversation_id` in `SessionRegistry` before remote deletion begins. This tombstone blocks concurrent reuse or SQLite restoration while the remote Gemini chat is being deleted and local state is being removed.
 
 ### 7.5 Gemini Playwright URL-Backed Continuity
 

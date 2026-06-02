@@ -46,6 +46,38 @@ Returns the list of available models and providers.
 
 ---
 
+### DELETE `/v1/conversations/{conversation_id}`
+
+Deletes a Gemini WebAPI conversation identified by the local `conversation_id`.
+
+This endpoint supports Gemini WebAPI conversations only. Gemini Playwright URL-backed conversations and Atlas requests are not supported by this delete endpoint.
+
+Successful response:
+
+```json
+{
+  "id": "conversation_id",
+  "object": "conversation.deleted",
+  "deleted": true,
+  "provider": "gemini",
+  "backend": "webapi"
+}
+```
+
+Status codes:
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | Remote Gemini delete and local cleanup completed. |
+| `400` | Invalid `conversation_id`. |
+| `401` | Gemini WebAPI authentication is missing or expired. |
+| `404` | No local WebAPI snapshot exists for the `conversation_id`. |
+| `409` | The conversation is active or already being deleted. |
+| `503` | Gemini client or session registry is unavailable. |
+| `500` | Remote Gemini deletion or local repository cleanup failed. |
+
+---
+
 ## Authentication API
 
 ### GET `/v1/auth/status`

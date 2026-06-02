@@ -104,6 +104,11 @@ class GeminiProvider(BaseProvider):
         # 3. Delegate to adapter
         return await adapter.chat_completions(request, cid, is_new_conversation, tools_prompt)
 
+    async def delete_conversation(self, conversation_id: str) -> dict:
+        if len(conversation_id) > 128:
+            raise HTTPException(status_code=400, detail="Invalid conversation_id length.")
+        return await self.webapi_adapter.delete_conversation(conversation_id)
+
     async def list_models(self) -> List[dict]:
         from app.services.providers.gemini.shared import get_gemini_models
         return get_gemini_models()

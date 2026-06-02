@@ -3,7 +3,11 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 from app.schemas.request import OpenAIChatRequest
-from app.services.providers.exceptions import SnapshotNotFoundError, StateIntegrityError
+from app.services.providers.exceptions import (
+    ConversationInUseError,
+    SnapshotNotFoundError,
+    StateIntegrityError,
+)
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.sqlite_repository import SQLiteConversationRepository
 from app.services.providers.gemini.session_manager import SessionRegistry
@@ -131,6 +135,54 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(tmp_path, mo
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "The provided conversation_id was not found."
+
+
+@pytest.mark.asyncio
+async def test_registry_tombstone_blocks_concurrent_get_session(tmp_path):
+    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
+    await repo.initialize()
+
+    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    await registry.begin_delete_session("conv-deleting")
+
+    with pytest.raises(ConversationInUseError):
+        await registry.get_session(
+            "conv-deleting",
+            GeminiProvider(),
+            allow_create=False,
+            model="gemini-3-flash",
+        )
+
+    await registry.abort_delete_session("conv-deleting")
+    assert "conv-deleting" not in registry._deleting
+
+
+@pytest.mark.asyncio
+async def test_registry_begin_delete_rejects_active_locked_session(tmp_path):
+    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
+    await repo.initialize()
+
+    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    manager = await registry.get_session("conv-active")
+    await manager.lock.acquire()
+    try:
+        with pytest.raises(ConversationInUseError):
+            await registry.begin_delete_session("conv-active")
+    finally:
+        manager.lock.release()
+
+
+@pytest.mark.asyncio
+async def test_registry_begin_delete_rejects_active_stream_session(tmp_path):
+    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
+    await repo.initialize()
+
+    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    manager = await registry.get_session("conv-streaming")
+    manager.active_streams = 1
+
+    with pytest.raises(ConversationInUseError):
+        await registry.begin_delete_session("conv-streaming")
 
 
 @pytest.mark.asyncio
