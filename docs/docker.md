@@ -19,17 +19,11 @@ Required software:
 Create a `.env` file:
 
 ```env
-ENVIRONMENT=production
+ATLASCLOUD_API_KEY=
+ATLASCLOUD_BASE_URL=https://api.atlascloud.ai/v1
 ```
 
-Available values:
-
-| Value         | Description      |
-| ------------- | ---------------- |
-| `development` | Development mode |
-| `production`  | Production mode  |
-
-If not specified, the application defaults to development mode.
+This file is optional unless you need to provide environment-backed settings such as Atlas credentials.
 
 ---
 
@@ -55,6 +49,18 @@ Start the stack:
 
 ```bash
 make up
+```
+
+Start the stack in the foreground:
+
+```bash
+make up-attach
+```
+
+Follow container logs from an already running stack:
+
+```bash
+make logs
 ```
 
 Stop the stack:
@@ -245,7 +251,6 @@ For Playwright deployments, preserving this directory is recommended.
 
 ## Best Practices
 
-* Use `production` mode for deployed environments.
 * Generate Playwright authentication on the host machine.
 * Preserve the `runtime` directory between deployments.
 * Restart containers after refreshing authentication.

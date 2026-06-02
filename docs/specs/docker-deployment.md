@@ -42,10 +42,10 @@ The WebAI-to-API server is orchestrated strictly for production execution using 
 
 The service is defined in `docker-compose.yml` for production execution:
 
-- **Detached Execution**: The service is typically run using `docker-compose up -d` to prevent interruption from terminal closures.
+- **Detached Execution**: The service is typically run using `docker compose up -d` to prevent interruption from terminal closures.
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
 - **Port Exposure**: Maps host port `6969` to container port `6969`.
-- **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH`, `ENVIRONMENT`, and `PLAYWRIGHT_HEADLESS`.
+- **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
 - **Persistent Runtime State**: Mounts `./runtime` into the container to preserve browser authentication state, conversation snapshots, and runtime-generated cache/log directories across container restarts and redeployments.
 
 ### 3.2 Runtime Topology
@@ -80,9 +80,11 @@ The included `Makefile` provides operational targets for managing the container 
 | :--- | :--- | :--- |
 | `make build` | `docker build -t cornatul/webai.ai:latest .` | Builds the local Docker image using the default cache. |
 | `make build-fresh` | `docker build --no-cache -t cornatul/webai.ai:latest .` | Rebuilds the container from scratch, ignoring cached layers. |
-| `make up` | Docker Compose launch | Launches the production container using the project's Docker Compose configuration. |
-| `make stop` | `docker-compose down` | Stops and removes active container instances and associated networks. |
-| `make down` | `docker-compose down` | Stops and removes container allocations (identical to `make stop`). |
+| `make up` | `docker compose up -d` | Launches the container in detached mode using the project's Docker Compose configuration. |
+| `make up-attach` | `docker compose up` | Launches the container in the foreground and streams logs to the terminal. |
+| `make logs` | `docker compose logs -f web_ai` | Follows logs from the running `web_ai` service. |
+| `make stop` | `docker compose down` | Stops and removes active container instances and associated networks. |
+| `make down` | `docker compose down` | Stops and removes container allocations (identical to `make stop`). |
 
 ---
 
@@ -165,7 +167,7 @@ docker logs -f web_ai_server
 
 ### 7.1 Image Rebuild
 Because the production-only container maps only persistent runtime state directories (`./runtime`) and does not bind-mount source code directories, any modification to Python source files (`.py` under `src/` or `app/`) requires an image rebuild to be projected into the active container runtime:
-- **`docker-compose up --build` or `make build`**: Required whenever there are changes to Python source code, system packages, the `Dockerfile`, or Python dependencies in `requirements.txt`.
+- **`docker compose up --build` or `make build`**: Required whenever there are changes to Python source code, system packages, the `Dockerfile`, or Python dependencies in `requirements.txt`.
 - **`make build-fresh`**: Recommended when troubleshooting package mismatch issues, resetting cached layers, or performing a clean verification of the dependency tree.
 
 ### 7.2 Version Alignment
@@ -181,8 +183,8 @@ A: Authentication state is stored in `runtime/auth/gemini.json` on the host mach
 **Q: Does authentication survive container recreation?**
 
 A: Yes. Because `runtime/auth/gemini.json` is stored in the `./runtime` directory on the host (not inside the container), authentication persists across:
-- Container restarts (`docker-compose restart`)
-- Container recreation (`docker-compose down && docker-compose up -d`)
+- Container restarts (`docker compose restart`)
+- Container recreation (`docker compose down && docker compose up -d`)
 - Image rebuilds (`make build`)
 
 Authentication is only lost if the `./runtime` directory is deleted from the host machine.

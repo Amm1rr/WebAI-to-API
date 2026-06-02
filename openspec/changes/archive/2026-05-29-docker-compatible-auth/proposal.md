@@ -35,4 +35,4 @@ To enable self-hosted production deployments, the project requires a Docker-comp
   - Provider Adapters: Removed all provider-specific persistence logic, delegating state file loading entirely to the shared session infrastructure layer.
   - API Lifecycle: Lifespan hooks to ensure proper cleanup of the browser engine and providers during application shutdown.
   - Bootstrapping: Refactored into a reusable manual bootstrap utility initially targeting Gemini that saves pre-authenticated state to `auth_state_dir`.
-  - Deployment Assets: Upgraded Dockerfile to utilize a base image with all native Playwright libraries pre-packaged, along with volume mounts in docker-compose to persist the bootstrapping state.
+  - Deployment Assets: Upgraded Dockerfile to utilize a base image with all native Playwright libraries pre-packaged, along with volume mounts in Docker Compose to persist the bootstrapping state.

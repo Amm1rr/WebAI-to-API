@@ -14,7 +14,6 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app/src
-      - ENVIRONMENT=${ENVIRONMENT:-production}
       - PLAYWRIGHT_HEADLESS=true
     volumes:
       - ./runtime:/app/runtime
