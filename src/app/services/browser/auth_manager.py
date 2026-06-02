@@ -60,6 +60,7 @@ class AuthManager:
     def __init__(self):
         if self._initialized:
             return
+        self._default_provider_name = "gemini"
         self.login_lock = asyncio.Lock()
         
         # Resolve auth lock backend from configuration
@@ -78,20 +79,74 @@ class AuthManager:
         if backend_name == "in_memory":
             self.coordination_lock = InMemoryAuthLock()
 
+        self._strategies: Dict[str, Any] = {}
         self._strategy = None
         self._cached_playwright_status = None
         self._cached_webapi_status = None
         self._cached_webapi_source = None
         self._last_validated = 0.0
+        self._cached_status_by_provider: Dict[str, Dict[str, Any]] = {}
         self._active_login_task: Optional[asyncio.Task] = None
+        self._active_login_tasks_by_provider: Dict[str, asyncio.Task] = {}
         self._legacy_fallback_active = False
         self._initialized = True
 
-    def set_strategy(self, strategy: Any) -> None:
+    def _resolve_provider_name(self, strategy: Any, provider_name: Optional[str] = None) -> str:
+        if provider_name:
+            return provider_name
+
+        candidate = getattr(strategy, "provider_name", None)
+        if callable(candidate):
+            candidate = candidate()
+        if isinstance(candidate, str) and candidate:
+            return candidate
+
+        return self._default_provider_name
+
+    def register_strategy(self, provider_name: str, strategy: Any) -> None:
         """
         Register a provider-specific authentication strategy.
         """
-        self._strategy = strategy
+        if not provider_name:
+            raise ValueError("provider_name is required.")
+
+        self._strategies[provider_name] = strategy
+        if provider_name == self._default_provider_name:
+            self._strategy = strategy
+
+    def set_strategy(self, strategy: Any) -> None:
+        """
+        Backward-compatible alias for registering the default Gemini strategy.
+        """
+        provider_name = self._resolve_provider_name(strategy)
+        self.register_strategy(provider_name, strategy)
+
+    def get_strategy(self, provider_name: Optional[str] = None) -> Any:
+        provider_name = provider_name or self._default_provider_name
+        if provider_name == self._default_provider_name and self._strategy is not None:
+            return self._strategy
+        return self._strategies.get(provider_name)
+
+    def _empty_provider_status(self) -> Dict[str, Any]:
+        return {
+            "playwright": AuthStatus.NO_SESSION,
+            "webapi": AuthStatus.INVALID,
+            "webapi_source": None,
+            "is_legacy": False,
+            "last_validated": 0.0,
+        }
+
+    def _sync_default_legacy_cache(self, snapshot: Dict[str, Any]) -> None:
+        self._cached_playwright_status = snapshot.get("playwright")
+        self._cached_webapi_status = snapshot.get("webapi")
+        self._cached_webapi_source = snapshot.get("webapi_source")
+        self._legacy_fallback_active = snapshot.get("is_legacy", False)
+        self._last_validated = time.time()
+
+    def _store_provider_snapshot(self, provider_name: str, snapshot: Dict[str, Any]) -> None:
+        self._cached_status_by_provider[provider_name] = dict(snapshot)
+        if provider_name == self._default_provider_name:
+            self._sync_default_legacy_cache(snapshot)
 
     @property
     def login_state(self) -> str:
@@ -119,45 +174,53 @@ class AuthManager:
             cls._instance = cls()
         return cls._instance
 
-    def refresh_playwright_status_lightweight(self) -> str:
+    def refresh_playwright_status_lightweight(self, provider_name: Optional[str] = None) -> str:
         """
         Lightweight check for Playwright session status.
         Delegates to the registered strategy.
         """
-        status = self.refresh_status()
+        status = self.refresh_status(provider_name)
         return status.get("playwright_status", AuthStatus.NO_SESSION)
 
-    def refresh_webapi_status_lightweight(self) -> str:
+    def refresh_webapi_status_lightweight(self, provider_name: Optional[str] = None) -> str:
         """
         Lightweight check for gemini-webapi connection status.
         Delegates to the registered strategy.
         """
-        status = self.refresh_status()
+        status = self.refresh_status(provider_name)
         return status.get("webapi_status", AuthStatus.INVALID)
 
-    def refresh_status(self) -> Dict[str, Any]:
+    def refresh_status(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Perform a lightweight refresh of both authentication pathways.
         Delegates to the registered strategy.
         """
-        if not self._strategy:
+        provider_name = provider_name or self._default_provider_name
+        strategy = self.get_strategy(provider_name)
+        if not strategy:
+            snapshot = self._empty_provider_status()
+            snapshot["last_validated"] = time.time()
+            self._store_provider_snapshot(provider_name, snapshot)
             return {
-                "playwright_status": AuthStatus.NO_SESSION,
-                "webapi_status": AuthStatus.INVALID,
-                "last_validated": time.time()
+                "playwright_status": snapshot["playwright"],
+                "webapi_status": snapshot["webapi"],
+                "last_validated": snapshot["last_validated"],
             }
 
-        res = self._strategy.refresh_status()
-        self._cached_playwright_status = res.get("playwright")
-        self._cached_webapi_status = res.get("webapi")
-        self._cached_webapi_source = res.get("webapi_source")
-        self._legacy_fallback_active = res.get("is_legacy", False)
-        self._last_validated = time.time()
+        res = strategy.refresh_status()
+        snapshot = {
+            "playwright": res.get("playwright", AuthStatus.NO_SESSION),
+            "webapi": res.get("webapi", AuthStatus.INVALID),
+            "webapi_source": res.get("webapi_source"),
+            "is_legacy": res.get("is_legacy", False),
+            "last_validated": time.time(),
+        }
+        self._store_provider_snapshot(provider_name, snapshot)
         
         return {
-            "playwright_status": self._cached_playwright_status,
-            "webapi_status": self._cached_webapi_status,
-            "last_validated": self._last_validated
+            "playwright_status": snapshot["playwright"],
+            "webapi_status": snapshot["webapi"],
+            "last_validated": snapshot["last_validated"]
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -165,9 +228,10 @@ class AuthManager:
         Get the current cached authentication status without performing expensive operations.
         """
         if self._cached_playwright_status is None or self._cached_webapi_status is None:
-            self.refresh_status()
+            self.refresh_status(self._default_provider_name)
 
-        state_path = self._strategy.get_state_path() if self._strategy else "N/A"
+        default_strategy = self.get_strategy(self._default_provider_name)
+        state_path = default_strategy.get_state_path() if default_strategy else "N/A"
 
         status_payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -191,28 +255,44 @@ class AuthManager:
 
         return status_payload
 
-    def mark_expired(self):
+    def get_provider_status(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
+        provider_name = provider_name or self._default_provider_name
+        snapshot = self._cached_status_by_provider.get(provider_name)
+        if snapshot is None:
+            self.refresh_status(provider_name)
+            snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
+        return dict(snapshot)
+
+    def mark_expired(self, provider_name: Optional[str] = None):
         """
         Transition cached status to EXPIRED_SESSION. Called passively on request auth failures.
         """
+        provider_name = provider_name or self._default_provider_name
         logger.info("AuthManager: Playwright session marked as EXPIRED_SESSION passively.")
-        self._cached_playwright_status = AuthStatus.EXPIRED_SESSION
+        snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
+        snapshot["playwright"] = AuthStatus.EXPIRED_SESSION
+        self._store_provider_snapshot(provider_name, snapshot)
 
-    def start_login(self) -> None:
+    def start_login(self, provider_name: Optional[str] = None) -> None:
         """
         Triggers the on-demand bootstrap login workflow asynchronously in the background.
         Coordinates locks and active state machine.
         """
-        if not self._strategy:
+        provider_name = provider_name or self._default_provider_name
+        strategy = self.get_strategy(provider_name)
+        if not strategy:
             raise RuntimeError("No authentication strategy registered.")
             
         if not self.coordination_lock.acquire():
             raise ValueError("Authentication in progress.")
 
-        self._active_login_task = asyncio.create_task(self._run_login_task())
+        task = asyncio.create_task(self._run_login_task(provider_name))
+        self._active_login_tasks_by_provider[provider_name] = task
+        if provider_name == self._default_provider_name:
+            self._active_login_task = task
         logger.info("AuthManager: Asynchronous login workflow successfully triggered.")
 
-    async def _run_login_task(self) -> None:
+    async def _run_login_task(self, provider_name: str) -> None:
         async with self.login_lock:
             try:
                 if not self._check_display_available():
@@ -220,35 +300,48 @@ class AuthManager:
 
                 from app.services.browser.engine import get_browser_engine
                 bootstrap_engine = await get_browser_engine(headless=False, is_bootstrap=True)
+                strategy = self.get_strategy(provider_name)
+                if not strategy:
+                    raise RuntimeError("No authentication strategy registered.")
                 
                 async with bootstrap_engine as engine:
-                    await self._strategy.run_login_flow(engine)
+                    await strategy.run_login_flow(engine)
                 
-                self._cached_playwright_status = AuthStatus.VALID_SESSION
+                snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
+                snapshot["playwright"] = AuthStatus.VALID_SESSION
+                self._store_provider_snapshot(provider_name, snapshot)
                 
                 # Re-initialize the direct gemini-webapi client with the newly saved cookies
                 try:
-                    await self._strategy.run_post_login_recovery()
+                    await strategy.run_post_login_recovery()
                     logger.info("AuthManager: Instantly refreshing local authentication statuses...")
-                    self.refresh_status()
+                    self.refresh_status(provider_name)
                 except Exception as e:
                     logger.error(f"AuthManager: Post-login recovery failed: {e}")
-                    self._cached_webapi_status = AuthStatus.INVALID
+                    snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
+                    snapshot["webapi"] = AuthStatus.INVALID
+                    self._store_provider_snapshot(provider_name, snapshot)
             except Exception as e:
                 logger.error(f"AuthManager: Background login flow failed: {e}")
                 # Refresh status (which might be EXPIRED_SESSION or NO_SESSION)
-                self.refresh_status()
+                self.refresh_status(provider_name)
             finally:
-                self._active_login_task = None
-                self._last_validated = time.time()
+                self._active_login_tasks_by_provider.pop(provider_name, None)
+                if provider_name == self._default_provider_name:
+                    self._active_login_task = None
+                snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
+                snapshot["last_validated"] = time.time()
+                self._store_provider_snapshot(provider_name, snapshot)
                 self.coordination_lock.release()
 
-    async def run_login_flow(self) -> None:
+    async def run_login_flow(self, provider_name: Optional[str] = None) -> None:
         """
         Orchestrate the headful login workflow using core BrowserEngine primitives.
         Delegates to the registered strategy.
         """
-        if not self._strategy:
+        provider_name = provider_name or self._default_provider_name
+        strategy = self.get_strategy(provider_name)
+        if not strategy:
             raise RuntimeError("No authentication strategy registered.")
             
         if not self._check_display_available():
@@ -257,7 +350,7 @@ class AuthManager:
         from app.services.browser.engine import get_browser_engine
         bootstrap_engine = await get_browser_engine(headless=False, is_bootstrap=True)
         async with bootstrap_engine as engine:
-            await self._strategy.run_login_flow(engine)
+            await strategy.run_login_flow(engine)
 
     def _check_display_available(self) -> bool:
         """

@@ -11,6 +11,7 @@ class GeminiAuthStrategy:
     Gemini-specific authentication workflow strategy.
     Implements login flows, status checks, and recovery for Google Gemini.
     """
+    provider_name = "gemini"
 
     def get_state_path(self) -> str:
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -174,7 +175,7 @@ class GeminiAuthStrategy:
         from app.services.factory import ProviderFactory
         
         logger.info("GeminiAuthStrategy: Clearing and closing registered Gemini provider in ProviderFactory...")
-        await ProviderFactory.close_provider("gemini")
+        await ProviderFactory.close_provider(self.provider_name)
 
         logger.info("GeminiAuthStrategy: Re-initializing direct Gemini WebAPI client...")
         init_success = await init_gemini_client()
