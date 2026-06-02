@@ -149,16 +149,16 @@ Send a POST request to `/v1/chat/completions` (or any other available endpoint) 
 
 The local OpenAI-compatible `/v1/models` endpoint now exposes 50 validated Atlas Cloud chat models using the `atlas/` prefix. The validated set includes:
 
-- `atlas/deepseek-ai/DeepSeek-V3-0324`
-- `atlas/deepseek-ai/deepseek-r1-0528`
-- `atlas/moonshotai/Kimi-K2-Instruct`
-- `atlas/Qwen/Qwen3-Coder`
-- `atlas/google/gemini-2.5-flash`
-- `atlas/openai/gpt-5.1`
-- `atlas/openai/gpt-4o`
-- `atlas/anthropic/claude-sonnet-4.5-20250929`
-- `atlas/MiniMaxAI/MiniMax-M2`
-- `atlas/xai/grok-4-0709`
+- `atlas/deepseek-ai/DeepSeek-V3-0324`, `atlas/deepseek-ai/deepseek-r1-0528`, `atlas/moonshotai/Kimi-K2-Instruct`, `atlas/Qwen/Qwen3-Coder`, `atlas/Qwen/Qwen3-235B-A22B-Instruct-2507`
+- `atlas/deepseek-ai/DeepSeek-V3.1`, `atlas/moonshotai/Kimi-K2-Instruct-0905`, `atlas/Qwen/Qwen3-Next-80B-A3B-Instruct`, `atlas/Qwen/Qwen3-Next-80B-A3B-Thinking`, `atlas/Qwen/Qwen3-30B-A3B-Instruct-2507`
+- `atlas/deepseek-ai/DeepSeek-V3.1-Terminus`, `atlas/deepseek-ai/DeepSeek-V3.2-Exp`, `atlas/zai-org/GLM-4.6`, `atlas/MiniMaxAI/MiniMax-M2`, `atlas/Qwen/Qwen3-VL-235B-A22B-Instruct`
+- `atlas/moonshotai/Kimi-K2-Thinking`, `atlas/google/gemini-2.5-flash`, `atlas/google/gemini-2.5-flash-lite`, `atlas/openai/gpt-5.1`, `atlas/openai/gpt-5.1-chat`
+- `atlas/openai/gpt-4o`, `atlas/openai/gpt-4o-mini`, `atlas/openai/gpt-4.1`, `atlas/openai/gpt-4.1-mini`, `atlas/openai/gpt-4.1-nano`
+- `atlas/openai/o1`, `atlas/openai/o3`, `atlas/openai/o3-mini`, `atlas/openai/o4-mini`, `atlas/anthropic/claude-sonnet-4.5-20250929`
+- `atlas/deepseek-ai/deepseek-v3.2`, `atlas/openai/gpt-5`, `atlas/openai/gpt-5-chat`, `atlas/openai/gpt-5-mini`, `atlas/openai/gpt-5-nano`
+- `atlas/openai/gpt-5.2`, `atlas/openai/gpt-5.2-chat`, `atlas/google/gemini-2.5-pro`, `atlas/anthropic/claude-opus-4.5-20251101`, `atlas/google/gemini-3-flash-preview`
+- `atlas/zai-org/glm-4.7`, `atlas/minimaxai/minimax-m2.1`, `atlas/google/gemini-2.0-flash`, `atlas/qwen/qwen3-8b`, `atlas/qwen/qwen3-235b-a22b-thinking-2507`
+- `atlas/qwen/qwen3-vl-235b-a22b-thinking`, `atlas/qwen/qwen3-30b-a3b`, `atlas/qwen/qwen3-30b-a3b-thinking-2507`, `atlas/deepseek-ai/deepseek-ocr`, `atlas/xai/grok-4-0709`
 
 Use `GET /v1/models` to retrieve the full validated list programmatically.
 
