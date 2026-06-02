@@ -357,6 +357,7 @@ async def test_ui_models_returns_html(mocker):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Available Models" in response.text
+    assert "<th>Object</th>" not in response.text
     assert "gemini/gemini-3-flash" in response.text
     list_models.assert_called_once()
 
