@@ -286,6 +286,7 @@ async def test_ui_conversations_returns_html_and_uses_existing_list_helper(mocke
     assert "2 local Gemini WebAPI snapshots currently available." in response.text
     assert 'hx-post="/ui/conversations/delete/confirm"' in response.text
     assert 'hx-post="/ui/conversations/delete/all/confirm"' in response.text
+    assert 'hx-target="#bulk-delete-panel"' in response.text
     assert 'hx-indicator="#conversation-action-indicator"' in response.text
     assert 'Loading conversation action...' in response.text
     assert 'value="conv-1234567890abcdef"' in response.text
@@ -497,6 +498,8 @@ async def test_ui_bulk_delete_confirm_renders_count_and_scope(mocker):
     assert 'placeholder="DELETE ALL"' in response.text
     assert 'Type DELETE ALL to confirm bulk deletion.' in response.text
     assert 'Delete all snapshots' in response.text
+    assert 'id="bulk-delete-panel"' not in response.text
+    assert 'Delete all local Gemini WebAPI snapshots' not in response.text
 
 
 @pytest.mark.asyncio
@@ -545,10 +548,13 @@ async def test_ui_bulk_delete_success_renders_counts_and_refreshes_rows(mocker):
     assert "Deleted 1 of 3 snapshots." in response.text
     assert "Skipped 1 active conversations." in response.text
     assert "Failed 1 deletions." in response.text
+    assert "This page shows locally persisted Gemini WebAPI conversation snapshots only." in response.text
     assert "deleted" in response.text
     assert "skipped_active" in response.text
     assert "failed" in response.text
     assert 'hx-swap-oob="outerHTML"' in response.text
+    assert 'id="conversation-list-panel"' in response.text
+    assert "No locally persisted Gemini WebAPI conversation snapshots were returned." not in response.text
     assert "conversation-list-refresh" in response.headers.get("HX-Trigger", "")
     delete_conversations.assert_called_once_with()
 

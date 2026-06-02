@@ -19,7 +19,7 @@
     {% endif %}
   </div>
 
-  <section class="panel bulk-panel">
+  <section id="bulk-delete-panel" class="panel bulk-panel">
     <div class="panel-head">
       <h2>Bulk Delete</h2>
       <span class="badge destructive">Destructive</span>
@@ -30,7 +30,7 @@
       class="bulk-form"
       hx-post="/ui/conversations/delete/all/confirm"
       hx-indicator="#conversation-action-indicator"
-      hx-target="#conversation-action"
+      hx-target="#bulk-delete-panel"
       hx-swap="innerHTML"
       hx-disabled-elt="button"
     >
@@ -38,7 +38,7 @@
     </form>
   </section>
 
-  <section class="panel">
+  <section id="conversation-list-panel" class="panel">
     <p class="note">{{ conversation_scope_note }}</p>
     <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
 
@@ -57,9 +57,7 @@
               <th></th>
             </tr>
           </thead>
-          <tbody id="conversation-rows">
-            {% include "ui/partials/conversation_rows.html" %}
-          </tbody>
+          {% include "ui/partials/conversation_rows.html" %}
         </table>
       </div>
     {% else %}

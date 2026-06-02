@@ -257,6 +257,8 @@ async def dashboard_conversation_bulk_delete(request: Request, confirmation_phra
             request,
             bulk_result=result,
             bulk_result_rows=_bulk_result_rows(result.get("results", [])),
+            bulk_conversations=rows,
+            bulk_scope_note="This page shows locally persisted Gemini WebAPI conversation snapshots only.",
             bulk_message=(
                 f"Deleted {result.get('deleted_count', 0)} of {result.get('total', 0)} snapshots. "
                 f"Skipped {result.get('skipped_active_count', 0)} active conversations. "

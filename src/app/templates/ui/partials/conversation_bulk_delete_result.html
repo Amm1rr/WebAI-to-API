@@ -34,9 +34,32 @@
       </div>
     {% endif %}
 
-    <tbody id="conversation-rows" hx-swap-oob="outerHTML">
-      {% include "ui/partials/conversation_rows.html" %}
-    </tbody>
+    <section id="conversation-list-panel" class="panel" hx-swap-oob="outerHTML">
+      <p class="note">{{ bulk_scope_note }}</p>
+      <p class="note">Playwright and Atlas conversations are not listed here because they are not persisted as local Gemini WebAPI snapshots.</p>
+
+      {% if bulk_conversations %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Conversation ID</th>
+                <th>Provider</th>
+                <th>Backend</th>
+                <th>Model</th>
+                <th>Gem ID</th>
+                <th>Updated At</th>
+                <th>Schema Version</th>
+                <th></th>
+              </tr>
+            </thead>
+            {% include "ui/partials/conversation_rows.html" %}
+          </table>
+        </div>
+      {% else %}
+        <p class="empty">No locally persisted Gemini WebAPI conversation snapshots were returned.</p>
+      {% endif %}
+    </section>
   {% else %}
     <div class="alert alert-error" role="alert">
       {{ bulk_error or "The bulk delete request could not be completed." }}
