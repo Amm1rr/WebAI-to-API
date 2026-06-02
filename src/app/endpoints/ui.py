@@ -54,6 +54,30 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
     webapi_status = _format_note_value(gemini_webapi.get("status"))
     webapi_source = _format_note_value(gemini_webapi.get("auth_source"))
     webapi_notes = login_state if login_state != "IDLE" else "n/a"
+    webapi_indicators: list[dict[str, str]] = []
+    if webapi_source == "[Cookies] legacy config":
+        webapi_indicators.append(
+            {
+                "label": "Legacy",
+                "title": "Using legacy cookie configuration",
+                "severity": "warning",
+            }
+        )
+        webapi_indicators.append(
+            {
+                "label": "Migration",
+                "title": "Migrate cookies to the [Gemini] section. Legacy support will be removed in a future release.",
+                "severity": "warning",
+            }
+        )
+    elif webapi_source == "browser cookie fallback":
+        webapi_indicators.append(
+            {
+                "label": "Fallback",
+                "title": "Using browser cookie fallback authentication",
+                "severity": "warning",
+            }
+        )
 
     playwright_status = _format_note_value(playwright.get("status"))
     playwright_source = _format_note_value(playwright.get("auth_state_file"))
@@ -62,10 +86,6 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
     validation_details = _format_note_value(playwright.get("validation_details"))
     if validation_details != "n/a":
         playwright_indicators.append({"label": "Info", "title": validation_details, "severity": "neutral"})
-    if playwright.get("legacy_fallback_active"):
-        playwright_indicators.append({"label": "Legacy", "title": "Legacy fallback active", "severity": "warning"})
-    if playwright.get("migration_needed"):
-        playwright_indicators.append({"label": "Migration", "title": "Migration needed", "severity": "warning"})
 
     return [
         {
@@ -75,6 +95,7 @@ def _normalize_auth_status(auth_status: dict[str, Any]) -> list[dict[str, Any]]:
             "auth_source": webapi_source,
             "last_checked": timestamp,
             "notes": webapi_notes,
+            "indicators": webapi_indicators,
             "status_class": _status_class(webapi_status),
         },
         {

@@ -182,7 +182,9 @@ async def test_ui_auth_returns_html_and_uses_htmx_refresh(mocker):
     assert "Playwright" in response.text
     assert 'class="badge success">AUTHENTICATED<' in response.text or 'class="badge success"' in response.text
     assert "[Cookies] legacy config" in response.text
-    assert "indicator-badge" in response.text
+    assert 'title="Using legacy cookie configuration"' in response.text
+    assert 'title="Migrate cookies to the [Gemini] section. Legacy support will be removed in a future release."' in response.text
+    assert 'class="indicator-badge indicator-warning"' in response.text
     get_auth_status.assert_called_once_with(refresh=False)
 
 
@@ -210,6 +212,9 @@ async def test_ui_auth_panel_returns_fragment(mocker):
     assert 'title="Cached test validation."' in response.text
     assert "Info" in response.text
     assert 'class="indicator-badge indicator-neutral"' in response.text
+    assert 'title="Using legacy cookie configuration"' in response.text
+    assert 'title="Migrate cookies to the [Gemini] section. Legacy support will be removed in a future release."' in response.text
+    assert 'class="indicator-badge indicator-warning"' in response.text
     assert 'role="status"' in response.text
     assert 'aria-live="polite"' in response.text
 
@@ -227,6 +232,7 @@ async def test_ui_auth_panel_renders_n_a_when_webapi_source_missing(mocker):
     assert "<code>n/a</code>" in response.text
     assert 'title="n/a"' not in response.text
     assert "n/a" in response.text
+    assert 'class="indicator-badge indicator-warning"' not in response.text
 
 
 @pytest.mark.asyncio
@@ -264,16 +270,52 @@ def test_ui_auth_normalizer_includes_optional_indicators():
         "title": "Cached test validation.",
         "severity": "neutral",
     }
-    assert rows[1]["indicators"][1] == {
-        "label": "Legacy",
-        "title": "Legacy fallback active",
-        "severity": "warning",
-    }
-    assert rows[1]["indicators"][2] == {
-        "label": "Migration",
-        "title": "Migration needed",
-        "severity": "warning",
-    }
+    assert rows[0]["indicators"] == [
+        {
+            "label": "Legacy",
+            "title": "Using legacy cookie configuration",
+            "severity": "warning",
+        },
+        {
+            "label": "Migration",
+            "title": "Migrate cookies to the [Gemini] section. Legacy support will be removed in a future release.",
+            "severity": "warning",
+        }
+    ]
+    assert rows[1]["indicators"] == [
+        {
+            "label": "Info",
+            "title": "Cached test validation.",
+            "severity": "neutral",
+        }
+    ]
+
+
+def test_ui_auth_normalizer_adds_fallback_indicator():
+    rows = ui_module._normalize_auth_status(
+        {
+            "timestamp": "2026-06-02T00:00:00Z",
+            "login_state": "IDLE",
+            "gemini_webapi": {
+                "status": "AUTHENTICATED",
+                "auth_source": "browser cookie fallback",
+            },
+            "playwright": {
+                "status": "VALID_SESSION",
+                "auth_state_file": "runtime/auth/gemini.json",
+                "last_validated": "2026-06-02T00:00:00Z",
+                "validation_details": "Cached test validation.",
+            },
+        }
+    )
+
+    assert rows[0]["indicators"] == [
+        {
+            "label": "Fallback",
+            "title": "Using browser cookie fallback authentication",
+            "severity": "warning",
+        }
+    ]
 
 
 @pytest.mark.asyncio
