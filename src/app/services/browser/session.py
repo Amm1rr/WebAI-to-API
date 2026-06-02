@@ -1,6 +1,7 @@
-import os
 import asyncio
 import json
+import inspect
+import os
 import time
 import weakref
 from collections import OrderedDict
@@ -979,22 +980,42 @@ class ProviderSession:
         tab._cleanup_task = task
         self._orphan_cleanup_tasks.add(task)
 
-    async def _setup_page_bridge(self, page: Page):
-        """Exposes a single permanent binding on the page to prevent memory leaks."""
-        if getattr(page, "_gemini_bridge_exposed", False):
+    async def _setup_page_bridge(
+        self,
+        page: Page,
+        binding_name: str = "__browser_bridge",
+        callbacks_attr: str = "_browser_bridge_callbacks",
+    ):
+        """Expose a permanent request bridge binding on the page for a provider."""
+        page_state = vars(page)
+        exposed_bindings = page_state.get("_browser_bridge_exposed_bindings")
+        if exposed_bindings is None:
+            exposed_bindings = set()
+            page._browser_bridge_exposed_bindings = exposed_bindings
+        if binding_name in exposed_bindings:
+            if callbacks_attr not in page_state:
+                setattr(page, callbacks_attr, {})
             return
-        
-        # Lock to serialize bridge setup on the same page
-        lock = getattr(page, "_gemini_bridge_lock", None)
+
+        # Lock to serialize bridge setup on the same page.
+        lock = page_state.get("_browser_bridge_lock")
         if lock is None:
             lock = asyncio.Lock()
-            page._gemini_bridge_lock = lock
+            page._browser_bridge_lock = lock
 
         async with lock:
-            if getattr(page, "_gemini_bridge_exposed", False):
+            page_state = vars(page)
+            exposed_bindings = page_state.get("_browser_bridge_exposed_bindings")
+            if exposed_bindings is None:
+                exposed_bindings = set()
+                page._browser_bridge_exposed_bindings = exposed_bindings
+            if binding_name in exposed_bindings:
+                if callbacks_attr not in page_state:
+                    setattr(page, callbacks_attr, {})
                 return
-            
-            page._gemini_callbacks = {}
+
+            if callbacks_attr not in page_state:
+                setattr(page, callbacks_attr, {})
             
             async def page_bridge(source, payload):
                 req_id = payload.get("requestId")
@@ -1007,7 +1028,7 @@ class ProviderSession:
                     extra={"request_id": req_id, "payload_type": payload.get("type")}
                 )
                 
-                callbacks = getattr(page, "_gemini_callbacks", {})
+                callbacks = vars(page).get(callbacks_attr, {})
                 callback = callbacks.get(req_id)
                 if not callback:
                     logger.error(
@@ -1031,6 +1052,8 @@ class ProviderSession:
                         exc_info=True,
                         extra={"request_id": req_id}
                     )
-                    
-            await page.expose_binding("__gemini_bridge", page_bridge)
-            page._gemini_bridge_exposed = True
+
+            expose_result = page.expose_binding(binding_name, page_bridge)
+            if inspect.isawaitable(expose_result):
+                await expose_result
+            exposed_bindings.add(binding_name)

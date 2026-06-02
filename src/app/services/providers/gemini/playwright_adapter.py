@@ -39,6 +39,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                 provider_name="gemini",
                 session_name="gemini",
                 callback_name="__gemini_bridge",
+                bridge_callbacks_attr="_gemini_callbacks",
                 default_model="playwright/gemini",
                 create_browser_adapter=self._create_browser_adapter,
                 get_browser_engine=self._get_browser_engine,

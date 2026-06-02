@@ -71,6 +71,7 @@ class BrowserRequestExecutorHooks:
     provider_name: str
     session_name: str
     callback_name: str
+    bridge_callbacks_attr: str
     default_model: str
     create_browser_adapter: Callable[[], Any]
     get_browser_engine: Callable[[], Awaitable[Any]]
@@ -202,10 +203,14 @@ class BrowserRequestExecutor:
                             logger.warning(f"Bridge emit failure: {e}")
                             state.page_poisoned = True
 
-                    await session._setup_page_bridge(page)
-                    # Temporary Gemini-specific bridge callback registry retained for
-                    # backward compatibility. PR2 will generalize this shared runtime surface.
-                    page._gemini_callbacks[state.request_id] = bridge_callback
+                    await session._setup_page_bridge(
+                        page,
+                        binding_name=self.hooks.callback_name,
+                        callbacks_attr=self.hooks.bridge_callbacks_attr,
+                    )
+                    # Temporary Gemini-specific callback attribute may still be supplied
+                    # by provider hooks for compatibility while PR3 finishes bridge cleanup.
+                    getattr(page, self.hooks.bridge_callbacks_attr)[state.request_id] = bridge_callback
                     await self.hooks.sleep(0.01)
 
                     self._validate_tab_generation(
@@ -517,8 +522,9 @@ class BrowserRequestExecutor:
                     except BaseException:
                         pass
                 if lease:
-                    if hasattr(lease.page, "_gemini_callbacks"):
-                        lease.page._gemini_callbacks.pop(state.request_id, None)
+                    callbacks = getattr(lease.page, self.hooks.bridge_callbacks_attr, None)
+                    if callbacks is not None:
+                        callbacks.pop(state.request_id, None)
                     if not state.page_closed:
                         try:
                             await self.hooks.stop_observer(lease.page, state.request_id)
