@@ -80,6 +80,10 @@ Fastest setup for lightweight use.
 
 #### 2. Browser Login (Playwright)
 Recommended for robustness and Docker deployments.
+
+> [!IMPORTANT]
+> `verify_login.py` requires a graphical desktop environment. Run it on your local machine, not inside a headless Docker container or a remote SSH session without GUI access.
+
 1. Run the interactive login helper:
    ```bash
    poetry run python verify_login.py
@@ -160,6 +164,21 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 Available models may vary depending on the configured provider and backend.
 
 Use the `/v1/models` endpoint to retrieve the current list of supported models.
+
+---
+
+## Model Routing
+
+WebAI-to-API uses model prefixes to route requests to specific backends.
+
+| Model | Backend |
+|---------|---------|
+| `gemini-3-flash` | Gemini (default configured backend) |
+| `playwright/gemini-3-flash` | Gemini Playwright |
+| `atlas/...` | Atlas Cloud |
+
+> [!TIP]
+> Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`.
 
 ---
 
