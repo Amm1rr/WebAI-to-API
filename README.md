@@ -2,6 +2,7 @@
 
 <p align="center">
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
+  <img src="./assets/Dashboard.png" alt="Dashboard" height="160" />
   <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
     <img src="./assets/ATLAS_CLOUD_LOGO_BLACK.png" alt="Atlas Cloud" height="160" />
   </a>
