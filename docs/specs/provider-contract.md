@@ -4,8 +4,8 @@ This document specifies the interface and responsibilities for logical provider 
 
 ## 1. Ownership Boundaries
 
-- **The Engine owns**: The browser process, context lifecycle, and global synchronization.
-- **The Provider (Logical Identity) owns**: Vendor-specific logic, prompt transformation, tool-call parsing, and orchestration of execution adapters.
+- **The Engine owns**: The browser process, global synchronization, and terminal shutdown.
+- **The Provider (Logical Identity) owns**: Vendor-specific logic, prompt transformation, tool-call parsing, model catalog, and orchestration of execution adapters.
 - **The Adapter (Execution Strategy) owns**: The technical implementation of a specific backend (e.g., Playwright or WebAPI).
 - **The Browser-Native Adapter owns**: Request-scoped browser logic, page-level event listeners, observer injection, and prompt emulation.
 
@@ -19,22 +19,16 @@ Authentication ownership is split by responsibility:
 | Selection | Provider-specific selector | Gemini source ordering and fallback sequencing are owned by `GeminiAuthSelector`. |
 | Validation | Backend implementation | WebAPI validates cookies through account status evaluation. Playwright validates browser/storage usability through browser-context activation. |
 | Activation | Backend implementation | WebAPI activates a direct Gemini client. Playwright activates storage state in a browser context. |
+| Discovery | `AuthLoader` | Finds available auth material such as provider cookies, legacy `[Cookies]`, JSON auth state, or browser state. Discovery does not decide which source wins. |
+| Selection | Provider auth strategy | Strategy objects own source ordering, fallback sequencing, and provider-owned auth policy. |
+| Validation | Backend implementation | Backend code validates whether selected auth material is usable for that backend. |
+| Activation | Backend implementation or auth strategy | Browser-native backends activate a browser context. |
 | Caching | `AuthManager` | Owns cached auth status exposed by `/v1/auth/status`. |
 | Login and recovery orchestration | `AuthManager` plus provider auth strategy | `AuthManager` coordinates login/status flow; provider strategies perform provider-specific login and post-login recovery hooks. |
 
 `AuthLoader` and `GeminiAuthSelector` must not validate account status, create backend clients, activate browser contexts, or decide WebAPI guest-mode fallback. Backend implementations consume selected candidates and decide whether they are usable for that backend.
 
-For Gemini, source selection order is:
-
-```text
-[Gemini] canonical cookies
-        ↓
-legacy [Cookies] cookies
-        ↓
-runtime/auth/gemini.json
-```
-
-Legacy `[Cookies]` configuration remains supported for backward compatibility. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained only as a deprecated compatibility path and is no longer part of the primary runtime selection flow.
+Each auth strategy owns its own `provider_name` and may contribute provider-specific status reporting. The registry, not Gemini-specific code, determines which strategy is active for a given provider.
 
 ### Forbidden Behaviors:
 - Providers/Adapters must NEVER call `browser.close()` or `context.close()` directly.
@@ -72,6 +66,7 @@ Providers are responsible for the entire lifecycle of any side-effects they intr
 - **Request Scoping**: Every listener registered by a provider (`on("close")`, `on("crash")`, bridge callbacks, DOM observers) is fully owned by that specific request lifecycle.
 - **Mandatory Detachment**: All listeners and injected observers MUST be detached, removed, or invalidated during the `_cleanup` phase.
 - **Contamination Risk**: Leaking listeners across requests is considered a critical cross-request contamination risk and a memory leak.
+- **Bridge Ownership**: Bridge bindings and callback registry names are provider-owned. For example, `__gemini_bridge` is a provider-specific binding name, but the runtime contract is that the name is owned by the provider, not by shared runtime code.
 
 ## 5. Deterministic Teardown Ordering
 
