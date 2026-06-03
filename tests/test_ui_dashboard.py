@@ -347,20 +347,15 @@ async def test_ui_auth_panel_renders_status_classes(mocker):
 
 @pytest.mark.asyncio
 async def test_ui_models_returns_html(mocker):
-    list_models = mocker.patch(
-        "app.endpoints.ui.list_models",
-        return_value={
+    async def list_models(include_legacy_playwright_aliases=True):
+        assert include_legacy_playwright_aliases is False
+        return {
             "object": "list",
             "data": [
                 {
                     "id": "gemini/gemini-3-flash",
                     "object": "model",
                     "owned_by": "gemini",
-                },
-                {
-                    "id": "playwright/gemini-3.1-pro",
-                    "object": "model",
-                    "owned_by": "google",
                 },
                 {
                     "id": "playwright/gemini/gemini-3.1-pro",
@@ -371,10 +366,11 @@ async def test_ui_models_returns_html(mocker):
                     "id": "atlas/MiniMaxAI/MiniMax-M2",
                     "object": "model",
                     "owned_by": "atlascloud",
-                }
+                },
             ],
-        },
-    )
+        }
+
+    list_models = mocker.patch("app.endpoints.ui.list_models", side_effect=list_models)
 
     response = await _get("/ui/models")
 
@@ -383,31 +379,27 @@ async def test_ui_models_returns_html(mocker):
     assert "Available Models" in response.text
     assert "<th>Backend</th>" in response.text
     assert "gemini/gemini-3-flash" in response.text
-    assert "playwright/gemini-3.1-pro" in response.text
     assert "playwright/gemini/gemini-3.1-pro" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
+    assert "playwright/gemini-3.1-pro" not in response.text
     assert "WebAPI" in response.text
     assert "Playwright" in response.text
     assert "Atlas" in response.text
     list_models.assert_called_once()
+    list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
 
 @pytest.mark.asyncio
 async def test_ui_playground_returns_html_and_populates_models(mocker):
-    list_models = mocker.patch(
-        "app.endpoints.ui.list_models",
-        return_value={
+    async def list_models(include_legacy_playwright_aliases=True):
+        assert include_legacy_playwright_aliases is False
+        return {
             "object": "list",
             "data": [
                 {
                     "id": "gemini/gemini-3-flash",
                     "object": "model",
                     "owned_by": "gemini",
-                },
-                {
-                    "id": "playwright/gemini-3.5-flash",
-                    "object": "model",
-                    "owned_by": "google",
                 },
                 {
                     "id": "playwright/gemini/gemini-3.5-flash",
@@ -420,8 +412,9 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
                     "owned_by": "atlascloud",
                 },
             ],
-        },
-    )
+        }
+
+    list_models = mocker.patch("app.endpoints.ui.list_models", side_effect=list_models)
 
     response = await _get("/ui/playground")
 
@@ -430,12 +423,13 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "Chat Completion" in response.text
     assert 'name="model"' in response.text
     assert "gemini/gemini-3-flash" in response.text
-    assert "playwright/gemini-3.5-flash" in response.text
     assert "playwright/gemini/gemini-3.5-flash" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
+    assert "playwright/gemini-3.5-flash" not in response.text
     assert "/ui/static/js/playground.js" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
     list_models.assert_called_once()
+    list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
 
 def test_ui_static_mount_uses_staticfiles():
