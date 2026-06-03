@@ -189,6 +189,12 @@ These endpoints manage locally persisted Gemini WebAPI conversation snapshots an
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Amm1rr/WebAI-to-API\&type=Date)](https://www.star-history.com/#Amm1rr/WebAI-to-API&Date)
+
+---
+
 ## License
 
 Starting from v0.5.0, WebAI-to-API is licensed under GNU AGPLv3.
@@ -202,12 +208,6 @@ Commercial licensing options are available. See [COMMERCIAL_LICENSE.md](COMMERCI
 ## Contributing
 
 By submitting contributions to this project, you agree to the terms described in [CLA.md](CLA.md).
-
----
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Amm1rr/WebAI-to-API\&type=Date)](https://www.star-history.com/#Amm1rr/WebAI-to-API&Date)
 
 <br>
 
