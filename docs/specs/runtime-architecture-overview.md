@@ -5,9 +5,9 @@
 
 ## Project Overview
 
-**WebAI-to-API** is a **"Web AI Runtime"** designed to bridge browser-based AI interfaces (Gemini, ChatGPT, Claude) with standard developer workflows via OpenAI-compatible APIs. 
+**WebAI-to-API** is a browser-native runtime that bridges browser-based AI interfaces with standard developer workflows through OpenAI-compatible APIs.
 
-By leveraging **Playwright**, the project drives real browser runtimes rather than reverse-engineering fragile internal protocols. This ensures strong resilience against web UI updates and provides a strongly-governed runtime layer for browser-native LLM integration.
+The runtime uses Playwright to drive real browser sessions rather than reverse-engineering fragile internal protocols. This preserves resilience against browser UI changes and keeps browser-native execution under explicit runtime ownership.
 
 ---
 
@@ -18,7 +18,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 ### 1. Provider-Scoped Sessions (`ProviderSession`)
 - **Authoritative Ownership:** Each provider session owns its dedicated `BrowserContext`, a `keepalive_page` for liveness monitoring, and the background loops (`reaper`, `autosave`, `eviction`) governing its state.
 - **Session-Scoped Recovery:** `ProviderSession` is the authoritative owner of context recreation and tab invalidation logic.
-- **Browser State Persistence:** Browser authentication state persistence is controlled by dedicated auth/bootstrap flows. Conversation continuity is provider/backend-specific and is not uniformly owned by `ProviderSession`.
+- **Browser State Ownership:** Browser authentication state is controlled by provider auth flows, while `ProviderSession` owns the live browser context lifecycle and request-scoped page resources.
 
 ### 2. Browser Engine (`BrowserEngine`)
 - **Active Lifecycle Orchestration:** A global singleton managing the active Chromium process and coordinating cross-provider synchronization. Recovery is valid only within an active engine lifecycle; it is NOT a resurrection authority after terminal shutdown begins.
@@ -35,11 +35,11 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - **Stateless Providers:** Some providers, such as Atlas, forward each request independently and do not persist `conversation_id` state locally.
 
 ### 5. Authentication Ownership Model
-- **Discovery:** `AuthLoader` discovers available auth material only. Discovery includes provider config cookies, legacy cookie configuration, JSON storage state, and browser state where applicable.
-- **Selection:** Provider-specific selectors own priority ordering and fallback sequencing. For Gemini, `GeminiAuthSelector` enumerates `[Gemini]` cookies, legacy `[Cookies]` cookies, then `runtime/auth/gemini.json`. WebAPI uses all sources, while Playwright strictly requires `runtime/auth/gemini.json`.
-- **Validation and Activation:** Backend implementations decide whether a selected candidate is usable. Gemini WebAPI validates cookies through account status evaluation and activates the direct client, including guest fallback decisions. Gemini Playwright activates storage state through browser-context setup.
-- **Caching and Orchestration:** `AuthManager` owns auth status caching, `/v1/auth/status` refresh orchestration, login triggering, and post-login recovery orchestration. It does not own provider-specific source selection or backend activation.
-- **Compatibility:** Legacy `[Cookies]` remains supported. `GeminiAuthStateLoader.load_auth_state_with_fallback()` is retained as a deprecated compatibility path, not as the primary runtime selection mechanism.
+- **Discovery:** `AuthLoader` discovers available auth material only. Discovery includes provider config cookies, legacy cookie configuration, JSON auth state, and browser state where applicable.
+- **Selection:** Provider auth strategies own priority ordering and fallback sequencing. The selected strategy decides which auth material is usable for that provider.
+- **Validation and Activation:** Backend implementations and auth strategies decide whether a selected candidate is usable.
+- **Caching and Orchestration:** `AuthManager` owns auth status caching, `/v1/auth/status` refresh orchestration, login triggering, and post-login recovery orchestration.
+- **Compatibility:** Legacy `[Cookies]` remains supported.
 
 ---
 
@@ -72,7 +72,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - [x] Multi-tab concurrency management via `ManagedPage`.
 
 ### Phase 2: Provider Expansion (Medium-Term)
-- **New Adapters:** Native support for ChatGPT Web, Claude Web, and Grok via specialized browser-native adapters.
+- **New Adapters:** Native support for additional registered browser-native providers via specialized adapters.
 - **Multi-Account Pooling:** Support for cycling through multiple authenticated sessions per provider.
 - **Conversation Persistence Expansion:** Extend and standardize provider/backend-specific `conversation_id` semantics where useful, while preserving existing WebAPI snapshot-backed and Playwright URL-backed continuity models.
 
@@ -111,12 +111,12 @@ curl http://localhost:6969/v1/auth/status
 ```
 
 ### 2. Using the API
-By default, the `gemini` provider uses the `webapi` execution adapter. To force browser-native execution, use the `playwright/` model prefix:
+By default, the `gemini` provider uses the `webapi` execution adapter. To force browser-native execution, use a browser-native provider-aware model prefix such as `playwright/<provider>/<model>`:
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "playwright/gemini",
+    "model": "playwright/<provider>/<model>",
     "messages": [{"role": "user", "content": "Hello! List your architecture features."}],
     "stream": true
   }'

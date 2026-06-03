@@ -7,8 +7,8 @@ This document specifies the end-to-end event flow, normalization, and synchroniz
 The pipeline bridges the asynchronous gap between browser-side DOM events and the server-side HTTP stream.
 
 ### 1.1 Bridge Lifecycle
-1. **Exposure**: A permanent binding (`__gemini_bridge`) is exposed on the page.
-2. **Registration**: Each request registers a unique callback in `page._gemini_callbacks` using its `request_id`.
+1. **Exposure**: A provider-owned binding such as `__gemini_bridge` is exposed on the page.
+2. **Registration**: Each request registers a unique callback in a provider-owned request registry using its `request_id`.
 3. **Dispatch**: The browser-side script calls the bridge with a payload containing the `request_id` and event `type`.
 
 ### 1.2 Event Types
