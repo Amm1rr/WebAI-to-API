@@ -9,6 +9,7 @@ from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.gemini.session_manager import get_translate_session_manager
 from app.services.factory import ProviderFactory
+from app.services.model_catalog import list_models as build_model_catalog
 
 router = APIRouter()
 
@@ -72,19 +73,8 @@ async def translate_chat(request: GeminiRequest):
     summary="List Available Models",
     description="Returns available models from all registered providers. Includes provider-prefixed models used for discovery and routing."
 )
-async def list_models():
-    all_models = []
-    # Collect models from all registered providers in the registry
-    for provider_key in ProviderFactory._registry.keys():
-        # Using a dummy request to resolve the provider instance via factory
-        dummy_request = OpenAIChatRequest(messages=[], provider=provider_key)
-        provider, _ = ProviderFactory.get_provider(dummy_request)
-        all_models.extend(await provider.list_models())
-    
-    return {
-        "object": "list",
-        "data": all_models
-    }
+async def get_models():
+    return await build_model_catalog(include_legacy_playwright_aliases=False)
 
 
 @router.post(

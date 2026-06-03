@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.endpoints.auth import get_auth_status
-from app.endpoints.chat import list_models
+from app.services.model_catalog import list_models
 from app.endpoints.chat import delete_conversation as delete_conversation_api
 from app.endpoints.chat import delete_conversations as delete_conversations_api
 from app.endpoints.chat import list_conversations
@@ -263,7 +263,7 @@ async def dashboard_auth_panel(request: Request):
 
 @router.get("/models", response_class=HTMLResponse)
 async def dashboard_models(request: Request):
-    models = await list_models()
+    models = await list_models(include_legacy_playwright_aliases=False)
     model_rows = [
         {
             **model,
@@ -280,7 +280,7 @@ async def dashboard_models(request: Request):
 
 @router.get("/playground", response_class=HTMLResponse)
 async def dashboard_playground(request: Request):
-    models = await list_models()
+    models = await list_models(include_legacy_playwright_aliases=False)
     return templates.TemplateResponse(
         request,
         "ui/playground.html",
