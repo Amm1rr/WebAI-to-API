@@ -44,8 +44,11 @@ OpenAI-compatible chat completion endpoint.
 
 ### GET `/v1/models`
 
-Returns the list of available models and providers.
+Returns the list of models exposed by registered providers.
 
+The returned model list is registry-driven at runtime. Each registered provider contributes its available model IDs to this endpoint. Browser-native provider-aware namespaces may be used by registered browser providers, such as `playwright/<provider>/<model>`.
+
+Legacy Gemini browser-native routing remains supported for backward compatibility using `playwright/<gemini-model>`.
 ---
 
 ### GET `/v1/conversations`
@@ -175,6 +178,7 @@ Status codes:
 
 Returns the current authentication state and login status.
 
+Authentication is provider-owned. `AuthLoader` discovers available auth material, provider auth strategies own selection and fallback policy, and `AuthManager` owns cached status plus login/recovery orchestration.
 #### Optional Query Parameters
 
 | Parameter | Description                         |
@@ -295,17 +299,32 @@ Requests can be routed using model prefixes.
 | Prefix        | Provider          |
 | ------------- | ----------------- |
 | *(none)*      | Gemini            |
+<<<<<<< HEAD
 | `playwright/` | Gemini Playwright |
+=======
+| `playwright/<gemini-model>` | Gemini Playwright (legacy compatibility) |
+| `playwright/gemini/` | Gemini Playwright |
+>>>>>>> b33079f (docs(api): clarify provider-aware browser routing)
 | `atlas/`      | Atlas             |
 
 Examples:
 
 ```text
 gemini-3-flash
+<<<<<<< HEAD
 playwright/gemini-3-pro
 atlas/MiniMax-M2
 ```
 
+=======
+playwright/gemini/gemini-3.1-pro
+atlas/MiniMax-M2
+```
+
+Legacy Gemini browser routing using `playwright/<gemini-model>` remains supported for backward compatibility.
+Legacy `playwright/<model>` routing is Gemini-only compatibility behavior. New browser-native providers should use provider-aware namespaces such as `playwright/<provider>/<model>`.
+
+>>>>>>> b33079f (docs(api): clarify provider-aware browser routing)
 ---
 
 ## Interactive Documentation
