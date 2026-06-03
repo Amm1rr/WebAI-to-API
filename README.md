@@ -91,17 +91,18 @@ Recommended for robustness and Docker deployments.
 2. Complete the sign-in process in the browser window that opens.
 3. This creates `runtime/auth/gemini.json`, which is automatically used by the Playwright backend and can also be used by the WebAPI backend when cookie configuration is not provided.
 
-### Run
+## Quick Start
+
+### 1. Start the Server
 
 ```bash
 poetry run python src/run.py
 ```
 
----
+> [!TIP]
+> If authentication is configured correctly, the startup banner will be displayed and the server will listen on port 6969.
 
-## Quick Start
-
-### Chat Completion
+### 2. Send Your First Request
 
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
@@ -117,31 +118,7 @@ curl -X POST http://localhost:6969/v1/chat/completions \
   }'
 ```
 
-### Delete Gemini WebAPI Conversation
-
-```bash
-curl -X DELETE http://localhost:6969/v1/conversations/{conversation_id}
-```
-
-This endpoint deletes Gemini WebAPI conversations created through local SQLite-backed conversation snapshots. Playwright and Atlas conversations are not supported.
-
-### Bulk Delete Gemini WebAPI Conversations
-
-```bash
-curl -X DELETE http://localhost:6969/v1/conversations
-```
-
-This endpoint best-effort deletes all locally persisted Gemini WebAPI conversation snapshots and their corresponding remote Gemini chats. Active conversations are skipped and reported in the response. Playwright and Atlas conversations are not supported.
-
-### List Gemini WebAPI Conversations
-
-```bash
-curl http://localhost:6969/v1/conversations
-```
-
-This endpoint lists locally persisted Gemini WebAPI conversation snapshots from SQLite. It does not restore conversations or call Gemini remote APIs. Playwright and Atlas conversations are not included.
-
-### Playwright Backend
+### 3. Force the Playwright Backend
 
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
@@ -156,6 +133,9 @@ curl -X POST http://localhost:6969/v1/chat/completions \
     ]
   }'
 ```
+
+> [!TIP]
+> The `playwright/` prefix forces the Playwright backend regardless of the default Gemini backend configured in `config.conf`.
 
 ---
 
@@ -191,6 +171,21 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 - [Dashboard Guide](docs/dashboard.md)
 
 Interactive API documentation is available through Swagger UI when the server is running.
+
+---
+
+## Conversation Management (WebAPI)
+
+These endpoints manage locally persisted Gemini WebAPI conversation snapshots and their corresponding remote chats.
+
+| Action      | Endpoint                      |
+| ----------- | ----------------------------- |
+| List        | GET /v1/conversations         |
+| Delete      | DELETE /v1/conversations/{id} |
+| Bulk Delete | DELETE /v1/conversations      |
+
+> [!NOTE]
+> Conversation persistence and management are currently supported only for the Gemini WebAPI backend.
 
 ---
 
