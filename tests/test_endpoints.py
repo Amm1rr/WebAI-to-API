@@ -7,10 +7,18 @@ from app.services.providers.atlas import AtlasProvider
 
 @pytest.mark.asyncio
 async def test_list_models_endpoint(mocker):
-    """Verify /v1/models returns models from all registered providers."""
+    """Verify /v1/models filters legacy Playwright Gemini aliases from discovery."""
     # Mock providers to return deterministic model lists
     mock_gemini = mocker.Mock(spec=GeminiProvider)
-    mock_gemini.list_models = mocker.AsyncMock(return_value=[{"id": "gemini-model", "object": "model"}])
+    mock_gemini.list_models = mocker.AsyncMock(return_value=[
+        {"id": "gemini-model", "object": "model"},
+        {"id": "playwright/gemini-3.5-flash", "object": "model"},
+        {"id": "playwright/gemini-3.1-pro", "object": "model"},
+        {"id": "playwright/gemini-3.1-flash-lite", "object": "model"},
+        {"id": "playwright/gemini/gemini-3.5-flash", "object": "model"},
+        {"id": "playwright/gemini/gemini-3.1-pro", "object": "model"},
+        {"id": "playwright/gemini/gemini-3.1-flash-lite", "object": "model"},
+    ])
     
     mock_atlas = mocker.Mock(spec=AtlasProvider)
     mock_atlas.list_models = mocker.AsyncMock(return_value=[{"id": "atlas-model", "object": "model"}])
@@ -32,6 +40,12 @@ async def test_list_models_endpoint(mocker):
     model_ids = [m["id"] for m in data["data"]]
     assert "gemini-model" in model_ids
     assert "atlas-model" in model_ids
+    assert "playwright/gemini/gemini-3.5-flash" in model_ids
+    assert "playwright/gemini/gemini-3.1-pro" in model_ids
+    assert "playwright/gemini/gemini-3.1-flash-lite" in model_ids
+    assert "playwright/gemini-3.5-flash" not in model_ids
+    assert "playwright/gemini-3.1-pro" not in model_ids
+    assert "playwright/gemini-3.1-flash-lite" not in model_ids
 
 @pytest.mark.asyncio
 async def test_chat_completions_endpoint_gemini(mocker):

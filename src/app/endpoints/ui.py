@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.endpoints.auth import get_auth_status
-from app.endpoints.chat import list_models
+from app.services.model_catalog import list_models
 from app.endpoints.chat import delete_conversation as delete_conversation_api
 from app.endpoints.chat import delete_conversations as delete_conversations_api
 from app.endpoints.chat import list_conversations

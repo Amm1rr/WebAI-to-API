@@ -363,6 +363,11 @@ async def test_ui_models_returns_html(mocker):
                     "owned_by": "google",
                 },
                 {
+                    "id": "playwright/gemini/gemini-3.1-pro",
+                    "object": "model",
+                    "owned_by": "google",
+                },
+                {
                     "id": "atlas/MiniMaxAI/MiniMax-M2",
                     "object": "model",
                     "owned_by": "atlascloud",
@@ -379,6 +384,7 @@ async def test_ui_models_returns_html(mocker):
     assert "<th>Backend</th>" in response.text
     assert "gemini/gemini-3-flash" in response.text
     assert "playwright/gemini-3.1-pro" in response.text
+    assert "playwright/gemini/gemini-3.1-pro" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
     assert "WebAPI" in response.text
     assert "Playwright" in response.text
@@ -399,6 +405,16 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
                     "owned_by": "gemini",
                 },
                 {
+                    "id": "playwright/gemini-3.5-flash",
+                    "object": "model",
+                    "owned_by": "google",
+                },
+                {
+                    "id": "playwright/gemini/gemini-3.5-flash",
+                    "object": "model",
+                    "owned_by": "google",
+                },
+                {
                     "id": "atlas/MiniMaxAI/MiniMax-M2",
                     "object": "model",
                     "owned_by": "atlascloud",
@@ -414,6 +430,8 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "Chat Completion" in response.text
     assert 'name="model"' in response.text
     assert "gemini/gemini-3-flash" in response.text
+    assert "playwright/gemini-3.5-flash" in response.text
+    assert "playwright/gemini/gemini-3.5-flash" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
     assert "/ui/static/js/playground.js" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
