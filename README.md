@@ -59,6 +59,34 @@ cp config.conf.example config.conf
 
 Edit `config.conf` to match your environment.
 
+### Authentication
+
+Gemini requires an authenticated Google session. Choose the authentication method that best matches your deployment.
+
+#### Which Authentication Method Should I Use?
+
+| Method | Recommended For |
+|----------|----------|
+| Manual Cookies | Quick testing and WebAPI-only usage |
+| Browser Login (`verify_login.py`) | Playwright backend, Docker deployments, and long-term usage |
+
+#### 1. Manual Cookies (Gemini WebAPI)
+Fastest setup for lightweight use.
+1. Sign in to [Gemini](https://gemini.google.com/).
+2. Press **F12** to open Developer Tools.
+3. Go to the **Network** tab and refresh the page.
+4. Select any request to **gemini.google.com** and copy the values for `__Secure-1PSID` and `__Secure-1PSIDTS` from the **Cookies** or **Headers** tab.
+5. Paste both values into the `[Gemini]` section of `config.conf`.
+
+#### 2. Browser Login (Playwright)
+Recommended for robustness and Docker deployments.
+1. Run the interactive login helper:
+   ```bash
+   poetry run python verify_login.py
+   ```
+2. Complete the sign-in process in the browser window that opens.
+3. This creates `runtime/auth/gemini.json`, which is automatically used by the Playwright backend and can also be used by the WebAPI backend when cookie configuration is not provided.
+
 ### Run
 
 ```bash
