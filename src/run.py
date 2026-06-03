@@ -1,6 +1,7 @@
 # src/run.py
 import argparse
 import asyncio
+import logging
 import sys
 import uvicorn
 from typing import Tuple
@@ -98,7 +99,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
     parser.add_argument("--port", type=int, default=6969, help="Port number")
+    parser.add_argument("--log-level", type=str, default="debug", help="Logging level")
     args = parser.parse_args()
+
+    # Sync root logger level with CLI argument
+    logging.getLogger().setLevel(args.log_level.upper())
 
     print("INFO:     Checking Gemini service availability...")
     # Preflight gate: only start the server when Gemini is enabled in config.
@@ -126,5 +131,6 @@ if __name__ == "__main__":
         port=args.port,
         reload=False,
         log_config=None,
+        log_level=args.log_level,
         workers=1,
     )
