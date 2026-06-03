@@ -2,9 +2,11 @@
 
 ## Overview
 
-WebAI-to-API is a browser-native AI runtime that exposes browser-based AI services through OpenAI-compatible APIs.
+WebAI-to-API is a browser-native API runtime that exposes browser-based AI services through OpenAI-compatible APIs.
 
-The project is built around a provider-centric architecture that separates logical AI providers from their underlying execution mechanisms.
+The project is built around registered logical providers, provider-specific adapters, and shared browser runtime ownership boundaries.
+
+Request execution is coordinated through `BrowserRequestExecutor`, which owns the shared browser-native request lifecycle while delegating provider-specific behavior to adapters and auth strategies.
 
 Examples:
 
@@ -35,6 +37,10 @@ Providers are responsible for:
 * Provider-specific functionality
 * Conversation handling
 
+Logical providers own model behavior, prompt transformation, and conversation semantics.
+
+Auth policy and browser-native execution are delegated to provider auth strategies and adapters.
+
 ---
 
 ### Backend Adapter
@@ -48,10 +54,15 @@ For Gemini:
 
 Adapters are responsible for:
 
-* Authentication activation
-* Request execution
-* Streaming integration
-* Backend-specific behavior
+* Backend-specific execution behavior
+* Backend-specific validation
+* Backend-specific continuity behavior
+
+Shared request execution flows through `BrowserRequestExecutor`.
+
+Auth policy is owned by provider auth strategies.
+
+Streaming ownership lives in shared runtime infrastructure.
 
 ---
 
@@ -63,11 +74,15 @@ Examples:
 
 ```text id="fqg9x6"
 gemini-3-flash
-playwright/gemini-3-pro
+playwright/gemini/gemini-3.1-pro
 atlas/MiniMax-M2
 ```
 
 The routing layer resolves the appropriate provider and execution backend before processing the request.
+
+Browser-native providers generally use `playwright/<provider>/<model>`.
+
+Legacy Gemini browser routing remains supported with `playwright/<gemini-model>`.
 
 ---
 
@@ -104,11 +119,10 @@ The browser runtime manages browser-backed execution.
 
 Responsibilities:
 
-* Browser lifecycle management
-* Session management
-* Authentication activation
-* Recovery orchestration
-* Streaming infrastructure
+* `BrowserEngine`: browser process lifecycle, generation invalidation, terminal shutdown
+* `ProviderSession`: browser context lifecycle, keepalive page ownership, provider-scoped recovery
+* `BrowserRequestExecutor`: request-scoped execution, bridge lifecycle, streaming integration, cleanup
+* `AuthManager`: status caching and orchestration
 
 ---
 
@@ -173,13 +187,13 @@ Shared utility functions and helpers.
 
 ## Conversation Continuity
 
-Conversation handling depends on the selected provider and backend.
+Conversation continuity depends on the selected provider and backend.
 
 Examples:
 
-* Gemini WebAPI uses local session persistence.
-* Gemini Playwright uses provider conversation continuity.
-* Atlas is stateless.
+* Gemini WebAPI uses snapshot-backed continuity from local conversation persistence.
+* Browser-native providers use URL-backed continuity and may reuse existing browser-native conversation state when available.
+* Stateless providers do not persist `conversation_id` state locally.
 
 ---
 
@@ -187,12 +201,15 @@ Examples:
 
 Authentication is separated into distinct responsibilities:
 
-* Discovery
-* Selection
-* Validation
-* Activation
+* `AuthLoader`
+* Provider auth strategies
+* `AuthManager`
 
-This separation allows providers and backends to implement authentication workflows independently while sharing common orchestration.
+`AuthLoader` discovers available auth material.
+
+Provider auth strategies own selection and fallback policy.
+
+`AuthManager` owns cached status and login/recovery orchestration.
 
 ---
 
