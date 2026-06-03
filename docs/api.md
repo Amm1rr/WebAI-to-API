@@ -299,32 +299,20 @@ Requests can be routed using model prefixes.
 | Prefix        | Provider          |
 | ------------- | ----------------- |
 | *(none)*      | Gemini            |
-<<<<<<< HEAD
-| `playwright/` | Gemini Playwright |
-=======
 | `playwright/<gemini-model>` | Gemini Playwright (legacy compatibility) |
-| `playwright/gemini/` | Gemini Playwright |
->>>>>>> b33079f (docs(api): clarify provider-aware browser routing)
+| `playwright/<provider>/<model>` | Browser-native provider namespaces |
 | `atlas/`      | Atlas             |
 
 Examples:
 
 ```text
 gemini-3-flash
-<<<<<<< HEAD
-playwright/gemini-3-pro
-atlas/MiniMax-M2
-```
-
-=======
-playwright/gemini/gemini-3.1-pro
+playwright/<provider>/<model>
 atlas/MiniMax-M2
 ```
 
 Legacy Gemini browser routing using `playwright/<gemini-model>` remains supported for backward compatibility.
 Legacy `playwright/<model>` routing is Gemini-only compatibility behavior. New browser-native providers should use provider-aware namespaces such as `playwright/<provider>/<model>`.
-
->>>>>>> b33079f (docs(api): clarify provider-aware browser routing)
 ---
 
 ## Interactive Documentation
