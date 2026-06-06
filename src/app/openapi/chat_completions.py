@@ -35,6 +35,75 @@ CHAT_COMPLETIONS_REQUEST_EXAMPLES = {
 }
 
 
+TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES = {
+    "temporaryTextOnly": {
+        "summary": "Temporary text-only request",
+        "value": {
+            "model": "gemini-3-flash",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello!",
+                }
+            ],
+        },
+    },
+    "temporaryStreamWithFiles": {
+        "summary": "Temporary streaming request with file attachment",
+        "value": {
+            "model": "gemini-3-flash",
+            "stream": True,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Summarize this document."},
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "invoice.pdf",
+                                "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                            },
+                        },
+                    ],
+                }
+            ],
+        },
+    },
+}
+
+
+TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400 = {
+    "description": "Bad Request",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "detail": {"type": "string"},
+                },
+                "required": ["detail"],
+                "additionalProperties": True,
+            },
+            "examples": {
+                "conversationIdRejected": {
+                    "summary": "conversation_id is not supported",
+                    "value": {
+                        "detail": "conversation_id is not supported on the temporary chat endpoint.",
+                    },
+                },
+                "unsupportedProviderRejected": {
+                    "summary": "Unsupported provider or model namespace",
+                    "value": {
+                        "detail": "Playwright models are not supported on the temporary chat endpoint.",
+                    },
+                },
+            },
+        }
+    },
+}
+
+
 CHAT_COMPLETIONS_RESPONSE_200 = {
     "description": "Successful Response",
     "content": {

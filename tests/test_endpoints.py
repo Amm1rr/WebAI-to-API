@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -92,6 +94,233 @@ async def test_chat_completions_endpoint_atlas(mocker):
     assert response.status_code == 200
     assert response.json() == mock_response
     mock_atlas.chat_completions.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
+    """Verify /translate forwards Gemini requests with temporary=True."""
+    mock_response = mocker.Mock()
+    mock_response.text = "Translated response"
+
+    mock_client = mocker.Mock()
+    mock_session_manager = mocker.Mock()
+    mock_session_manager.get_response = mocker.AsyncMock(return_value=mock_response)
+
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.endpoints.chat.get_translate_session_manager", return_value=mock_session_manager)
+
+    payload = {
+        "model": "gemini-3-flash",
+        "message": "Translate this text",
+        "files": [],
+        "gem": None,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"response": "Translated response"}
+    mock_session_manager.get_response.assert_called_once_with(
+        "gemini-3-flash",
+        "Translate this text",
+        [],
+        None,
+        temporary=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
+    """Verify /v1/temporary/chat/completions uses temporary Gemini WebAPI requests and preserves artifacts."""
+    mock_response = SimpleNamespace(
+        text="Temporary Gemini response",
+        images=[
+            SimpleNamespace(
+                url="https://example.invalid/temp-image.png",
+                title="Temporary image",
+                alt="Temporary preview",
+            )
+        ],
+        videos=[],
+        media=[],
+    )
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
+    mock_client.generate_content_stream = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    mocker.patch(
+        "app.endpoints.chat.ProviderFactory.get_provider",
+        side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.provider.GeminiProvider.chat_completions",
+        side_effect=AssertionError("GeminiProvider must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.webapi_adapter.GeminiWebAPIAdapter.chat_completions",
+        side_effect=AssertionError("GeminiWebAPIAdapter must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.session_manager.SessionRegistry.save_session_snapshot",
+        side_effect=AssertionError("SessionRegistry snapshot persistence must not be used"),
+    )
+
+    payload = {
+        "model": "gemini-3-flash",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/v1/temporary/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["object"] == "chat.completion"
+    assert data["choices"][0]["message"]["content"] == "Temporary Gemini response"
+    assert data["choices"][0]["artifacts"] == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Temporary image",
+            "url": "https://example.invalid/temp-image.png",
+            "alt": "Temporary preview",
+        }
+    ]
+    mock_client.generate_content.assert_awaited_once_with(
+        "User: Hello",
+        "gemini-3-flash",
+        files=None,
+        gem=None,
+        temporary=True,
+    )
+    mock_client.generate_content_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_temporary_chat_completions_endpoint_streaming(mocker):
+    """Verify /v1/temporary/chat/completions streams SSE chunks and forwards temporary=True."""
+    async def mock_stream():
+        yield SimpleNamespace(
+            text_delta="Temporary delta",
+            images=[],
+            videos=[],
+            media=[],
+        )
+        yield SimpleNamespace(
+            text="Temporary streamed response",
+            images=[
+                SimpleNamespace(
+                    url="https://example.invalid/stream-image.png",
+                    title="Stream image",
+                    alt="Stream preview",
+                )
+            ],
+            videos=[],
+            media=[],
+        )
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content = mocker.AsyncMock()
+    mock_client.generate_content_stream = mocker.AsyncMock(return_value=mock_stream())
+
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    mocker.patch(
+        "app.endpoints.chat.ProviderFactory.get_provider",
+        side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.provider.GeminiProvider.chat_completions",
+        side_effect=AssertionError("GeminiProvider must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.webapi_adapter.GeminiWebAPIAdapter.chat_completions",
+        side_effect=AssertionError("GeminiWebAPIAdapter must not be used by /v1/temporary/chat/completions"),
+    )
+    mocker.patch(
+        "app.services.providers.gemini.session_manager.SessionRegistry.save_session_snapshot",
+        side_effect=AssertionError("SessionRegistry snapshot persistence must not be used"),
+    )
+
+    payload = {
+        "model": "gemini-3-flash",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with ac.stream("POST", "/v1/temporary/chat/completions", json=payload) as response:
+            assert response.status_code == 200
+            body = await response.aread()
+
+    body_text = body.decode()
+    assert "data: " in body_text
+    assert "Temporary delta" in body_text
+    assert "artifacts" in body_text
+    assert "data: [DONE]" in body_text
+    mock_client.generate_content_stream.assert_awaited_once_with(
+        "User: Hello",
+        "gemini-3-flash",
+        files=None,
+        gem=None,
+        temporary=True,
+    )
+    mock_client.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocker):
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
+    payload = {
+        "model": "gemini-3-flash",
+        "conversation_id": "existing-conversation",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/v1/temporary/chat/completions", json=payload)
+
+    assert response.status_code == 400
+    assert "conversation_id" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload, detail_fragment",
+    [
+        (
+            {
+                "model": "playwright/gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            "Playwright models",
+        ),
+        (
+            {
+                "model": "atlas/MiniMax-M2",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            "Atlas models",
+        ),
+        (
+            {
+                "provider": "atlas",
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            "Only the Gemini provider",
+        ),
+    ],
+)
+async def test_temporary_chat_completions_endpoint_rejects_unsupported_providers(mocker, payload, detail_fragment):
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/v1/temporary/chat/completions", json=payload)
+
+    assert response.status_code == 400
+    assert detail_fragment in response.json()["detail"]
 
 
 @pytest.mark.asyncio

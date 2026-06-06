@@ -12,7 +12,7 @@ from app.services.providers.exceptions import (
 )
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.sqlite_repository import SQLiteConversationRepository
-from app.services.providers.gemini.session_manager import SessionRegistry
+from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
 
 
 class MockResponse:
@@ -32,7 +32,7 @@ class MockChatSession:
     def metadata(self):
         return self._ChatSession__metadata
 
-    async def send_message(self, prompt, files=None):
+    async def send_message(self, prompt, files=None, temporary=False, deep_research=False, **kwargs):
         self.prompts.append(prompt)
         self.files_received.append(files)
         self.metadata[0] = "cid-restored"
@@ -56,6 +56,31 @@ class MockGeminiClient:
         session = MockChatSession(self.initial_metadata_factory(), model, gem)
         self.sessions.append(session)
         return session
+
+
+@pytest.mark.asyncio
+async def test_session_manager_get_response_passes_temporary_flag(mocker):
+    mock_session = mocker.Mock()
+    mock_session.send_message = mocker.AsyncMock(return_value=MockResponse("ok"))
+
+    mock_client = mocker.Mock()
+    mock_client.start_chat = mocker.Mock(return_value=mock_session)
+
+    manager = SessionManager(mock_client)
+
+    response = await manager.get_response(
+        "gemini-3-flash",
+        "hello",
+        None,
+        temporary=True,
+    )
+
+    assert response.text == "ok"
+    mock_session.send_message.assert_awaited_once_with(
+        prompt="hello",
+        files=None,
+        temporary=True,
+    )
 
 
 @pytest.mark.asyncio

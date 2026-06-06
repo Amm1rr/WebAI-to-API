@@ -44,7 +44,59 @@ async def test_openapi_translate_endpoint_metadata():
     assert "Translation" in translate_path["post"]["tags"]
     assert "Translate Extension Compatibility" in translate_path["post"]["summary"]
     assert "shared global in-memory session" in translate_path["post"]["description"]
+    assert "temporary requests" in translate_path["post"]["description"]
+    assert "not saved in Gemini history" in translate_path["post"]["description"]
+    assert "no `conversation_id`" in translate_path["post"]["description"]
+    assert "does not support streaming" in translate_path["post"]["description"]
+    assert "not survive server restarts" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
+
+
+@pytest.mark.asyncio
+async def test_openapi_temporary_chat_endpoint_metadata():
+    """Verify metadata for the temporary chat endpoint."""
+    schema = await _get_openapi_schema()
+
+    temporary_path = schema["paths"].get("/v1/temporary/chat/completions")
+    assert temporary_path is not None
+    assert "Chat" in temporary_path["post"]["tags"]
+    assert "Temporary OpenAI-Compatible Chat Completions" in temporary_path["post"]["summary"]
+    assert "temporary=True" in temporary_path["post"]["description"]
+    assert "not saved in Gemini history" in temporary_path["post"]["description"]
+    assert "do not write SQLite conversation snapshots" in temporary_path["post"]["description"]
+    assert "`conversation_id` is rejected" in temporary_path["post"]["description"]
+    assert "streaming and non-streaming" in temporary_path["post"]["description"]
+    assert "artifact metadata" in temporary_path["post"]["description"]
+    description = temporary_path["post"]["description"]
+    assert "Playwright" in description
+    assert "Atlas" in description
+    assert "non-Gemini provider" in description
+
+    request_examples = temporary_path["post"]["requestBody"]["content"]["application/json"]["examples"]
+    assert "temporaryTextOnly" in request_examples
+    assert "temporaryStreamWithFiles" in request_examples
+    assert request_examples["temporaryTextOnly"]["value"]["model"] == "gemini-3-flash"
+    assert request_examples["temporaryStreamWithFiles"]["value"]["stream"] is True
+    assert request_examples["temporaryStreamWithFiles"]["value"]["messages"][0]["content"][1]["file"]["filename"] == "invoice.pdf"
+
+    responses = temporary_path["post"]["responses"]
+    assert "200" in responses
+    assert "400" in responses
+    response_examples = responses["400"]["content"]["application/json"]["examples"]
+    assert "conversationIdRejected" in response_examples
+    assert "unsupportedProviderRejected" in response_examples
+    assert response_examples["conversationIdRejected"]["value"]["detail"] == (
+        "conversation_id is not supported on the temporary chat endpoint."
+    )
+    assert "temporary chat endpoint" in response_examples["unsupportedProviderRejected"]["value"]["detail"]
+
+    success_examples = responses["200"]["content"]["application/json"]["examples"]
+    assert "bufferedTextOnly" in success_examples
+    assert "bufferedArtifacts" in success_examples
+    stream_examples = responses["200"]["content"]["text/event-stream"]["examples"]
+    assert "streamTextDelta" in stream_examples
+    assert "streamFinalArtifacts" in stream_examples
+    assert "streamDone" in stream_examples
 
 @pytest.mark.asyncio
 async def test_openapi_chat_endpoint_metadata():

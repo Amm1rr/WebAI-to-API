@@ -33,12 +33,16 @@ class SessionManager:
         self.last_accessed = time.time()
         self.active_streams = 0 # Atomic counter for safe pruning
 
-    async def get_response(self, model, message, images, gem=None):
+    async def get_response(self, model, message, images, gem=None, temporary: bool = False):
         async with self.lock:
             try:
                 self.last_accessed = time.time() # Update at start
                 self._ensure_session(model, gem)
-                response = await self.session.send_message(prompt=message, files=images)
+                response = await self.session.send_message(
+                    prompt=message,
+                    files=images,
+                    temporary=temporary,
+                )
                 return response
             except Exception as e:
                 logger.error(f"Error in session get_response: {e}", exc_info=True)
@@ -46,7 +50,14 @@ class SessionManager:
             finally:
                 self.last_accessed = time.time() # Update at end
 
-    async def get_streaming_response(self, model, message, images, gem=None) -> AsyncGenerator[Any, None]:
+    async def get_streaming_response(
+        self,
+        model,
+        message,
+        images,
+        gem=None,
+        temporary: bool = False,
+    ) -> AsyncGenerator[Any, None]:
         """
         Extended lock scope generator for progressive streaming.
         Ensures exactly-once interruption metadata and safe lock release.
@@ -61,7 +72,11 @@ class SessionManager:
                 
                 try:
                     async with asyncio.timeout(MAX_GENERATION_DURATION):
-                        async for chunk in self.session.send_message_stream(prompt=message, files=images):
+                        async for chunk in self.session.send_message_stream(
+                            prompt=message,
+                            files=images,
+                            temporary=temporary,
+                        ):
                             yield {
                                 "type": "chunk",
                                 "text_delta": getattr(chunk, 'text_delta', "")

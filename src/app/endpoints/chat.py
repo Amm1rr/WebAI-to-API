@@ -1,19 +1,18 @@
 # src/app/endpoints/chat.py
-import json
-import time
-from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.openapi.chat_completions import (
     CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     CHAT_COMPLETIONS_RESPONSE_200,
+    TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+    TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
 )
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.gemini.session_manager import get_translate_session_manager
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
+from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
 
 router = APIRouter()
 
@@ -52,7 +51,7 @@ async def list_gems():
     "/translate",
     tags=["Translation"],
     summary="Translate Extension Compatibility",
-    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, does not support conversation_id isolation, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
+    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, sends Gemini WebAPI translation requests as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
 )
 async def translate_chat(request: GeminiRequest):
     try:
@@ -64,11 +63,45 @@ async def translate_chat(request: GeminiRequest):
     if not session_manager:
         raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
-        response = await session_manager.get_response(request.model, request.message, request.files, request.gem)
+        response = await session_manager.get_response(
+            request.model,
+            request.message,
+            request.files,
+            request.gem,
+            temporary=True,
+        )
         return {"response": response.text}
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
+@router.post(
+    "/v1/temporary/chat/completions",
+    tags=["Chat"],
+    summary="Temporary OpenAI-Compatible Chat Completions",
+    description=(
+        "Gemini WebAPI-only OpenAI-compatible chat completions endpoint. Requests are sent with temporary=True, "
+        "so responses are not saved in Gemini history and do not write SQLite conversation snapshots. "
+        "`conversation_id` is rejected. Playwright models/providers, Atlas models/providers, and any non-Gemini provider are rejected. "
+        "The endpoint supports streaming and non-streaming responses. File content parts are supported only by "
+        "Gemini WebAPI, are request-scoped, and generated artifact metadata follows the same response shape as "
+        "`/v1/chat/completions`."
+    ),
+    responses={
+        200: CHAT_COMPLETIONS_RESPONSE_200,
+        400: TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+                }
+            }
+        }
+    },
+)
+async def temporary_chat_completions(request: OpenAIChatRequest):
+    return await handle_temporary_chat_completions(request)
 
 
 @router.get(

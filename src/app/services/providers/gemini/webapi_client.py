@@ -44,13 +44,20 @@ class MyGeminiClient:
         model: str,
         files: Optional[List[Union[str, Path]]] = None,
         gem: Optional[str] = None,
+        temporary: bool = False,
     ):
         """
         Generate content using the Gemini client.
         """
         resolved_model = resolve_model_name(model)
         resolved_gem = await self._resolve_gem(gem) if gem else None
-        return await self.client.generate_content(message, model=resolved_model, files=files, gem=resolved_gem)
+        return await self.client.generate_content(
+            message,
+            model=resolved_model,
+            files=files,
+            gem=resolved_gem,
+            temporary=temporary,
+        )
 
     async def generate_content_stream(
         self,
@@ -58,13 +65,20 @@ class MyGeminiClient:
         model: str,
         files: Optional[List[Union[str, Path]]] = None,
         gem: Optional[str] = None,
+        temporary: bool = False,
     ):
         """
         Generate content streaming using the Gemini client.
         """
         resolved_model = resolve_model_name(model)
         resolved_gem = await self._resolve_gem(gem) if gem else None
-        return self.client.generate_content_stream(message, model=resolved_model, files=files, gem=resolved_gem)
+        return self.client.generate_content_stream(
+            message,
+            model=resolved_model,
+            files=files,
+            gem=resolved_gem,
+            temporary=temporary,
+        )
 
     async def fetch_gems(self):
         """Fetch available gems and cache them."""
