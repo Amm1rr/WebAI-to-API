@@ -108,6 +108,29 @@ Returns the list of models exposed by registered providers.
 The returned model list is registry-driven at runtime. Each registered provider contributes its available model IDs to this endpoint. Browser-native provider-aware namespaces may be used by registered browser providers, such as `playwright/<provider>/<model>`.
 
 Legacy Gemini browser-native routing remains supported for backward compatibility using `playwright/<gemini-model>`.
+
+---
+
+### POST `/v1/temporary/chat/completions`
+
+Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requests.
+
+#### Features
+
+* Streaming and non-streaming responses
+* OpenAI-compatible request/response shape
+* Gemini WebAPI direct requests use `temporary=True`
+* No Gemini history persistence
+* No durable `conversation_id` continuation
+* Same multimodal file part and artifact behavior as `/v1/chat/completions`
+
+#### Behavior
+
+* `conversation_id` is rejected with HTTP 400
+* `playwright/*` models are rejected with HTTP 400
+* `atlas/*` models and `provider=atlas` are rejected with HTTP 400
+* File parts are staged per request and cleaned up after completion
+* Streaming responses still emit OpenAI-compatible SSE chunks and `[DONE]`
 ---
 
 ### GET `/v1/conversations`

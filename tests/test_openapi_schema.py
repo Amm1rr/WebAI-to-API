@@ -47,6 +47,22 @@ async def test_openapi_translate_endpoint_metadata():
     assert "temporary requests" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
 
+
+@pytest.mark.asyncio
+async def test_openapi_temporary_chat_endpoint_metadata():
+    """Verify metadata for the temporary chat endpoint."""
+    schema = await _get_openapi_schema()
+
+    temporary_path = schema["paths"].get("/v1/temporary/chat/completions")
+    assert temporary_path is not None
+    assert "Chat" in temporary_path["post"]["tags"]
+    assert "Temporary OpenAI-Compatible Chat Completions" in temporary_path["post"]["summary"]
+    assert "temporary=True" in temporary_path["post"]["description"]
+    assert "not saved in Gemini history" in temporary_path["post"]["description"]
+    assert "do not write SQLite conversation snapshots" in temporary_path["post"]["description"]
+    assert "conversation_id continuation is not supported" in temporary_path["post"]["description"]
+    assert "Playwright and Atlas models/providers are rejected" in temporary_path["post"]["description"]
+
 @pytest.mark.asyncio
 async def test_openapi_chat_endpoint_metadata():
     """Verify metadata for primary chat endpoints."""

@@ -1280,3 +1280,40 @@ def test_default_metadata_leak_security_regression():
     # 2. Assert global DEFAULT_METADATA list remains pristine
     assert DEFAULT_METADATA[0] == ""
     assert DEFAULT_METADATA[1] == ""
+
+
+@pytest.mark.asyncio
+async def test_my_gemini_client_forwards_temporary_flag(mocker):
+    """Verify the Gemini WebAPI wrapper forwards temporary=True to direct client calls."""
+    from app.services.providers.gemini.webapi_client import MyGeminiClient
+
+    client = MyGeminiClient(secure_1psid="test", secure_1psidts="test")
+    underlying_client = mocker.Mock()
+    underlying_client.generate_content = mocker.AsyncMock(
+        return_value=SimpleNamespace(text="ok")
+    )
+
+    async def mock_stream():
+        yield SimpleNamespace(text_delta="chunk")
+
+    underlying_client.generate_content_stream = mocker.Mock(return_value=mock_stream())
+    client.client = underlying_client
+
+    await client.generate_content("hello", "gemini-3-flash", temporary=True)
+    stream = await client.generate_content_stream("hello", "gemini-3-flash", temporary=True)
+
+    assert hasattr(stream, "__aiter__")
+    underlying_client.generate_content.assert_awaited_once_with(
+        "hello",
+        model="gemini-3-flash",
+        files=None,
+        gem=None,
+        temporary=True,
+    )
+    underlying_client.generate_content_stream.assert_called_once_with(
+        "hello",
+        model="gemini-3-flash",
+        files=None,
+        gem=None,
+        temporary=True,
+    )

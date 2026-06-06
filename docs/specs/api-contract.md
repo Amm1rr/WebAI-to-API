@@ -16,6 +16,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
+| `/v1/temporary/chat/completions` | Specialized | No | Gemini WebAPI temporary | Yes | OpenAI-compatible Gemini-only temporary endpoint; no durable conversation continuation. |
 | `/v1/conversations` | Primary | Yes | Lists/deletes Gemini WebAPI snapshots | No | GET lists local snapshots; DELETE bulk-deletes Gemini WebAPI conversations. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for registered providers and their available model IDs. |
@@ -76,6 +77,7 @@ Gemini WebAPI may return generated artifacts alongside text output.
   - **Gemini WebAPI**: Uses SQLite-backed session snapshots through `SessionRegistry` and `SQLiteConversationRepository`.
   - **Gemini Playwright**: Uses Gemini provider-side conversation URLs (`https://gemini.google.com/app/{conversation_id}`) and reuses in-memory `PersistentTab` instances when available. It does not use SQLite conversation snapshots.
   - **Atlas**: Stateless pass-through provider. It does not consume or persist `conversation_id`.
+  - **Temporary Gemini WebAPI**: `/v1/temporary/chat/completions` rejects `conversation_id` and always starts a fresh temporary request with no continuation token.
 
 ### `reused_conversation`
 
@@ -125,6 +127,7 @@ Persistence semantics vary significantly across endpoints and across `/v1/chat/c
 | Endpoint / Backend | Restart Safe | Persistence Type | Recovery Mechanism |
 | :--- | :---: | :--- | :--- |
 | `/v1/chat/completions` - Gemini WebAPI | Yes | SQLite-backed snapshots | Serialized `ChatSession` restoration via repository. |
+| `/v1/temporary/chat/completions` - Gemini WebAPI | No | Temporary only | Requests use `temporary=True` and are never written to Gemini history or SQLite snapshots. |
 | `/v1/chat/completions` - Gemini Playwright | Provider-dependent | Provider-side URL-backed | Navigate to `https://gemini.google.com/app/{conversation_id}`; reuse `PersistentTab` when still in memory. |
 | `/v1/chat/completions` - Atlas | No | Stateless | No local conversation persistence; requests are forwarded independently. |
 | `/gemini-chat` | No | In-memory only | Volatile; lost on server shutdown or crash. |
@@ -159,6 +162,14 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 - **Risk**: There is **no privacy isolation** between users of this endpoint as it uses a shared global session. It is intended primarily for personal or trusted environments.
 - **Temporary Requests**: Gemini WebAPI requests issued through this endpoint are temporary and are not saved in Gemini history.
 - **Retention**: Maintained as long as the "Translate It!" extension remains a primary project use case.
+
+### `/v1/temporary/chat/completions`
+
+- **Status**: **Supported (Specialized)**.
+- **Scope**: Gemini WebAPI only. Playwright and Atlas models/providers are rejected.
+- **Schema**: OpenAI-compatible request/response shape.
+- **Persistence**: Requests use `temporary=True`, do not persist in Gemini history, and do not write SQLite conversation snapshots.
+- **Conversation IDs**: `conversation_id` is rejected to avoid implying durable continuation.
 
 ## 9. Authentication Contract
 
