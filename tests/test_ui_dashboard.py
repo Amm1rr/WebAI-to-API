@@ -433,11 +433,16 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "<summary class=\"playground-files-summary\">" in response.text
     assert response.text.index('data-response-output') < response.text.index('data-file-input')
     assert response.text.index('data-file-input') < response.text.index('data-meta-conversation-id')
+    assert response.text.index('data-response-output') < response.text.index('data-artifact-output')
+    assert response.text.index('data-artifact-output') < response.text.index('data-file-input')
     assert "data-file-input" in response.text
     assert "data-file-list" in response.text
     assert "data-clear-files" in response.text
     assert "data-file-guidance" in response.text
     assert "data-file-attachment-summary" in response.text
+    assert "data-artifact-output" in response.text
+    assert "data-artifact-empty" in response.text
+    assert "Generated artifacts will appear here." in response.text
     assert "No files attached." in response.text
     assert "Gemini WebAPI" in response.text
     assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
@@ -488,6 +493,11 @@ async def test_ui_html_references_static_assets():
     assert "data:text/plain;base64," in playground_js
     assert "must be plain text to use without an extension" in playground_js
     assert "must contain UTF-8 plain text" in playground_js
+    assert "extractArtifacts" in playground_js
+    assert "renderArtifacts" in playground_js
+    assert "clearArtifacts" in playground_js
+    assert "artifactOutput" in playground_js
+    assert "artifactEmpty" in playground_js
     assert '"application/json": [".json"]' in playground_js
     assert '"application/xml": [".xml"]' in playground_js
     assert '"text/xml": [".xml"]' in playground_js
@@ -499,6 +509,7 @@ async def test_ui_html_references_static_assets():
     assert "Selected files will be attached on submit" in playground_js
     assert "Gemini Playwright and Atlas do not support file parts" in playground_js
     assert "MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024" in playground_js
+    assert "Open artifact" in playground_js
 
 
 @pytest.mark.asyncio
