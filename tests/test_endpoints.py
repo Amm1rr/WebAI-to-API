@@ -150,7 +150,7 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
     mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
     mock_client.generate_content_stream = mocker.AsyncMock()
 
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
     mocker.patch(
         "app.endpoints.chat.ProviderFactory.get_provider",
         side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
@@ -226,7 +226,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker):
     mock_client.generate_content = mocker.AsyncMock()
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=mock_stream())
 
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
     mocker.patch(
         "app.endpoints.chat.ProviderFactory.get_provider",
         side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
