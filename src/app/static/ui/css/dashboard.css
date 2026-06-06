@@ -372,6 +372,53 @@ textarea {
   width: auto;
 }
 
+.file-support-note {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-support-note.warning {
+  color: #8a5b00;
+}
+
+.file-support-note.error {
+  color: #b42318;
+}
+
+.file-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.file-limit-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+
+.file-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.file-list li + li {
+  margin-top: 8px;
+}
+
 .actions {
   display: flex;
   gap: 10px;

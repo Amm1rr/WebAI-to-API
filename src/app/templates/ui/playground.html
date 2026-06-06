@@ -33,6 +33,21 @@
       <textarea name="prompt" rows="10" required placeholder="Enter a prompt"></textarea>
     </label>
 
+    <div class="field">
+      <label class="field">
+        <span>Files</span>
+        <input name="files" type="file" data-file-input multiple>
+      </label>
+      <div class="file-support-note" data-file-guidance aria-live="polite">
+        File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.
+      </div>
+      <div class="file-controls">
+        <button type="button" class="secondary-button" data-clear-files disabled>Clear files</button>
+        <span class="file-limit-note">Max 8 files, 20 MiB per file, 50 MiB total.</span>
+      </div>
+      <ul class="file-list" data-file-list aria-live="polite"></ul>
+    </div>
+
     <label class="check-field">
       <input name="stream" type="checkbox" checked>
       <span>Stream response</span>

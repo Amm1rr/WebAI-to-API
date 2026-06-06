@@ -428,6 +428,12 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "playwright/gemini-3.5-flash" not in response.text
     assert "/ui/static/js/playground.js" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
+    assert "data-file-input" in response.text
+    assert "data-file-list" in response.text
+    assert "data-clear-files" in response.text
+    assert "data-file-guidance" in response.text
+    assert "Gemini WebAPI" in response.text
+    assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
     list_models.assert_called_once()
     list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
@@ -465,6 +471,21 @@ async def test_ui_html_references_static_assets():
     assert "lastReusedConversationSeen" in playground_js
     assert "lastModel" in playground_js
     assert "prompt cannot be empty" in playground_js.lower()
+    assert "readAsDataURL" in playground_js
+    assert "data-file-input" in playground_js
+    assert "data-file-list" in playground_js
+    assert "data-clear-files" in playground_js
+    assert "Gemini Playwright and Atlas do not support file parts" in playground_js
+
+
+@pytest.mark.asyncio
+async def test_dashboard_docs_mention_playground_file_support():
+    docs_path = Path("docs/dashboard.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "/ui/playground" in docs_text
+    assert "optional file attachments for Gemini WebAPI" in docs_text
+    assert "Gemini Playwright and Atlas do not support file parts" in docs_text
 
 
 @pytest.mark.asyncio
