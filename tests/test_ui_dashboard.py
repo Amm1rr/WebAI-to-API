@@ -522,6 +522,26 @@ async def test_dashboard_docs_mention_playground_file_support():
     assert "Gemini Playwright and Atlas do not support file parts" in docs_text
     assert "conservative file limits" in docs_text
     assert "API documentation" in docs_text
+    assert "Artifacts" in docs_text
+    assert "link-first" in docs_text
+
+
+def test_api_docs_mention_generated_artifacts():
+    docs_path = Path("docs/api.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "#### Generated Artifacts" in docs_text
+    assert "choices[0].artifacts" in docs_text
+    assert "Artifact URLs are opaque provider metadata" in docs_text
+
+
+def test_api_contract_docs_mention_generated_artifacts():
+    docs_path = Path("docs/specs/api-contract.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "### 3.2 Generated Output Artifacts" in docs_text
+    assert "choices[0].artifacts" in docs_text
+    assert "Artifact URLs are provider metadata only" in docs_text
 
 
 def test_api_docs_mention_extensionless_text_support():
