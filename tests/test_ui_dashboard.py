@@ -434,6 +434,7 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "data-file-guidance" in response.text
     assert "Gemini WebAPI" in response.text
     assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
+    assert "40 MiB total raw size" in response.text
     list_models.assert_called_once()
     list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
@@ -476,6 +477,7 @@ async def test_ui_html_references_static_assets():
     assert "data-file-list" in playground_js
     assert "data-clear-files" in playground_js
     assert "Gemini Playwright and Atlas do not support file parts" in playground_js
+    assert "MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024" in playground_js
 
 
 @pytest.mark.asyncio
@@ -486,6 +488,7 @@ async def test_dashboard_docs_mention_playground_file_support():
     assert "/ui/playground" in docs_text
     assert "optional file attachments for Gemini WebAPI" in docs_text
     assert "Gemini Playwright and Atlas do not support file parts" in docs_text
+    assert "conservative file limits" in docs_text
 
 
 @pytest.mark.asyncio

@@ -44,3 +44,5 @@ Keep the dashboard reachable only from trusted clients unless you have explicit 
 Dashboard CSS and JavaScript assets are served by standard Starlette `StaticFiles` from `/ui/static`.
 
 The playground uses the existing `/v1/chat/completions` JSON contract. When files are attached, they are converted client-side into OpenAI-style `type: "file"` content parts and sent to Gemini WebAPI only. Gemini Playwright and Atlas do not support file parts, and Gemini WebAPI does not preserve exact text/file interleaving order.
+
+The UI enforces conservative file limits to account for browser-side base64 expansion. Backend validation remains authoritative.

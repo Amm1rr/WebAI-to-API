@@ -28,7 +28,7 @@
   var lastModel = "";
   var MAX_FILE_COUNT = 8;
   var MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
-  var MAX_TOTAL_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+  var MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024;
   var ALLOWED_FILE_SUFFIXES = {
     "application/pdf": [".pdf"],
     "application/msword": [".doc"],
@@ -332,6 +332,7 @@
     }
 
     var totalSize = 0;
+    // File-only submissions are intentionally unsupported in the playground MVP.
     var parts = [{
       type: "text",
       text: prompt
