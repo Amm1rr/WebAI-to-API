@@ -55,6 +55,10 @@ async def test_openapi_chat_endpoint_metadata():
     assert "Chat" in chat_path["post"]["tags"]
     assert "OpenAI-Compatible Chat Completions" in chat_path["post"]["summary"]
     assert "recommended API" in chat_path["post"]["description"]
+    assert "Gemini WebAPI supports file content parts" in chat_path["post"]["description"]
+    assert "request-scoped" in chat_path["post"]["description"]
+    assert "interleaving" in chat_path["post"]["description"]
+    assert "docs/api.md" in chat_path["post"]["description"]
 
     # Check /v1/models
     models_path = schema["paths"].get("/v1/models")
@@ -101,18 +105,39 @@ async def test_openapi_chat_request_supports_content_parts():
     text_part_schema = schema["components"]["schemas"]["OpenAIChatTextContentPart"]
     file_part_schema = schema["components"]["schemas"]["OpenAIChatFileContentPart"]
     file_payload_schema = schema["components"]["schemas"]["OpenAIChatFilePayload"]
+    chat_path = schema["paths"]["/v1/chat/completions"]["post"]
+    request_examples = chat_path["requestBody"]["content"]["application/json"]["examples"]
 
     content_schema = message_schema["properties"]["content"]
     assert "anyOf" in content_schema
     assert any(item.get("type") == "string" for item in content_schema["anyOf"])
+    assert "Either a plain string or an array of content parts." in content_schema["description"]
 
     messages_schema = request_schema["properties"]["messages"]
     assert messages_schema["items"]["$ref"].endswith("/OpenAIChatMessage")
+    assert "OpenAI-compatible chat request" in request_schema["description"]
 
+    assert message_schema["description"].startswith("OpenAI-compatible chat message")
     assert text_part_schema["properties"]["type"]["const"] == "text"
+    assert "OpenAI-style text content part." in text_part_schema["description"]
+    assert text_part_schema["properties"]["text"]["description"] == "Plain text for this content part."
     assert file_part_schema["properties"]["type"]["const"] == "file"
+    assert "OpenAI-style file attachment content part." in file_part_schema["description"]
+    assert file_part_schema["properties"]["file"]["description"] == "File attachment metadata and base64 data URL payload."
     assert file_payload_schema["properties"]["filename"]["type"] == "string"
+    assert "Original filename used for validation" in file_payload_schema["properties"]["filename"]["description"]
     assert file_payload_schema["properties"]["file_data"]["type"] == "string"
+    assert "Base64 data URL" in file_payload_schema["properties"]["file_data"]["description"]
+    assert "Remote URLs, filesystem paths, and file_id are not supported." in file_payload_schema["properties"]["file_data"]["description"]
+
+    assert "textOnly" in request_examples
+    assert "fileRequest" in request_examples
+    assert request_examples["textOnly"]["value"]["messages"][0]["content"] == "Hello!"
+    file_example = request_examples["fileRequest"]["value"]["messages"][0]["content"][1]
+    assert file_example["type"] == "file"
+    assert file_example["file"]["filename"] == "invoice.pdf"
+    assert file_example["file"]["file_data"] == "data:application/pdf;base64,JVBERi0xLjQK"
+    assert len(file_example["file"]["file_data"]) < 64
 
 @pytest.mark.asyncio
 async def test_openapi_utility_endpoint_metadata():
