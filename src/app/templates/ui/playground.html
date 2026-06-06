@@ -45,6 +45,7 @@
         <button type="button" class="secondary-button" data-clear-files disabled>Clear files</button>
         <span class="file-limit-note">UI limit: max 8 files, 20 MiB per file, 40 MiB total raw size. Backend validation remains authoritative.</span>
       </div>
+      <div class="file-attachment-summary" data-file-attachment-summary aria-live="polite">No files attached.</div>
       <ul class="file-list" data-file-list aria-live="polite"></ul>
     </div>
 
@@ -92,5 +93,5 @@
   </section>
 </section>
 
-<script src="/ui/static/js/playground.js" defer></script>
+<script src="/ui/static/js/playground.js?v={{ static_asset_version }}" defer></script>
 {% endblock %}

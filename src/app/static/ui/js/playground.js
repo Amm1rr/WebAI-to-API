@@ -17,6 +17,7 @@
   var metaStatus = root.querySelector("[data-meta-status]");
   var fileInput = form.querySelector("[data-file-input]");
   var fileList = form.querySelector("[data-file-list]");
+  var fileAttachmentSummary = form.querySelector("[data-file-attachment-summary]");
   var fileGuidance = form.querySelector("[data-file-guidance]");
   var clearFilesButton = form.querySelector("[data-clear-files]");
   var modelSelect = form.querySelector('select[name="model"]');
@@ -197,6 +198,24 @@
     clearFilesButton.disabled = false;
   }
 
+  function setFileAttachmentSummary(files, status) {
+    if (!files.length) {
+      fileAttachmentSummary.textContent = "No files attached.";
+      return;
+    }
+
+    var names = files.map(function (file) {
+      return file.name + " (" + formatBytes(file.size || 0) + ")";
+    }).join(", ");
+
+    if (status && status.ok) {
+      fileAttachmentSummary.textContent = "Selected files will be attached on submit: " + names + ".";
+      return;
+    }
+
+    fileAttachmentSummary.textContent = "Selected files: " + names + ".";
+  }
+
   function syncFileSelectionFeedback() {
     var files = getSelectedFiles();
     var status = getFileSelectionStatus(String(modelSelect.value || "").trim(), files);
@@ -204,11 +223,13 @@
 
     if (!files.length) {
       renderFileList(files);
+      setFileAttachmentSummary(files, status);
       setFileGuidance("File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.", null);
       return status;
     }
 
     renderFileList(files);
+    setFileAttachmentSummary(files, status);
 
     if (!status.ok) {
       setFileGuidance(status.message, "error");
@@ -229,6 +250,7 @@
     fileInput.value = "";
     clearFileValidation();
     renderFileList([]);
+    setFileAttachmentSummary([]);
     setFileGuidance("File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.", null);
   }
 

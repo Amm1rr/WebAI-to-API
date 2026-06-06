@@ -426,12 +426,14 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "playwright/gemini/gemini-3.5-flash" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
     assert "playwright/gemini-3.5-flash" not in response.text
-    assert "/ui/static/js/playground.js" in response.text
+    assert "/ui/static/js/playground.js?v=" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
     assert "data-file-input" in response.text
     assert "data-file-list" in response.text
     assert "data-clear-files" in response.text
     assert "data-file-guidance" in response.text
+    assert "data-file-attachment-summary" in response.text
+    assert "No files attached." in response.text
     assert "Gemini WebAPI" in response.text
     assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
     assert "40 MiB total raw size" in response.text
@@ -456,12 +458,12 @@ async def test_ui_html_references_static_assets():
     response = await _get("/ui")
 
     assert response.status_code == 200
-    assert "/ui/static/js/htmx.min.js" in response.text
-    assert "/ui/static/css/dashboard.css" in response.text
+    assert "/ui/static/js/htmx.min.js?v=" in response.text
+    assert "/ui/static/css/dashboard.css?v=" in response.text
 
     playground_response = await _get("/ui/playground")
     assert playground_response.status_code == 200
-    assert "/ui/static/js/playground.js" in playground_response.text
+    assert "/ui/static/js/playground.js?v=" in playground_response.text
     playground_js = (ui_module.STATIC_DIR / "js/playground.js").read_text(encoding="utf-8")
     assert "/v1/chat/completions" in playground_js
     assert "AbortController" in playground_js
@@ -476,6 +478,8 @@ async def test_ui_html_references_static_assets():
     assert "data-file-input" in playground_js
     assert "data-file-list" in playground_js
     assert "data-clear-files" in playground_js
+    assert "data-file-attachment-summary" in playground_js
+    assert "Selected files will be attached on submit" in playground_js
     assert "Gemini Playwright and Atlas do not support file parts" in playground_js
     assert "MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024" in playground_js
 
