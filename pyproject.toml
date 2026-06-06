@@ -1,12 +1,18 @@
 # File: pyproject.toml
 
-[tool.poetry]
+[project]
 name = "webai-to-api"
 version = "0.5.0"
 description = "WebAI-to-API is a modular web server built with FastAPI, designed to manage requests across AI services."
-authors = ["Mohammad <m.khani2810@gmail.com>"]
+authors = [
+    { name = "Mohammad", email = "m.khani2810@gmail.com" },
+]
 license = "Apache-2.0"
 readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dynamic = ["dependencies"]
+
+[tool.poetry]
 
 packages = [
     { include = "app", from = "src" },
@@ -46,5 +52,5 @@ asyncio_default_test_loop_scope = "function"
 timeout = 30
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

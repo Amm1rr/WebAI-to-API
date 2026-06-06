@@ -22,6 +22,25 @@ from app.config import load_config, CONFIG
 from app.main import app as webai_app
 
 
+def _read_project_metadata() -> Tuple[str, str]:
+    """Read the project name and version from pyproject metadata."""
+    if not tomli:
+        return "WebAI to API", "N/A (tomli not installed)"
+
+    try:
+        with open("pyproject.toml", "rb") as f:
+            toml_data = tomli.load(f)
+
+        project_data = toml_data.get("project", {})
+        poetry_data = toml_data.get("tool", {}).get("poetry", {})
+
+        name = project_data.get("name") or poetry_data.get("name", "WebAI-to-API")
+        version = project_data.get("version") or poetry_data.get("version", "N/A")
+        return name.replace("-", " ").title(), version
+    except (FileNotFoundError, KeyError, TypeError):
+        return "WebAI-to-API", "N/A"
+
+
 # Helper class for terminal colors
 class Colors:
     """A class to hold ANSI color codes for terminal output."""
@@ -37,17 +56,7 @@ class Colors:
 # --- Helper function to get app info ---
 def get_app_info() -> Tuple[str, str]:
     """Reads application name and version from pyproject.toml."""
-    if not tomli:
-        return "WebAI to API", "N/A (tomli not installed)"
-    try:
-        with open("pyproject.toml", "rb") as f:
-            toml_data = tomli.load(f)
-        poetry_data = toml_data.get("tool", {}).get("poetry", {})
-        name = poetry_data.get("name", "WebAI-to-API").replace("-", " ").title()
-        version = poetry_data.get("version", "N/A")
-        return name, version
-    except (FileNotFoundError, KeyError):
-        return "WebAI-to-API", "N/A"
+    return _read_project_metadata()
 
 
 # --- Helper Function for Printing Info ---
