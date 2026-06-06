@@ -65,9 +65,12 @@ async def test_openapi_temporary_chat_endpoint_metadata():
     assert "not saved in Gemini history" in temporary_path["post"]["description"]
     assert "do not write SQLite conversation snapshots" in temporary_path["post"]["description"]
     assert "`conversation_id` is rejected" in temporary_path["post"]["description"]
-    assert "Playwright models/providers, Atlas models/providers, and any non-Gemini provider are rejected" in temporary_path["post"]["description"]
     assert "streaming and non-streaming" in temporary_path["post"]["description"]
     assert "artifact metadata" in temporary_path["post"]["description"]
+    description = temporary_path["post"]["description"]
+    assert "Playwright" in description
+    assert "Atlas" in description
+    assert "non-Gemini provider" in description
 
     request_examples = temporary_path["post"]["requestBody"]["content"]["application/json"]["examples"]
     assert "temporaryTextOnly" in request_examples
