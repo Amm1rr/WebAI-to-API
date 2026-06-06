@@ -7,6 +7,8 @@ from app.logger import logger
 from app.openapi.chat_completions import (
     CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     CHAT_COMPLETIONS_RESPONSE_200,
+    TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+    TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
 )
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
@@ -64,7 +66,7 @@ async def list_gems():
     "/translate",
     tags=["Translation"],
     summary="Translate Extension Compatibility",
-    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, sends Gemini WebAPI translation requests as temporary requests so they are not saved in Gemini history, does not support conversation_id isolation, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
+    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, sends Gemini WebAPI translation requests as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
 )
 async def translate_chat(request: GeminiRequest):
     try:
@@ -135,15 +137,20 @@ def _resolve_temporary_chat_model(request: OpenAIChatRequest) -> str:
     description=(
         "Gemini WebAPI-only OpenAI-compatible chat completions endpoint. Requests are sent with temporary=True, "
         "so responses are not saved in Gemini history and do not write SQLite conversation snapshots. "
-        "conversation_id continuation is not supported. Playwright and Atlas models/providers are rejected. "
-        "File content parts are supported only by Gemini WebAPI and are request-scoped."
+        "`conversation_id` is rejected. Playwright models/providers, Atlas models/providers, and any non-Gemini provider are rejected. "
+        "The endpoint supports streaming and non-streaming responses. File content parts are supported only by "
+        "Gemini WebAPI, are request-scoped, and generated artifact metadata follows the same response shape as "
+        "`/v1/chat/completions`."
     ),
-    responses={200: CHAT_COMPLETIONS_RESPONSE_200},
+    responses={
+        200: CHAT_COMPLETIONS_RESPONSE_200,
+        400: TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
+    },
     openapi_extra={
         "requestBody": {
             "content": {
                 "application/json": {
-                    "examples": CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+                    "examples": TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
                 }
             }
         }
