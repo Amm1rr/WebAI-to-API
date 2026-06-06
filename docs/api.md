@@ -53,9 +53,39 @@ Supported parts in the MVP:
 * `{ "type": "text", "text": "..." }`
 * `{ "type": "file", "file": { "filename": "...", "file_data": "data:...;base64,..." } }`
 
-Currently verified file formats include `.pdf`, `.doc`, `.docx`, `.txt`, `.md`, `.csv`, `.log`, `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, `.json`, `.xml`, and `.xlsx`.
-File parts are request-scoped, base64 `data:` URLs only, and are rejected on Gemini Playwright and Atlas backends.
-For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
+#### Supported Gemini WebAPI File Formats
+
+Verified formats currently supported by WebAI for Gemini WebAPI file parts:
+
+* `.pdf`
+* `.doc`
+* `.docx`
+* `.txt`
+* `.text`
+* `.md`
+* `.markdown`
+* `.csv`
+* `.log`
+* `.png`
+* `.jpg`
+* `.jpeg`
+* `.webp`
+* `.gif`
+* `.json`
+* `.xml`
+* `.xlsx`
+
+File parts are Gemini WebAPI-only in the MVP. Remote URLs, filesystem paths, `file_id`, and unsupported content-part types are rejected. Backend validation remains authoritative.
+
+For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving is not preserved.
+
+Current limits remain unchanged:
+
+* 8 files
+* 20 MiB per file
+* 50 MiB total backend limit
+
+See the same note in [docs/specs/api-contract.md](specs/api-contract.md) for the contract-level rules.
 
 ---
 

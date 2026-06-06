@@ -148,8 +148,7 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 
 > [!NOTE]
 > File parts are supported only by the Gemini WebAPI backend in the MVP. Gemini Playwright and Atlas reject file parts with a clear capability error.
-> For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
-> Currently verified file formats include `.json`, `.xml`, and `.xlsx` in addition to the existing text, document, and image formats.
+> For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved. The currently verified file formats are documented in [docs/api.md](docs/api.md).
 > The built-in `/ui/playground` page uses the same contract for file attachments.
 
 ### 3. Force the Playwright Backend

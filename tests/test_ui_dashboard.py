@@ -502,9 +502,7 @@ async def test_dashboard_docs_mention_playground_file_support():
     assert "optional file attachments for Gemini WebAPI" in docs_text
     assert "Gemini Playwright and Atlas do not support file parts" in docs_text
     assert "conservative file limits" in docs_text
-    assert ".json" in docs_text
-    assert ".xml" in docs_text
-    assert ".xlsx" in docs_text
+    assert "docs/api.md" in docs_text
 
 
 @pytest.mark.asyncio
