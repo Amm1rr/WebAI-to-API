@@ -232,8 +232,6 @@ These endpoints manage locally persisted Gemini WebAPI conversation snapshots an
 
 WebAI-to-API is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full text.
 
-Versions released before v0.5.0 were historically distributed under the MIT License.
-
 
 <br>
 
