@@ -28,12 +28,9 @@ class GeminiRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, description="Cryptographically secure token to maintain chat state.")
 
 class OpenAIChatFilePayload(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "description": "File attachment payload for Gemini WebAPI file parts. Supported formats are documented in docs/api.md."
-        },
-    )
+    """File attachment payload for Gemini WebAPI file parts. Supported formats are documented in docs/api.md."""
+
+    model_config = ConfigDict(extra="forbid")
 
     filename: str = Field(
         description="Original filename used for validation and attachment handling.",
@@ -47,24 +44,18 @@ class OpenAIChatFilePayload(BaseModel):
 
 
 class OpenAIChatTextContentPart(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "description": "OpenAI-style text content part."
-        },
-    )
+    """OpenAI-style text content part."""
+
+    model_config = ConfigDict(extra="forbid")
 
     type: Literal["text"] = Field(description='Content part discriminator. Must be "text".')
     text: str = Field(description="Plain text for this content part.")
 
 
 class OpenAIChatFileContentPart(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "description": "OpenAI-style file attachment content part. File parts are supported only by the Gemini WebAPI backend and are request-scoped."
-        },
-    )
+    """OpenAI-style file attachment content part. File parts are supported only by the Gemini WebAPI backend and are request-scoped."""
+
+    model_config = ConfigDict(extra="forbid")
 
     type: Literal["file"] = Field(description='Content part discriminator. Must be "file".')
     file: OpenAIChatFilePayload = Field(
@@ -79,16 +70,9 @@ OpenAIChatContentPart = Annotated[
 
 
 class OpenAIChatMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "description": (
-                "OpenAI-compatible chat message. content may be a plain string or an array of text and file content parts. "
-                "File parts are supported only by Gemini WebAPI, are request-scoped, and are flattened into prompt text plus attachments. "
-                "Exact text/file interleaving is not preserved."
-            )
-        },
-    )
+    """OpenAI-compatible chat message. content may be a plain string or an array of text and file content parts. File parts are supported only by Gemini WebAPI, are request-scoped, and are flattened into prompt text plus attachments. Exact text/file interleaving is not preserved."""
+
+    model_config = ConfigDict(extra="allow")
 
     role: str = Field(description="Message role such as user, assistant, or system.")
     content: Optional[Union[str, List[OpenAIChatContentPart]]] = Field(
@@ -105,13 +89,7 @@ class OpenAIChatMessage(BaseModel):
 
 
 class OpenAIChatRequest(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "description": (
-                "OpenAI-compatible chat request. Gemini WebAPI supports multimodal file content parts; supported formats are documented in docs/api.md."
-            )
-        },
-    )
+    """OpenAI-compatible chat request. Gemini WebAPI supports multimodal file content parts; supported formats are documented in docs/api.md."""
 
     messages: List[OpenAIChatMessage]
     model: Optional[str] = None

@@ -119,11 +119,12 @@ async def test_openapi_chat_request_supports_content_parts():
 
     assert message_schema["description"].startswith("OpenAI-compatible chat message")
     assert text_part_schema["properties"]["type"]["const"] == "text"
-    assert "OpenAI-style text content part." in text_part_schema["description"]
+    assert text_part_schema["description"] == "OpenAI-style text content part."
     assert text_part_schema["properties"]["text"]["description"] == "Plain text for this content part."
     assert file_part_schema["properties"]["type"]["const"] == "file"
-    assert "OpenAI-style file attachment content part." in file_part_schema["description"]
+    assert file_part_schema["description"].startswith("OpenAI-style file attachment content part.")
     assert file_part_schema["properties"]["file"]["description"] == "File attachment metadata and base64 data URL payload."
+    assert file_payload_schema["description"].startswith("File attachment payload for Gemini WebAPI file parts.")
     assert file_payload_schema["properties"]["filename"]["type"] == "string"
     assert "Original filename used for validation" in file_payload_schema["properties"]["filename"]["description"]
     assert file_payload_schema["properties"]["file_data"]["type"] == "string"
