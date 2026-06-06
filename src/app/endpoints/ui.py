@@ -19,12 +19,30 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "ui"
 
 router = APIRouter(prefix="/ui", tags=["Dashboard"], include_in_schema=False)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+_STATIC_VERSION_PATHS = (
+    STATIC_DIR / "css" / "dashboard.css",
+    STATIC_DIR / "js" / "htmx.min.js",
+    STATIC_DIR / "js" / "playground.js",
+)
 
 
 def _template_context(request: Request, **values: Any) -> dict[str, Any]:
-    context = {"request": request}
+    context = {
+        "request": request,
+        "static_asset_version": _static_asset_version(),
+    }
     context.update(values)
     return context
+
+
+def _static_asset_version() -> str:
+    mtimes = []
+    for path in _STATIC_VERSION_PATHS:
+        try:
+            mtimes.append(path.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return str(max(mtimes)) if mtimes else "0"
 
 
 def _status_class(status: Any) -> str:

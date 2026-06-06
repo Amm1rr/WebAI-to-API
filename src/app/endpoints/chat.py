@@ -81,7 +81,54 @@ async def get_models():
     "/v1/chat/completions",
     tags=["Chat"],
     summary="OpenAI-Compatible Chat Completions",
-    description="Primary OpenAI-compatible chat endpoint. Supports streaming responses, conversation_id-based conversations, and provider routing. This is the recommended API for new integrations."
+    description=(
+        "Primary OpenAI-compatible chat completions endpoint. Gemini WebAPI supports file content parts; file parts are request-scoped and unsupported backends reject them. "
+        "For Gemini WebAPI, text parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving is not preserved. "
+        "Supported file formats are documented in docs/api.md. This is the recommended API for new integrations."
+    ),
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "textOnly": {
+                            "summary": "Text-only request",
+                            "value": {
+                                "model": "gemini-3-flash",
+                                "messages": [
+                                    {
+                                        "role": "user",
+                                        "content": "Hello!"
+                                    }
+                                ]
+                            },
+                        },
+                        "fileRequest": {
+                            "summary": "File attachment request",
+                            "value": {
+                                "model": "gemini-3-flash",
+                                "messages": [
+                                    {
+                                        "role": "user",
+                                        "content": [
+                                            {"type": "text", "text": "Summarize this document."},
+                                            {
+                                                "type": "file",
+                                                "file": {
+                                                    "filename": "invoice.pdf",
+                                                    "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                                                },
+                                            },
+                                        ],
+                                    }
+                                ],
+                            },
+                        },
+                    }
+                }
+            }
+        }
+    },
 )
 async def chat_completions(request: OpenAIChatRequest, http_request: Request):
     # Attach HTTP request_id for observability (will be used by adapter if present)

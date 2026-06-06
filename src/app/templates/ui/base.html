@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}WebAI Dashboard{% endblock %}</title>
-    <link rel="stylesheet" href="/ui/static/css/dashboard.css">
-    <script src="/ui/static/js/htmx.min.js" defer></script>
+    <link rel="stylesheet" href="/ui/static/css/dashboard.css?v={{ static_asset_version }}">
+    <script src="/ui/static/js/htmx.min.js?v={{ static_asset_version }}" defer></script>
   </head>
   <body>
     <header class="topbar">

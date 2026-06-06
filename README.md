@@ -119,6 +119,38 @@ curl -X POST http://localhost:6969/v1/chat/completions \
   }'
 ```
 
+### 2b. Send a File to Gemini WebAPI
+
+File input is supported through OpenAI-style `content` parts on `/v1/chat/completions` when routed to the Gemini WebAPI backend.
+
+```bash
+curl -X POST http://localhost:6969/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Summarize this document." },
+          {
+            "type": "file",
+            "file": {
+              "filename": "invoice.pdf",
+              "file_data": "data:application/pdf;base64,JVBERi0xLjQK"
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+> [!NOTE]
+> File parts are supported only by the Gemini WebAPI backend in the MVP. Gemini Playwright and Atlas reject file parts with a clear capability error.
+> For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved. The currently verified file formats are documented in [docs/api.md](docs/api.md).
+> The built-in `/ui/playground` page uses the same contract for file attachments.
+
 ### 3. Force the Playwright Backend
 
 ```bash

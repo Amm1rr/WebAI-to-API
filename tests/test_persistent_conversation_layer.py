@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from types import SimpleNamespace
 from fastapi import HTTPException
@@ -24,6 +26,7 @@ class MockChatSession:
         self.model = model
         self.gem = gem
         self.prompts = []
+        self.files_received = []
 
     @property
     def metadata(self):
@@ -31,6 +34,7 @@ class MockChatSession:
 
     async def send_message(self, prompt, files=None):
         self.prompts.append(prompt)
+        self.files_received.append(files)
         self.metadata[0] = "cid-restored"
         self.metadata[1] = f"rid-{len(self.prompts)}"
         self.metadata[2] = f"rcid-{len(self.prompts)}"
@@ -55,13 +59,17 @@ class MockGeminiClient:
 
 
 @pytest.mark.asyncio
-async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(tmp_path, mocker):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(mocker):
     provider = GeminiProvider()
     client = MockGeminiClient()
-    first_registry = SessionRegistry(client, repository=repo)
+    saved_snapshots = []
+    first_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(side_effect=lambda snapshot: saved_snapshots.append(snapshot)),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    first_registry = SessionRegistry(client, repository=first_repo)
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
@@ -77,7 +85,14 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(tmp
     assert first_response["conversation_id"] == "conv-restart"
     assert first_response["reused_conversation"] is False
 
-    second_registry = SessionRegistry(client, repository=repo)
+    saved_snapshot = saved_snapshots[0]
+    second_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=saved_snapshot),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    second_registry = SessionRegistry(client, repository=second_repo)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=second_registry)
 
     second_response = await provider.chat_completions(
@@ -97,10 +112,73 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(tmp
 
 
 @pytest.mark.asyncio
-async def test_registry_fails_closed_when_requested_snapshot_is_missing(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
+async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(mocker):
+    provider = GeminiProvider()
+    client = MockGeminiClient()
+    saved_snapshots = []
+    first_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(side_effect=lambda snapshot: saved_snapshots.append(snapshot)),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    first_registry = SessionRegistry(client, repository=first_repo)
 
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
+    mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart-file")
+
+    first_response = await provider.chat_completions(
+        OpenAIChatRequest(
+            messages=[{"role": "user", "content": "Remember alpha"}],
+            model="gemini-3-flash",
+        )
+    )
+
+    assert first_response["conversation_id"] == "conv-restart-file"
+    assert first_response["reused_conversation"] is False
+
+    saved_snapshot = saved_snapshots[0]
+    second_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=saved_snapshot),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    second_registry = SessionRegistry(client, repository=second_repo)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=second_registry)
+
+    second_response = await provider.chat_completions(
+        OpenAIChatRequest(
+            messages=[
+                {"role": "user", "content": "Remember alpha"},
+                {"role": "assistant", "content": "ok"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What does this file say?"},
+                        {"type": "file", "file": {"filename": "invoice.pdf", "file_data": "data:application/pdf;base64,JVBERi0xLjQK"}},
+                    ],
+                },
+            ],
+            model="gemini-3-flash",
+            conversation_id="conv-restart-file",
+        )
+    )
+
+    assert second_response["reused_conversation"] is True
+    assert client.sessions[-1].prompts == ["What does this file say?"]
+    assert len(client.sessions[-1].files_received[-1]) == 1
+
+
+@pytest.mark.asyncio
+async def test_registry_fails_closed_when_requested_snapshot_is_missing(mocker):
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(MockGeminiClient(), repository=repo)
 
     with pytest.raises(SnapshotNotFoundError):
@@ -113,12 +191,15 @@ async def test_registry_fails_closed_when_requested_snapshot_is_missing(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_provider_returns_recovery_error_for_missing_snapshot(tmp_path, mocker):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_provider_returns_recovery_error_for_missing_snapshot(mocker):
     provider = GeminiProvider()
     client = MockGeminiClient()
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(client, repository=repo)
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
@@ -138,10 +219,13 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_registry_tombstone_blocks_concurrent_get_session(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_registry_tombstone_blocks_concurrent_get_session(mocker):
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(MockGeminiClient(), repository=repo)
     await registry.begin_delete_session("conv-deleting")
 
@@ -158,10 +242,13 @@ async def test_registry_tombstone_blocks_concurrent_get_session(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_registry_begin_delete_rejects_active_locked_session(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_registry_begin_delete_rejects_active_locked_session(mocker):
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(MockGeminiClient(), repository=repo)
     manager = await registry.get_session("conv-active")
     await manager.lock.acquire()
@@ -173,10 +260,13 @@ async def test_registry_begin_delete_rejects_active_locked_session(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_registry_begin_delete_rejects_active_stream_session(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_registry_begin_delete_rejects_active_stream_session(mocker):
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(MockGeminiClient(), repository=repo)
     manager = await registry.get_session("conv-streaming")
     manager.active_streams = 1
@@ -186,12 +276,16 @@ async def test_registry_begin_delete_rejects_active_stream_session(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_model_mismatch_does_not_block_recovery(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_model_mismatch_does_not_block_recovery(mocker):
     provider = GeminiProvider()
     client = MockGeminiClient()
+    saved_snapshots = []
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(side_effect=lambda snapshot: saved_snapshots.append(snapshot)),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(client, repository=repo)
 
     manager = await registry.get_session(
@@ -205,8 +299,15 @@ async def test_model_mismatch_does_not_block_recovery(tmp_path):
         "gemini-3-flash",
     )
     await registry.save_session_snapshot("conv-model-switch", provider, manager)
+    snapshot = saved_snapshots[0]
 
-    restored_registry = SessionRegistry(client, repository=repo)
+    restored_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=snapshot),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    restored_registry = SessionRegistry(client, repository=restored_repo)
     restored = await restored_registry.get_session(
         "conv-model-switch",
         provider,
@@ -219,12 +320,53 @@ async def test_model_mismatch_does_not_block_recovery(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_registry_uses_provider_adapter_name_for_snapshot_identity(tmp_path):
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
+async def test_file_parts_are_passed_on_current_turn_without_persisting_payload(mocker):
     provider = GeminiProvider()
     client = MockGeminiClient()
+    mock_repository = SimpleNamespace(save_snapshot=mocker.AsyncMock())
+    registry = SessionRegistry(client, repository=mock_repository)
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
+    mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-file")
+
+    response = await provider.chat_completions(
+        OpenAIChatRequest(
+            messages=[
+                {"role": "user", "content": "Summarize this file."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "file", "file": {"filename": "invoice.pdf", "file_data": "data:application/pdf;base64,JVBERi0xLjQK"}},
+                    ],
+                },
+            ],
+            model="gemini-3-flash",
+        )
+    )
+
+    assert response["conversation_id"] == "conv-file"
+    assert client.sessions[-1].files_received[-1] is not None
+    assert len(client.sessions[-1].files_received[-1]) == 1
+
+    snapshot = mock_repository.save_snapshot.call_args.args[0]
+    snapshot_text = json.dumps(snapshot.session_state)
+    assert "file_data" not in snapshot_text
+    assert "invoice.pdf" not in snapshot_text
+    assert "JVBERi0xLjQK" not in snapshot_text
+
+
+@pytest.mark.asyncio
+async def test_registry_uses_provider_adapter_name_for_snapshot_identity(mocker):
+    provider = GeminiProvider()
+    client = MockGeminiClient()
+    saved_snapshots = []
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(side_effect=lambda snapshot: saved_snapshots.append(snapshot)),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(client, repository=repo)
 
     manager = await registry.get_session(
@@ -237,20 +379,24 @@ async def test_registry_uses_provider_adapter_name_for_snapshot_identity(tmp_pat
 
     await registry.save_session_snapshot("conv-provider-name", provider, manager)
 
-    snapshot = await repo.get_snapshot("conv-provider-name")
+    snapshot = saved_snapshots[0]
     assert snapshot.provider_name == provider.provider_name
 
 
 @pytest.mark.asyncio
-async def test_restored_metadata_is_isolated_from_default_metadata(tmp_path):
+async def test_restored_metadata_is_isolated_from_default_metadata(mocker):
     from gemini_webapi.constants import DEFAULT_METADATA
 
     original_default = list(DEFAULT_METADATA)
-    repo = SQLiteConversationRepository(str(tmp_path / "snapshots.db"))
-    await repo.initialize()
-
     provider = GeminiProvider()
     client = MockGeminiClient(initial_metadata_factory=lambda: DEFAULT_METADATA)
+    saved_snapshots = []
+    repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(side_effect=lambda snapshot: saved_snapshots.append(snapshot)),
+        get_snapshot=mocker.AsyncMock(return_value=None),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
     registry = SessionRegistry(client, repository=repo)
 
     manager = await registry.get_session(
@@ -265,7 +411,13 @@ async def test_restored_metadata_is_isolated_from_default_metadata(tmp_path):
     )
     await registry.save_session_snapshot("conv-metadata", provider, manager)
 
-    restored_registry = SessionRegistry(client, repository=repo)
+    restored_repo = SimpleNamespace(
+        save_snapshot=mocker.AsyncMock(),
+        get_snapshot=mocker.AsyncMock(return_value=saved_snapshots[0]),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    restored_registry = SessionRegistry(client, repository=restored_repo)
     restored = await restored_registry.get_session(
         "conv-metadata",
         provider,

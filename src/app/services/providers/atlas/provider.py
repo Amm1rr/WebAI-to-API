@@ -7,6 +7,7 @@ from app.services.base import BaseProvider
 from .client import get_atlas_client, AtlasClientNotConfiguredError, AtlasClientError
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
+from app.services.multimodal import normalize_openai_chat_messages
 
 class AtlasProvider(BaseProvider):
     """
@@ -18,6 +19,12 @@ class AtlasProvider(BaseProvider):
         # Atlas logic currently splitting model name occurs in Factory, 
         # so we just need to ensure the request is mapped correctly.
         try:
+            normalized = normalize_openai_chat_messages(
+                request.messages,
+                allow_file_parts=False,
+            )
+            request.messages = normalized.messages
+
             atlas_client = get_atlas_client()
             is_stream = request.stream if request.stream is not None else False
             
@@ -58,6 +65,8 @@ class AtlasProvider(BaseProvider):
             raise HTTPException(status_code=503, detail=str(e))
         except AtlasClientError as e:
             raise HTTPException(status_code=502, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error in AtlasProvider.chat_completions: {e}", exc_info=True)
             raise HTTPException(

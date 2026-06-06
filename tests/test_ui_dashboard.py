@@ -426,8 +426,22 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "playwright/gemini/gemini-3.5-flash" in response.text
     assert "atlas/MiniMaxAI/MiniMax-M2" in response.text
     assert "playwright/gemini-3.5-flash" not in response.text
-    assert "/ui/static/js/playground.js" in response.text
+    assert "/ui/static/js/playground.js?v=" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
+    assert 'class="playground-stack"' in response.text
+    assert "<details class=\"panel playground-files\">" in response.text
+    assert "<summary class=\"playground-files-summary\">" in response.text
+    assert response.text.index('data-response-output') < response.text.index('data-file-input')
+    assert response.text.index('data-file-input') < response.text.index('data-meta-conversation-id')
+    assert "data-file-input" in response.text
+    assert "data-file-list" in response.text
+    assert "data-clear-files" in response.text
+    assert "data-file-guidance" in response.text
+    assert "data-file-attachment-summary" in response.text
+    assert "No files attached." in response.text
+    assert "Gemini WebAPI" in response.text
+    assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
+    assert "40 MiB total raw size" in response.text
     list_models.assert_called_once()
     list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
@@ -449,12 +463,12 @@ async def test_ui_html_references_static_assets():
     response = await _get("/ui")
 
     assert response.status_code == 200
-    assert "/ui/static/js/htmx.min.js" in response.text
-    assert "/ui/static/css/dashboard.css" in response.text
+    assert "/ui/static/js/htmx.min.js?v=" in response.text
+    assert "/ui/static/css/dashboard.css?v=" in response.text
 
     playground_response = await _get("/ui/playground")
     assert playground_response.status_code == 200
-    assert "/ui/static/js/playground.js" in playground_response.text
+    assert "/ui/static/js/playground.js?v=" in playground_response.text
     playground_js = (ui_module.STATIC_DIR / "js/playground.js").read_text(encoding="utf-8")
     assert "/v1/chat/completions" in playground_js
     assert "AbortController" in playground_js
@@ -465,6 +479,45 @@ async def test_ui_html_references_static_assets():
     assert "lastReusedConversationSeen" in playground_js
     assert "lastModel" in playground_js
     assert "prompt cannot be empty" in playground_js.lower()
+    assert "readAsDataURL" in playground_js
+    assert "readFileAsArrayBuffer" in playground_js
+    assert "isExtensionlessFile" in playground_js
+    assert "isExtensionlessTextCandidate" in playground_js
+    assert "validateTextLikeArrayBuffer" in playground_js
+    assert "readFileAsDataUrlWithMimeNormalization" in playground_js
+    assert "data:text/plain;base64," in playground_js
+    assert "must be plain text to use without an extension" in playground_js
+    assert "must contain UTF-8 plain text" in playground_js
+    assert '"application/json": [".json"]' in playground_js
+    assert '"application/xml": [".xml"]' in playground_js
+    assert '"text/xml": [".xml"]' in playground_js
+    assert '"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"]' in playground_js
+    assert "data-file-input" in playground_js
+    assert "data-file-list" in playground_js
+    assert "data-clear-files" in playground_js
+    assert "data-file-attachment-summary" in playground_js
+    assert "Selected files will be attached on submit" in playground_js
+    assert "Gemini Playwright and Atlas do not support file parts" in playground_js
+    assert "MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024" in playground_js
+
+
+@pytest.mark.asyncio
+async def test_dashboard_docs_mention_playground_file_support():
+    docs_path = Path("docs/dashboard.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "/ui/playground" in docs_text
+    assert "optional file attachments for Gemini WebAPI" in docs_text
+    assert "Gemini Playwright and Atlas do not support file parts" in docs_text
+    assert "conservative file limits" in docs_text
+    assert "API documentation" in docs_text
+
+
+def test_api_docs_mention_extensionless_text_support():
+    docs_path = Path("docs/api.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "Extensionless UTF-8 plain-text files are also accepted when their content passes text validation." in docs_text
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ from app.services.providers.gemini.persistence import (
     deserialize_session_state,
     validate_session_state_payload
 )
+from app.services.multimodal import cleanup_staged_files
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 
@@ -61,6 +62,12 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             )
 
         return gemini_client
+
+    def _get_normalized_payload(self, request: OpenAIChatRequest):
+        normalized = getattr(request, "_normalized_openai_chat_messages", None)
+        if normalized is None:
+            raise HTTPException(status_code=500, detail="Multimodal request payload was not normalized.")
+        return normalized
 
     async def list_conversations(self) -> dict:
         registry = get_gemini_chat_registry()
@@ -295,6 +302,18 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
         except GeminiClientNotInitializedError as e:
             raise HTTPException(status_code=503, detail=str(e))
 
+        normalized = self._get_normalized_payload(request)
+        request.messages = normalized.messages
+        files = normalized.files or None
+        cleanup_started = False
+
+        async def cleanup_once() -> None:
+            nonlocal cleanup_started
+            if cleanup_started:
+                return
+            cleanup_started = True
+            await cleanup_staged_files(normalized)
+
         # Check client authentication status
         account_status = getattr(gemini_client.client, "account_status", None)
         status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
@@ -315,6 +334,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
         # 1. Retrieve stateful SessionManager from SessionRegistry
         registry = get_gemini_chat_registry()
         if not registry:
+            await cleanup_once()
             raise HTTPException(status_code=503, detail="Session registry is not initialized.")
         
         try:
@@ -326,11 +346,13 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                 gem=request.gem,
             )
         except SnapshotNotFoundError:
+            await cleanup_once()
             raise HTTPException(
                 status_code=404,
                 detail="The provided conversation_id was not found.",
             )
         except SessionRecoveryError as e:
+            await cleanup_once()
             raise HTTPException(status_code=409, detail=str(e)) from e
 
         is_stream = request.stream if request.stream is not None else False
@@ -345,7 +367,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                             model=request.model,
                             messages=request.messages,
                             tools_prompt=tools_prompt,
-                            files=None,
+                            files=files,
                             gem=request.gem
                         ):
                             if chunk.get("type") == "chunk" and chunk.get("text_delta"):
@@ -361,9 +383,12 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                         raise
                     except Exception as e:
                         logger.error(f"Error in Gemini WebAPI progressive streaming: {e}", exc_info=True)
+                        raise
                     else:
                         await registry.save_session_snapshot(cid, self.provider, session_manager)
                         yield await get_done_chunk()
+                    finally:
+                        await cleanup_once()
 
                 return StreamingResponse(
                     sse_generator(),
@@ -380,7 +405,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                 model=request.model,
                 messages=request.messages,
                 tools_prompt=tools_prompt,
-                files=None,
+                files=files,
                 gem=request.gem
             )
             await registry.save_session_snapshot(cid, self.provider, session_manager)
@@ -402,6 +427,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             
             if is_stream:
                 from app.utils.streaming import simulate_streaming_generator
+                await cleanup_once()
                 return StreamingResponse(
                     simulate_streaming_generator(openai_response), 
                     media_type="text/event-stream",
@@ -411,12 +437,14 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                         "X-Accel-Buffering": "no",
                     }
                 )
-                
+            await cleanup_once()
             return openai_response
 
         except HTTPException:
+            await cleanup_once()
             raise
         except APIError as e:
+            await cleanup_once()
             if not is_new_conversation and self._is_unrecoverable_conversation_error(e):
                 raise HTTPException(
                     status_code=410,
@@ -425,6 +453,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
         except Exception as e:
+            await cleanup_once()
             logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
 

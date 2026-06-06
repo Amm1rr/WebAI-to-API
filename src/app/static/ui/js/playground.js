@@ -15,15 +15,349 @@
   var metaReused = root.querySelector("[data-meta-reused]");
   var metaModel = root.querySelector("[data-meta-model]");
   var metaStatus = root.querySelector("[data-meta-status]");
+  var fileInput = root.querySelector("[data-file-input]");
+  var fileList = root.querySelector("[data-file-list]");
+  var fileAttachmentSummary = root.querySelector("[data-file-attachment-summary]");
+  var fileGuidance = root.querySelector("[data-file-guidance]");
+  var clearFilesButton = root.querySelector("[data-clear-files]");
+  var modelSelect = form.querySelector('select[name="model"]');
   var promptField = form.querySelector('textarea[name="prompt"]');
   var activeController = null;
   var lastConversationId = "";
   var lastReusedConversation = "";
   var lastReusedConversationSeen = false;
   var lastModel = "";
+  var MAX_FILE_COUNT = 8;
+  var MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+  var MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024;
+  var ALLOWED_FILE_SUFFIXES = {
+    "application/json": [".json"],
+    "application/pdf": [".pdf"],
+    "application/msword": [".doc"],
+    "application/xml": [".xml"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "text/plain": [".txt", ".text", ".md", ".csv", ".log"],
+    "text/markdown": [".md", ".markdown"],
+    "text/csv": [".csv"],
+    "text/xml": [".xml"],
+    "image/png": [".png"],
+    "image/jpeg": [".jpg", ".jpeg"],
+    "image/webp": [".webp"],
+    "image/gif": [".gif"]
+  };
 
   function setText(node, value) {
     node.textContent = value == null || value === "" ? "n/a" : String(value);
+  }
+
+  function setFileGuidance(text, variant) {
+    fileGuidance.textContent = text;
+    fileGuidance.classList.remove("warning", "error");
+    if (variant) {
+      fileGuidance.classList.add(variant);
+    }
+  }
+
+  function clearFileValidation() {
+    fileInput.setCustomValidity("");
+  }
+
+  function setFileValidationError(message) {
+    fileInput.setCustomValidity(message);
+    fileInput.reportValidity();
+  }
+
+  function getFileExtension(name) {
+    var index = String(name || "").lastIndexOf(".");
+    return index === -1 ? "" : String(name).slice(index).toLowerCase();
+  }
+
+  function isExtensionlessFile(file) {
+    return getFileExtension(file && file.name) === "";
+  }
+
+  function isExtensionlessTextCandidate(file) {
+    if (!isExtensionlessFile(file)) {
+      return false;
+    }
+
+    var mimeType = String(file && file.type || "").toLowerCase();
+    return !mimeType || mimeType === "text/plain";
+  }
+
+  function validateTextLikeArrayBuffer(buffer) {
+    if (!buffer) {
+      return false;
+    }
+
+    var bytes = new Uint8Array(buffer);
+    if (!bytes.length) {
+      return true;
+    }
+
+    var decoder = new TextDecoder("utf-8", { fatal: true });
+    var text;
+
+    try {
+      text = decoder.decode(bytes);
+    } catch (error) {
+      return false;
+    }
+
+    if (text.indexOf("\u0000") !== -1) {
+      return false;
+    }
+
+    var controlCount = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      var code = text.charCodeAt(i);
+      if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13) {
+        continue;
+      }
+      if (code < 32 || code === 127) {
+        controlCount += 1;
+      }
+    }
+
+    return (controlCount / text.length) <= 0.01;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var chunkSize = 0x8000;
+    var binary = "";
+
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      var chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+
+    return btoa(binary);
+  }
+
+  function readFileAsArrayBuffer(file, signal) {
+    return new Promise(function (resolve, reject) {
+      if (signal.aborted) {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+        return;
+      }
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result);
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("Failed to read file."));
+      };
+      reader.onabort = function () {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      };
+
+      signal.addEventListener("abort", function () {
+        if (reader.readyState === 1) {
+          reader.abort();
+        }
+      }, { once: true });
+
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(bytes < 10240 ? 1 : 0) + " KiB";
+    }
+    return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MiB";
+  }
+
+  function getSelectedFiles() {
+    return Array.prototype.slice.call(fileInput.files || []);
+  }
+
+  function isPlaywrightModel(model) {
+    return String(model || "").indexOf("playwright/") === 0;
+  }
+
+  function isAtlasModel(model) {
+    return String(model || "").indexOf("atlas/") === 0;
+  }
+
+  function isGeminiModel(model) {
+    var value = String(model || "");
+    return value.indexOf("atlas/") !== 0 && value.indexOf("playwright/") !== 0 && value.indexOf("gemini") === 0;
+  }
+
+  function getFileSelectionStatus(model, files) {
+    var count = files.length;
+    var totalSize = 0;
+
+    if (!count) {
+      return {
+        ok: true,
+        mode: "none",
+        message: "File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI."
+      };
+    }
+
+    if (count > MAX_FILE_COUNT) {
+      return {
+        ok: false,
+        mode: "error",
+        message: "Too many files selected. Maximum allowed is " + MAX_FILE_COUNT + "."
+      };
+    }
+
+    for (var i = 0; i < files.length; i += 1) {
+      var file = files[i];
+      var size = file.size || 0;
+      var mimeType = String(file.type || "").toLowerCase();
+      var suffix = getFileExtension(file.name);
+      var allowedSuffixes = ALLOWED_FILE_SUFFIXES[mimeType];
+
+      totalSize += size;
+
+      if (size > MAX_FILE_SIZE_BYTES) {
+        return {
+          ok: false,
+          mode: "error",
+          message: "File \"" + file.name + "\" exceeds the maximum allowed size of " + formatBytes(MAX_FILE_SIZE_BYTES) + "."
+        };
+      }
+
+      if (!suffix) {
+        if (mimeType && mimeType !== "text/plain") {
+          return {
+            ok: false,
+            mode: "error",
+            message: "File \"" + file.name + "\" must be plain text to use without an extension."
+          };
+        }
+        continue;
+      }
+
+      if (!mimeType || !allowedSuffixes || allowedSuffixes.indexOf(suffix) === -1) {
+        return {
+          ok: false,
+          mode: "error",
+          message: "File \"" + file.name + "\" uses an unsupported file type for this playground."
+        };
+      }
+    }
+
+    if (totalSize > MAX_TOTAL_FILE_SIZE_BYTES) {
+      return {
+        ok: false,
+        mode: "error",
+        message: "Total selected file size exceeds the maximum allowed size of " + formatBytes(MAX_TOTAL_FILE_SIZE_BYTES) + "."
+      };
+    }
+
+    if (isPlaywrightModel(model)) {
+      return {
+        ok: false,
+        mode: "error",
+        message: "File attachments are not supported for Playwright models."
+      };
+    }
+
+    if (isAtlasModel(model)) {
+      return {
+        ok: false,
+        mode: "error",
+        message: "File attachments are not supported for Atlas models."
+      };
+    }
+
+    if (isGeminiModel(model)) {
+      return {
+        ok: true,
+        mode: "warning",
+        message: "File attachments require [Gemini] backend = webapi. Exact text/file interleaving is not preserved by Gemini WebAPI."
+      };
+    }
+
+    return {
+      ok: true,
+      mode: "warning",
+      message: "File attachments are only supported when the request routes to Gemini WebAPI."
+    };
+  }
+
+  function renderFileList(files) {
+    fileList.textContent = "";
+    if (!files.length) {
+      clearFilesButton.disabled = true;
+      return;
+    }
+
+    var fragment = document.createDocumentFragment();
+    files.forEach(function (file) {
+      var item = document.createElement("li");
+      item.textContent = file.name + " (" + formatBytes(file.size || 0) + ")";
+      fragment.appendChild(item);
+    });
+    fileList.appendChild(fragment);
+    clearFilesButton.disabled = false;
+  }
+
+  function setFileAttachmentSummary(files, status) {
+    if (!files.length) {
+      fileAttachmentSummary.textContent = "No files attached.";
+      return;
+    }
+
+    var names = files.map(function (file) {
+      return file.name + " (" + formatBytes(file.size || 0) + ")";
+    }).join(", ");
+
+    if (status && status.ok) {
+      fileAttachmentSummary.textContent = "Selected files will be attached on submit: " + names + ".";
+      return;
+    }
+
+    fileAttachmentSummary.textContent = "Selected files: " + names + ".";
+  }
+
+  function syncFileSelectionFeedback() {
+    var files = getSelectedFiles();
+    var status = getFileSelectionStatus(String(modelSelect.value || "").trim(), files);
+    clearFileValidation();
+
+    if (!files.length) {
+      renderFileList(files);
+      setFileAttachmentSummary(files, status);
+      setFileGuidance("File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.", null);
+      return status;
+    }
+
+    renderFileList(files);
+    setFileAttachmentSummary(files, status);
+
+    if (!status.ok) {
+      setFileGuidance(status.message, "error");
+      setFileValidationError(status.message);
+      return status;
+    }
+
+    if (status.mode === "warning") {
+      setFileGuidance(status.message, "warning");
+      return status;
+    }
+
+    setFileGuidance("File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.", null);
+    return status;
+  }
+
+  function clearSelectedFiles() {
+    fileInput.value = "";
+    clearFileValidation();
+    renderFileList([]);
+    setFileAttachmentSummary([]);
+    setFileGuidance("File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.", null);
   }
 
   function setBusy(isBusy) {
@@ -60,12 +394,58 @@
     return true;
   }
 
-  function buildRequest() {
+  function readFileAsDataUrl(file, signal) {
+    return new Promise(function (resolve, reject) {
+      if (signal.aborted) {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+        return;
+      }
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(String(reader.result || ""));
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("Failed to read file."));
+      };
+      reader.onabort = function () {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      };
+
+      signal.addEventListener("abort", function () {
+        if (reader.readyState === 1) {
+          reader.abort();
+        }
+      }, { once: true });
+
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function readFileAsDataUrlWithMimeNormalization(file, signal) {
+    if (!isExtensionlessTextCandidate(file)) {
+      throw new Error("File must be plain text to use without an extension.");
+    }
+
+    var buffer = await readFileAsArrayBuffer(file, signal);
+    if (signal.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+
+    if (!validateTextLikeArrayBuffer(buffer)) {
+      throw new Error("File \"" + file.name + "\" must contain UTF-8 plain text.");
+    }
+
+    return "data:text/plain;base64," + arrayBufferToBase64(buffer);
+  }
+
+  async function buildRequest(signal) {
     var data = new FormData(form);
     var prompt = String(data.get("prompt") || "").trim();
     var conversationId = String(data.get("conversation_id") || "").trim();
     var model = String(data.get("model") || "").trim();
     var stream = data.get("stream") === "on";
+    var files = getSelectedFiles();
     var payload = {
       model: model,
       stream: stream,
@@ -81,6 +461,59 @@
       payload.conversation_id = conversationId;
     }
 
+    if (!files.length) {
+      return payload;
+    }
+
+    var selectionStatus = getFileSelectionStatus(model, files);
+    if (!selectionStatus.ok) {
+      setFileGuidance(selectionStatus.message, "error");
+      setFileValidationError(selectionStatus.message);
+      throw new Error(selectionStatus.message);
+    }
+
+    if (selectionStatus.mode === "warning") {
+      setFileGuidance(selectionStatus.message, "warning");
+    }
+
+    var totalSize = 0;
+    // File-only submissions are intentionally unsupported in the playground MVP.
+    var parts = [{
+      type: "text",
+      text: prompt
+    }];
+
+    for (var i = 0; i < files.length; i += 1) {
+      if (signal.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+
+      var file = files[i];
+      totalSize += file.size || 0;
+      if (totalSize > MAX_TOTAL_FILE_SIZE_BYTES) {
+        var totalMessage = "Total selected file size exceeds the maximum allowed size of " + formatBytes(MAX_TOTAL_FILE_SIZE_BYTES) + ".";
+        setFileGuidance(totalMessage, "error");
+        setFileValidationError(totalMessage);
+        throw new Error(totalMessage);
+      }
+
+      var dataUrl = isExtensionlessFile(file)
+        ? await readFileAsDataUrlWithMimeNormalization(file, signal)
+        : await readFileAsDataUrl(file, signal);
+      if (signal.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+
+      parts.push({
+        type: "file",
+        file: {
+          filename: file.name,
+          file_data: dataUrl
+        }
+      });
+    }
+
+    payload.messages[0].content = parts;
     return payload;
   }
 
@@ -222,17 +655,18 @@
       activeController.abort();
     }
 
-    var payload = buildRequest();
     activeController = new AbortController();
     resetOutput();
     setBusy(true);
 
     try {
+      var payload = await buildRequest(activeController.signal);
       if (payload.stream) {
         await submitStreaming(payload, activeController.signal);
       } else {
         await submitBuffered(payload, activeController.signal);
       }
+      clearSelectedFiles();
     } catch (error) {
       if (error.name === "AbortError") {
         setState("Stopped");
@@ -254,4 +688,18 @@
   promptField.addEventListener("input", function () {
     promptField.setCustomValidity("");
   });
+
+  fileInput.addEventListener("change", function () {
+    syncFileSelectionFeedback();
+  });
+
+  modelSelect.addEventListener("change", function () {
+    syncFileSelectionFeedback();
+  });
+
+  clearFilesButton.addEventListener("click", function () {
+    clearSelectedFiles();
+  });
+
+  syncFileSelectionFeedback();
 }());
