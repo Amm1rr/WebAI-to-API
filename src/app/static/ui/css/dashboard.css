@@ -311,18 +311,20 @@ code {
 .playground-layout {
   display: grid;
   grid-template-columns: minmax(260px, 380px) minmax(0, 1fr);
-  gap: 16px;
+  gap: 14px;
   align-items: start;
 }
 
-.playground-form {
-  grid-row: span 2;
+.playground-stack {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
 }
 
 .field {
   display: grid;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .field span,
@@ -356,7 +358,7 @@ input {
 }
 
 textarea {
-  min-height: 220px;
+  min-height: 180px;
   padding: 10px;
   resize: vertical;
 }
@@ -376,6 +378,7 @@ textarea {
   margin-bottom: 10px;
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .file-support-note.warning {
@@ -398,6 +401,72 @@ textarea {
 .file-limit-note {
   color: var(--muted);
   font-size: 13px;
+}
+
+.file-attachment-summary {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.playground-files {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.playground-files-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 18px;
+  border: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.playground-files-summary::-webkit-details-marker {
+  display: none;
+}
+
+.playground-files-title {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.playground-files-summary-state {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.playground-files[open] .playground-files-summary-state {
+  color: var(--accent);
+}
+
+.playground-files-summary-state::after {
+  content: "Closed";
+}
+
+.playground-files-body {
+  padding: 0 18px 18px;
+}
+
+.playground-files .field {
+  margin-bottom: 0;
+}
+
+.playground-files .note {
+  font-size: 13px;
+}
+
+.playground-files[open] .playground-files-summary-state::after {
+  content: "Open";
 }
 
 .file-list {
@@ -547,7 +616,7 @@ button:disabled {
 }
 
 .response-box {
-  min-height: 320px;
+  min-height: 280px;
   max-height: 60vh;
   margin: 0;
   padding: 14px;

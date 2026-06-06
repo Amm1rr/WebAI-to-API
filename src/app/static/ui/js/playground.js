@@ -15,11 +15,11 @@
   var metaReused = root.querySelector("[data-meta-reused]");
   var metaModel = root.querySelector("[data-meta-model]");
   var metaStatus = root.querySelector("[data-meta-status]");
-  var fileInput = form.querySelector("[data-file-input]");
-  var fileList = form.querySelector("[data-file-list]");
-  var fileAttachmentSummary = form.querySelector("[data-file-attachment-summary]");
-  var fileGuidance = form.querySelector("[data-file-guidance]");
-  var clearFilesButton = form.querySelector("[data-clear-files]");
+  var fileInput = root.querySelector("[data-file-input]");
+  var fileList = root.querySelector("[data-file-list]");
+  var fileAttachmentSummary = root.querySelector("[data-file-attachment-summary]");
+  var fileGuidance = root.querySelector("[data-file-guidance]");
+  var clearFilesButton = root.querySelector("[data-clear-files]");
   var modelSelect = form.querySelector('select[name="model"]');
   var promptField = form.querySelector('textarea[name="prompt"]');
   var activeController = null;

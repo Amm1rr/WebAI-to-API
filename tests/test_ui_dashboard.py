@@ -428,6 +428,11 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "playwright/gemini-3.5-flash" not in response.text
     assert "/ui/static/js/playground.js?v=" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
+    assert 'class="playground-stack"' in response.text
+    assert "<details class=\"panel playground-files\">" in response.text
+    assert "<summary class=\"playground-files-summary\">" in response.text
+    assert response.text.index('data-response-output') < response.text.index('data-file-input')
+    assert response.text.index('data-file-input') < response.text.index('data-meta-conversation-id')
     assert "data-file-input" in response.text
     assert "data-file-list" in response.text
     assert "data-clear-files" in response.text

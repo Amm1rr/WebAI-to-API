@@ -33,22 +33,6 @@
       <textarea name="prompt" rows="10" required placeholder="Enter a prompt"></textarea>
     </label>
 
-    <div class="field">
-      <label class="field">
-        <span>Files</span>
-        <input name="files" type="file" data-file-input multiple>
-      </label>
-      <div class="file-support-note" data-file-guidance aria-live="polite">
-        File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.
-      </div>
-      <div class="file-controls">
-        <button type="button" class="secondary-button" data-clear-files disabled>Clear files</button>
-        <span class="file-limit-note">UI limit: max 8 files, 20 MiB per file, 40 MiB total raw size. Backend validation remains authoritative.</span>
-      </div>
-      <div class="file-attachment-summary" data-file-attachment-summary aria-live="polite">No files attached.</div>
-      <ul class="file-list" data-file-list aria-live="polite"></ul>
-    </div>
-
     <label class="check-field">
       <input name="stream" type="checkbox" checked>
       <span>Stream response</span>
@@ -60,37 +44,66 @@
     </div>
   </form>
 
-  <section class="panel playground-output">
-    <div class="panel-head">
-      <h2>Response</h2>
-      <span class="badge" data-playground-state>Idle</span>
-    </div>
-    <pre class="response-box" data-response-output></pre>
-  </section>
+  <div class="playground-stack">
+    <section class="panel playground-output">
+      <div class="panel-head">
+        <h2>Response</h2>
+        <span class="badge" data-playground-state>Idle</span>
+      </div>
+      <pre class="response-box" data-response-output></pre>
+    </section>
 
-  <section class="panel playground-meta">
-    <div class="panel-head">
-      <h2>Metadata</h2>
-    </div>
-    <dl class="metrics">
-      <div>
-        <dt>Conversation ID</dt>
-        <dd><code data-meta-conversation-id>n/a</code></dd>
+    <details class="panel playground-files">
+      <summary class="playground-files-summary">
+        <span>
+          <span class="playground-files-title">Files</span>
+          <span class="note">File attachments are sent only when you submit the prompt.</span>
+        </span>
+        <span class="playground-files-summary-state" aria-hidden="true"></span>
+      </summary>
+      <div class="playground-files-body">
+        <div class="field compact-field">
+          <label class="field">
+            <span>Files</span>
+            <input name="files" type="file" data-file-input multiple>
+          </label>
+          <div class="file-support-note" data-file-guidance aria-live="polite">
+            File attachments work only with Gemini WebAPI. Gemini Playwright and Atlas do not support file parts. Exact text/file interleaving is not preserved by Gemini WebAPI.
+          </div>
+          <div class="file-controls">
+            <button type="button" class="secondary-button" data-clear-files disabled>Clear files</button>
+            <span class="file-limit-note">UI limit: max 8 files, 20 MiB per file, 40 MiB total raw size. Backend validation remains authoritative.</span>
+          </div>
+          <div class="file-attachment-summary" data-file-attachment-summary aria-live="polite">No files attached.</div>
+          <ul class="file-list" data-file-list aria-live="polite"></ul>
+        </div>
       </div>
-      <div>
-        <dt>Reused Conversation</dt>
-        <dd data-meta-reused>n/a</dd>
+    </details>
+
+    <section class="panel playground-meta">
+      <div class="panel-head">
+        <h2>Metadata</h2>
       </div>
-      <div>
-        <dt>Model</dt>
-        <dd><code data-meta-model>n/a</code></dd>
-      </div>
-      <div>
-        <dt>Status</dt>
-        <dd data-meta-status>Ready</dd>
-      </div>
-    </dl>
-  </section>
+      <dl class="metrics">
+        <div>
+          <dt>Conversation ID</dt>
+          <dd><code data-meta-conversation-id>n/a</code></dd>
+        </div>
+        <div>
+          <dt>Reused Conversation</dt>
+          <dd data-meta-reused>n/a</dd>
+        </div>
+        <div>
+          <dt>Model</dt>
+          <dd><code data-meta-model>n/a</code></dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd data-meta-status>Ready</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
 </section>
 
 <script src="/ui/static/js/playground.js?v={{ static_asset_version }}" defer></script>
