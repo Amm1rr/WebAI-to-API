@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,17 @@ from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_streaming_artifact_chunk,
 )
 from app.utils.streaming import format_sse_chunk, get_done_chunk, simulate_streaming_generator
+
+
+@dataclass(slots=True)
+class TemporaryChatRequestContext:
+    model: str
+    normalized: object
+    prompt: str
+    files: object | None
+    is_stream: bool
+    tools: object | None
+    gem: str | None
 
 
 def _resolve_temporary_chat_model(request: OpenAIChatRequest) -> str:
@@ -69,23 +81,23 @@ def _streaming_headers() -> dict[str, str]:
     }
 
 
-def _prepare_temporary_chat_request(request: OpenAIChatRequest) -> dict[str, object]:
+def _prepare_temporary_chat_request(request: OpenAIChatRequest) -> TemporaryChatRequestContext:
     model = _resolve_temporary_chat_model(request)
     normalized = normalize_openai_chat_messages(request.messages, allow_file_parts=True)
     tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
     prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
-    return {
-        "model": model,
-        "normalized": normalized,
-        "prompt": prompt,
-        "files": normalized.files or None,
-        "is_stream": request.stream if request.stream is not None else False,
-        "tools": request.tools,
-        "gem": request.gem,
-    }
+    return TemporaryChatRequestContext(
+        model=model,
+        normalized=normalized,
+        prompt=prompt,
+        files=normalized.files or None,
+        is_stream=request.stream if request.stream is not None else False,
+        tools=request.tools,
+        gem=request.gem,
+    )
 
 
-def _build_cleanup_once(normalized):
+def _build_cleanup_once(normalized: object):
     cleanup_started = False
 
     async def cleanup_once() -> None:
@@ -192,28 +204,28 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
         raise HTTPException(status_code=503, detail=str(e))
 
     prepared = _prepare_temporary_chat_request(request)
-    cleanup_once = _build_cleanup_once(prepared["normalized"])
+    cleanup_once = _build_cleanup_once(prepared.normalized)
 
     try:
-        if prepared["is_stream"] and not prepared["tools"]:
+        if prepared.is_stream and not prepared.tools:
             return await _build_incremental_streaming_response(
                 gemini_client,
-                prompt=prepared["prompt"],
-                model=prepared["model"],
-                files=prepared["files"],
-                gem=prepared["gem"],
+                prompt=prepared.prompt,
+                model=prepared.model,
+                files=prepared.files,
+                gem=prepared.gem,
                 cleanup_once=cleanup_once,
             )
 
         openai_response = await _build_buffered_openai_response(
             gemini_client,
-            prompt=prepared["prompt"],
-            model=prepared["model"],
-            files=prepared["files"],
-            gem=prepared["gem"],
-            tools=prepared["tools"],
+            prompt=prepared.prompt,
+            model=prepared.model,
+            files=prepared.files,
+            gem=prepared.gem,
+            tools=prepared.tools,
         )
-        if prepared["is_stream"]:
+        if prepared.is_stream:
             return _build_streaming_compatibility_response(openai_response)
         return openai_response
     except HTTPException:
