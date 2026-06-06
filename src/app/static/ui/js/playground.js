@@ -31,12 +31,16 @@
   var MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
   var MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024;
   var ALLOWED_FILE_SUFFIXES = {
+    "application/json": [".json"],
     "application/pdf": [".pdf"],
     "application/msword": [".doc"],
+    "application/xml": [".xml"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
     "text/plain": [".txt", ".text", ".md", ".csv", ".log"],
     "text/markdown": [".md", ".markdown"],
     "text/csv": [".csv"],
+    "text/xml": [".xml"],
     "image/png": [".png"],
     "image/jpeg": [".jpg", ".jpeg"],
     "image/webp": [".webp"],

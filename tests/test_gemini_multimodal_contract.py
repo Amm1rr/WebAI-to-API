@@ -13,6 +13,9 @@ from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 
 
 VALID_DATA_URL = "data:application/pdf;base64,JVBERi0xLjQK"
+JSON_DATA_URL = "data:application/json;base64,eyJrZXkiOiAidmFsdWUifQ=="
+XML_DATA_URL = "data:application/xml;base64,PHJvb3Q+dmFsdWU8L3Jvb3Q+"
+XLSX_DATA_URL = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBA=="
 
 
 def _file_part(
@@ -58,6 +61,44 @@ def test_openai_chat_request_accepts_text_and_file_parts():
     assert isinstance(request.messages[0].content, list)
     assert request.messages[0].content[0].type == "text"
     assert request.messages[0].content[1].type == "file"
+
+
+@pytest.mark.parametrize(
+    "filename,data_url,expected_mime",
+    [
+        ("config.json", JSON_DATA_URL, "application/json"),
+        ("layout.xml", XML_DATA_URL, "application/xml"),
+        ("sheet.xlsx", XLSX_DATA_URL, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ],
+)
+def test_normalize_openai_chat_messages_accepts_new_verified_formats(
+    filename,
+    data_url,
+    expected_mime,
+):
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _text_part("Read this file."),
+                    _file_part(filename=filename, data_url=data_url),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    normalized = normalize_openai_chat_messages(
+        request.messages,
+        allow_file_parts=True,
+    )
+
+    assert normalized.messages[0]["content"] == "Read this file."
+    assert len(normalized.files) == 1
+    assert normalized.files[0].exists()
+    assert normalized.files[0].name.endswith(filename)
+    assert expected_mime in data_url
 
 
 def test_normalize_openai_chat_messages_stages_file_and_keeps_text():
@@ -183,6 +224,31 @@ def test_normalize_openai_chat_messages_rejects_unsupported_part_type():
             ],
             model="gemini-3-flash",
         )
+
+
+def test_normalize_openai_chat_messages_rejects_xls_format():
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _file_part(
+                        filename="legacy.xls",
+                        data_url="data:application/vnd.ms-excel;base64,UEsDBA==",
+                    ),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=True,
+        )
+
+    assert exc_info.value.status_code == 400
 
 
 def test_normalize_openai_chat_messages_rejects_file_parts_in_assistant_role():

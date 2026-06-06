@@ -53,6 +53,7 @@ Supported parts in the MVP:
 * `{ "type": "text", "text": "..." }`
 * `{ "type": "file", "file": { "filename": "...", "file_data": "data:...;base64,..." } }`
 
+Currently verified file formats include `.pdf`, `.doc`, `.docx`, `.txt`, `.md`, `.csv`, `.log`, `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, `.json`, `.xml`, and `.xlsx`.
 File parts are request-scoped, base64 `data:` URLs only, and are rejected on Gemini Playwright and Atlas backends.
 For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
 

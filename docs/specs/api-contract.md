@@ -52,6 +52,7 @@ Current MVP rules:
 - File parts are request-scoped only. They are staged to server-owned temporary files for the current request and are not persisted in SQLite snapshots.
 - Gemini Playwright and Atlas must reject file parts with a clear capability error.
 - Remote URLs, filesystem paths, `file_id`, and unsupported content-part types are rejected.
+- Currently verified file formats include `.pdf`, `.doc`, `.docx`, `.txt`, `.md`, `.csv`, `.log`, `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, `.json`, `.xml`, and `.xlsx`.
 - For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
 
 ## 4. Conversation Contract
