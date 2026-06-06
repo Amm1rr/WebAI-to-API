@@ -95,6 +95,40 @@ async def test_chat_completions_endpoint_atlas(mocker):
 
 
 @pytest.mark.asyncio
+async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
+    """Verify /translate forwards Gemini requests with temporary=True."""
+    mock_response = mocker.Mock()
+    mock_response.text = "Translated response"
+
+    mock_client = mocker.Mock()
+    mock_session_manager = mocker.Mock()
+    mock_session_manager.get_response = mocker.AsyncMock(return_value=mock_response)
+
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.endpoints.chat.get_translate_session_manager", return_value=mock_session_manager)
+
+    payload = {
+        "model": "gemini-3-flash",
+        "message": "Translate this text",
+        "files": [],
+        "gem": None,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"response": "Translated response"}
+    mock_session_manager.get_response.assert_called_once_with(
+        "gemini-3-flash",
+        "Translate this text",
+        [],
+        None,
+        temporary=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_delete_conversation_endpoint_gemini(mocker):
     """Verify /v1/conversations/{conversation_id} delegates to Gemini deletion."""
     mock_response = {

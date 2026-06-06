@@ -24,7 +24,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | `/v1beta/models/{model}` | Compatibility | No | N/A | Yes | Google Generative AI compatibility bridge. |
 | `/gemini` | Legacy | No | Stateless | Yes | Original MVP endpoint. No session state. |
 | `/gemini-chat` | Legacy | No | In-memory | Yes | Simple session state; does not survive restarts. |
-| `/translate` | Specialized | No | Shared In-memory | No | Shared global context for "Translate It!". |
+| `/translate` | Specialized | No | Shared In-memory | No | Shared global context for "Translate It!"; Gemini WebAPI requests are temporary and are not persisted in Gemini history. |
 | `/v1/gems` | Utilities | Yes | N/A | No | Gemini "Gems" enumeration. |
 
 ## 3. Primary Contract: /v1/chat/completions
@@ -157,6 +157,7 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 - **Status**: **Supported (Specialized)**.
 - **Context Sharing**: Intentionally uses a **shared global session** by design. This is optimized for high-frequency, short-prompt translation extension workloads.
 - **Risk**: There is **no privacy isolation** between users of this endpoint as it uses a shared global session. It is intended primarily for personal or trusted environments.
+- **Temporary Requests**: Gemini WebAPI requests issued through this endpoint are temporary and are not saved in Gemini history.
 - **Retention**: Maintained as long as the "Translate It!" extension remains a primary project use case.
 
 ## 9. Authentication Contract

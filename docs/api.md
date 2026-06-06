@@ -338,6 +338,7 @@ Compatibility endpoint for Translate It! integrations.
 Characteristics:
 
 * Shared global session
+* Gemini WebAPI requests are sent as temporary requests and are not saved in Gemini history
 * Non-streaming responses
 * No persistence across restarts
 

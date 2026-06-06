@@ -44,6 +44,7 @@ async def test_openapi_translate_endpoint_metadata():
     assert "Translation" in translate_path["post"]["tags"]
     assert "Translate Extension Compatibility" in translate_path["post"]["summary"]
     assert "shared global in-memory session" in translate_path["post"]["description"]
+    assert "temporary requests" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
 
 @pytest.mark.asyncio
