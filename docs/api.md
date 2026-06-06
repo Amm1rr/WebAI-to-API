@@ -79,6 +79,8 @@ File parts are Gemini WebAPI-only in the MVP. Remote URLs, filesystem paths, `fi
 
 For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving is not preserved.
 
+Extensionless UTF-8 plain-text files are also accepted when their content passes text validation.
+
 Current limits remain unchanged:
 
 * 8 files

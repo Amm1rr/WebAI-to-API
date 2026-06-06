@@ -14,6 +14,7 @@ MAX_FILE_COUNT = 8
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_FILE_SIZE_BYTES = 50 * 1024 * 1024
 MAX_FILENAME_LENGTH = 255
+MAX_TEXT_CONTROL_CHAR_RATIO = 0.01
 
 ALLOWED_FILE_MIME_TYPES: dict[str, set[str]] = {
     "application/pdf": {".pdf"},
@@ -32,7 +33,7 @@ ALLOWED_FILE_MIME_TYPES: dict[str, set[str]] = {
     "image/gif": {".gif"},
 }
 
-_DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
+_DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;]*);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass
@@ -99,9 +100,7 @@ def _parse_data_url(file_data: str) -> tuple[str, bytes]:
 
     mime_type = match.group("mime").strip().lower()
     payload = match.group("data").strip()
-    if not mime_type:
-        _raise_validation_error("File MIME type is required.")
-    if mime_type not in ALLOWED_FILE_MIME_TYPES:
+    if mime_type and mime_type not in ALLOWED_FILE_MIME_TYPES:
         _raise_validation_error(f"Unsupported file MIME type: {mime_type}")
 
     try:
@@ -111,6 +110,37 @@ def _parse_data_url(file_data: str) -> tuple[str, bytes]:
         raise exc
 
     return mime_type, decoded
+
+
+def _is_text_like_bytes(decoded: bytes) -> bool:
+    if not decoded:
+        return True
+
+    try:
+        text = decoded.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return False
+
+    if "\x00" in text:
+        return False
+
+    control_chars = 0
+    for char in text:
+        code_point = ord(char)
+        if code_point in {9, 10, 11, 12, 13}:
+            continue
+        if code_point < 32 or code_point == 127:
+            control_chars += 1
+
+    return (control_chars / len(text)) <= MAX_TEXT_CONTROL_CHAR_RATIO
+
+
+def _validate_extensionless_text(filename: str, mime_type: str, decoded: bytes) -> str:
+    if mime_type not in {"", "text/plain"}:
+        _raise_validation_error("Extensionless files must use an empty MIME type or text/plain.")
+    if not _is_text_like_bytes(decoded):
+        _raise_validation_error(f"Extensionless file '{filename}' must contain UTF-8 plain text.")
+    return "text/plain"
 
 
 def _validate_extension(filename: str, mime_type: str) -> None:
@@ -188,7 +218,10 @@ def normalize_openai_chat_messages(
 
                 filename = _sanitize_filename(file_payload.get("filename", ""))
                 mime_type, decoded = _parse_data_url(file_payload.get("file_data", ""))
-                _validate_extension(filename, mime_type)
+                if Path(filename).suffix.lower():
+                    _validate_extension(filename, mime_type)
+                else:
+                    mime_type = _validate_extensionless_text(filename, mime_type, decoded)
 
                 decoded_size = len(decoded)
                 if decoded_size > MAX_FILE_SIZE_BYTES:

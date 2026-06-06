@@ -13,6 +13,12 @@ from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 
 
 VALID_DATA_URL = "data:application/pdf;base64,JVBERi0xLjQK"
+TEXT_DATA_URL = "data:text/plain;base64,SGVsbG8gd29ybGQK"
+TEXT_DATA_URL_EMPTY_MIME = "data:;base64,SGVsbG8gd29ybGQK"
+INVALID_UTF8_DATA_URL = "data:;base64,//4="
+NUL_DATA_URL = "data:;base64,AAE="
+CONTROL_HEAVY_DATA_URL = "data:;base64,SGVsbG8hAQIDBAUGBwgJCg=="
+OCTET_STREAM_DATA_URL = "data:application/octet-stream;base64,SGVsbG8gd29ybGQK"
 JSON_DATA_URL = "data:application/json;base64,eyJrZXkiOiAidmFsdWUifQ=="
 XML_DATA_URL = "data:application/xml;base64,PHJvb3Q+dmFsdWU8L3Jvb3Q+"
 XLSX_DATA_URL = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBA=="
@@ -99,6 +105,63 @@ def test_normalize_openai_chat_messages_accepts_new_verified_formats(
     assert normalized.files[0].exists()
     assert normalized.files[0].name.endswith(filename)
     assert expected_mime in data_url
+
+
+def test_normalize_openai_chat_messages_accepts_txt_format():
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _text_part("Read this file."),
+                    _file_part(filename="notes.txt", data_url=TEXT_DATA_URL),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    normalized = normalize_openai_chat_messages(
+        request.messages,
+        allow_file_parts=True,
+    )
+
+    assert normalized.messages[0]["content"] == "Read this file."
+    assert len(normalized.files) == 1
+    assert normalized.files[0].exists()
+    assert normalized.files[0].name.endswith("notes.txt")
+
+
+@pytest.mark.parametrize(
+    "filename,data_url",
+    [
+        ("LICENSE", TEXT_DATA_URL),
+        ("README", TEXT_DATA_URL_EMPTY_MIME),
+    ],
+)
+def test_normalize_openai_chat_messages_accepts_extensionless_utf8_text(filename, data_url):
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _text_part("Read this file."),
+                    _file_part(filename=filename, data_url=data_url),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    normalized = normalize_openai_chat_messages(
+        request.messages,
+        allow_file_parts=True,
+    )
+
+    assert normalized.messages[0]["content"] == "Read this file."
+    assert len(normalized.files) == 1
+    assert normalized.files[0].exists()
+    assert normalized.files[0].name.endswith(filename)
 
 
 def test_normalize_openai_chat_messages_stages_file_and_keeps_text():
@@ -198,6 +261,96 @@ def test_normalize_openai_chat_messages_rejects_raw_path():
                 "role": "user",
                 "content": [
                     _file_part(data_url="/tmp/invoice.pdf"),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+def test_normalize_openai_chat_messages_rejects_empty_mime_for_extension_file():
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _file_part(filename="notes.txt", data_url="data:;base64,SGVsbG8gd29ybGQK"),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+def test_normalize_openai_chat_messages_rejects_extensionless_invalid_utf8():
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _file_part(filename="README", data_url=INVALID_UTF8_DATA_URL),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize("data_url", [NUL_DATA_URL, CONTROL_HEAVY_DATA_URL])
+def test_normalize_openai_chat_messages_rejects_extensionless_binary_textlike_violations(data_url):
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _file_part(filename="LICENSE", data_url=data_url),
+                ],
+            }
+        ],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize("data_url", [OCTET_STREAM_DATA_URL, JSON_DATA_URL, XML_DATA_URL])
+def test_normalize_openai_chat_messages_rejects_extensionless_non_text_mime(data_url):
+    request = OpenAIChatRequest(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    _file_part(filename="README", data_url=data_url),
                 ],
             }
         ],

@@ -480,6 +480,14 @@ async def test_ui_html_references_static_assets():
     assert "lastModel" in playground_js
     assert "prompt cannot be empty" in playground_js.lower()
     assert "readAsDataURL" in playground_js
+    assert "readFileAsArrayBuffer" in playground_js
+    assert "isExtensionlessFile" in playground_js
+    assert "isExtensionlessTextCandidate" in playground_js
+    assert "validateTextLikeArrayBuffer" in playground_js
+    assert "readFileAsDataUrlWithMimeNormalization" in playground_js
+    assert "data:text/plain;base64," in playground_js
+    assert "must be plain text to use without an extension" in playground_js
+    assert "must contain UTF-8 plain text" in playground_js
     assert '"application/json": [".json"]' in playground_js
     assert '"application/xml": [".xml"]' in playground_js
     assert '"text/xml": [".xml"]' in playground_js
@@ -502,7 +510,14 @@ async def test_dashboard_docs_mention_playground_file_support():
     assert "optional file attachments for Gemini WebAPI" in docs_text
     assert "Gemini Playwright and Atlas do not support file parts" in docs_text
     assert "conservative file limits" in docs_text
-    assert "docs/api.md" in docs_text
+    assert "API documentation" in docs_text
+
+
+def test_api_docs_mention_extensionless_text_support():
+    docs_path = Path("docs/api.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "Extensionless UTF-8 plain-text files are also accepted when their content passes text validation." in docs_text
 
 
 @pytest.mark.asyncio

@@ -73,6 +73,97 @@
     return index === -1 ? "" : String(name).slice(index).toLowerCase();
   }
 
+  function isExtensionlessFile(file) {
+    return getFileExtension(file && file.name) === "";
+  }
+
+  function isExtensionlessTextCandidate(file) {
+    if (!isExtensionlessFile(file)) {
+      return false;
+    }
+
+    var mimeType = String(file && file.type || "").toLowerCase();
+    return !mimeType || mimeType === "text/plain";
+  }
+
+  function validateTextLikeArrayBuffer(buffer) {
+    if (!buffer) {
+      return false;
+    }
+
+    var bytes = new Uint8Array(buffer);
+    if (!bytes.length) {
+      return true;
+    }
+
+    var decoder = new TextDecoder("utf-8", { fatal: true });
+    var text;
+
+    try {
+      text = decoder.decode(bytes);
+    } catch (error) {
+      return false;
+    }
+
+    if (text.indexOf("\u0000") !== -1) {
+      return false;
+    }
+
+    var controlCount = 0;
+    for (var i = 0; i < text.length; i += 1) {
+      var code = text.charCodeAt(i);
+      if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13) {
+        continue;
+      }
+      if (code < 32 || code === 127) {
+        controlCount += 1;
+      }
+    }
+
+    return (controlCount / text.length) <= 0.01;
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var chunkSize = 0x8000;
+    var binary = "";
+
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      var chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+
+    return btoa(binary);
+  }
+
+  function readFileAsArrayBuffer(file, signal) {
+    return new Promise(function (resolve, reject) {
+      if (signal.aborted) {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+        return;
+      }
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result);
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("Failed to read file."));
+      };
+      reader.onabort = function () {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      };
+
+      signal.addEventListener("abort", function () {
+        if (reader.readyState === 1) {
+          reader.abort();
+        }
+      }, { once: true });
+
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
   function formatBytes(bytes) {
     if (bytes < 1024) {
       return bytes + " B";
@@ -135,6 +226,17 @@
           mode: "error",
           message: "File \"" + file.name + "\" exceeds the maximum allowed size of " + formatBytes(MAX_FILE_SIZE_BYTES) + "."
         };
+      }
+
+      if (!suffix) {
+        if (mimeType && mimeType !== "text/plain") {
+          return {
+            ok: false,
+            mode: "error",
+            message: "File \"" + file.name + "\" must be plain text to use without an extension."
+          };
+        }
+        continue;
       }
 
       if (!mimeType || !allowedSuffixes || allowedSuffixes.indexOf(suffix) === -1) {
@@ -320,6 +422,23 @@
     });
   }
 
+  async function readFileAsDataUrlWithMimeNormalization(file, signal) {
+    if (!isExtensionlessTextCandidate(file)) {
+      throw new Error("File must be plain text to use without an extension.");
+    }
+
+    var buffer = await readFileAsArrayBuffer(file, signal);
+    if (signal.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+
+    if (!validateTextLikeArrayBuffer(buffer)) {
+      throw new Error("File \"" + file.name + "\" must contain UTF-8 plain text.");
+    }
+
+    return "data:text/plain;base64," + arrayBufferToBase64(buffer);
+  }
+
   async function buildRequest(signal) {
     var data = new FormData(form);
     var prompt = String(data.get("prompt") || "").trim();
@@ -378,7 +497,9 @@
         throw new Error(totalMessage);
       }
 
-      var dataUrl = await readFileAsDataUrl(file, signal);
+      var dataUrl = isExtensionlessFile(file)
+        ? await readFileAsDataUrlWithMimeNormalization(file, signal)
+        : await readFileAsDataUrl(file, signal);
       if (signal.aborted) {
         throw new DOMException("The operation was aborted.", "AbortError");
       }
