@@ -10,6 +10,7 @@ from app.services.providers.gemini.persistence import (
     deserialize_session_state,
     validate_session_state_payload,
 )
+from app.services.multimodal import normalize_openai_chat_messages
 from app.utils.tokens import generate_opaque_token
 from app.schemas.request import OpenAIChatRequest
 from app.config import CONFIG
@@ -102,6 +103,12 @@ class GeminiProvider(BaseProvider):
         tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
         
         # 3. Delegate to adapter
+        normalized = normalize_openai_chat_messages(
+            request.messages,
+            allow_file_parts=isinstance(adapter, GeminiWebAPIAdapter),
+        )
+        request.messages = normalized.messages
+        object.__setattr__(request, "_normalized_openai_chat_messages", normalized)
         return await adapter.chat_completions(request, cid, is_new_conversation, tools_prompt)
 
     async def delete_conversation(self, conversation_id: str) -> dict:

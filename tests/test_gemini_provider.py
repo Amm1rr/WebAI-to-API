@@ -9,7 +9,6 @@ from app.services.providers.base_repository import ConversationSnapshot
 from app.services.providers.exceptions import ConversationInUseError
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.session_manager import SessionRegistry
-from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
 @pytest.fixture
 def provider():
@@ -347,7 +346,7 @@ async def test_delete_conversations_success_deletes_all_inactive_snapshots(mocke
     ]
     gemini_client = make_delete_client(mocker)
     mock_registry = mocker.Mock()
-    mock_registry.repository = mocker.Mock()
+    mock_registry.repository = SimpleNamespace(delete_snapshot=mocker.AsyncMock())
     mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
     mock_registry.begin_delete_session = mocker.AsyncMock()
     mock_registry.complete_delete_session = mocker.AsyncMock()
@@ -379,27 +378,35 @@ async def test_delete_conversations_success_deletes_all_inactive_snapshots(mocke
 
 
 @pytest.mark.asyncio
-async def test_delete_conversations_success_removes_sqlite_snapshots(mocker, tmp_path, provider):
-    db_file = tmp_path / "test_snapshots.db"
-    repository = SQLiteConversationRepository(db_path=str(db_file))
-    await repository.initialize()
+async def test_delete_conversations_success_completes_snapshot_deletion(mocker, provider):
     snapshots = [
         make_delete_snapshot("conv-a", "remote-a"),
         make_delete_snapshot("conv-b", "remote-b"),
     ]
-    for snapshot in snapshots:
-        await repository.save_snapshot(snapshot)
-
     gemini_client = make_delete_client(mocker)
-    registry = SessionRegistry(gemini_client, repository=repository)
+    mock_registry = mocker.Mock()
+    mock_registry.repository = SimpleNamespace(delete_snapshot=mocker.AsyncMock())
+    mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=snapshots)
+    mock_registry.begin_delete_session = mocker.AsyncMock()
+    mock_registry.complete_delete_session = mocker.AsyncMock()
+    mock_registry.abort_delete_session = mocker.AsyncMock()
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=gemini_client)
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     result = await provider.delete_conversations()
 
     assert result["deleted_count"] == 2
-    assert await repository.list_snapshots("gemini") == []
+    assert result["failed_count"] == 0
+    assert result["skipped_active_count"] == 0
+    assert result["results"] == [
+        {"id": "conv-a", "status": "deleted", "deleted": True},
+        {"id": "conv-b", "status": "deleted", "deleted": True},
+    ]
+    assert mock_registry.complete_delete_session.await_args_list == [
+        call("conv-a"),
+        call("conv-b"),
+    ]
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,7 @@ OpenAI-compatible chat completion endpoint.
 * Multi-provider routing
 * Conversation continuation (provider-dependent)
 * Standard OpenAI message format
+* OpenAI-style multimodal `content` parts (`type: "text"` and `type: "file"`)
 * System prompt support
 
 #### Example
@@ -39,6 +40,21 @@ OpenAI-compatible chat completion endpoint.
   ]
 }
 ```
+
+#### File Inputs
+
+For Gemini WebAPI requests, `messages[].content` may be either:
+
+* a plain string, or
+* an array of content parts
+
+Supported parts in the MVP:
+
+* `{ "type": "text", "text": "..." }`
+* `{ "type": "file", "file": { "filename": "...", "file_data": "data:...;base64,..." } }`
+
+File parts are request-scoped, base64 `data:` URLs only, and are rejected on Gemini Playwright and Atlas backends.
+For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
 
 ---
 

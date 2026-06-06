@@ -1,7 +1,8 @@
 # src/app/schemas/request.py
 from enum import Enum
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Annotated, Dict, List, Literal, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field
 
 class GeminiModels(str, Enum):
     """
@@ -26,8 +27,45 @@ class GeminiRequest(BaseModel):
     stream: Optional[bool] = False
     conversation_id: Optional[str] = Field(default=None, description="Cryptographically secure token to maintain chat state.")
 
+class OpenAIChatFilePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str
+    file_data: str
+
+
+class OpenAIChatTextContentPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text"]
+    text: str
+
+
+class OpenAIChatFileContentPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["file"]
+    file: OpenAIChatFilePayload
+
+
+OpenAIChatContentPart = Annotated[
+    Union[OpenAIChatTextContentPart, OpenAIChatFileContentPart],
+    Field(discriminator="type"),
+]
+
+
+class OpenAIChatMessage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    role: str
+    content: Optional[Union[str, List[OpenAIChatContentPart]]] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
+
+
 class OpenAIChatRequest(BaseModel):
-    messages: List[dict]
+    messages: List[OpenAIChatMessage]
     model: Optional[str] = None
     provider: Optional[str] = None
     stream: Optional[bool] = False

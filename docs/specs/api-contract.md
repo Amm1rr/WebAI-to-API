@@ -37,6 +37,23 @@ The `/v1/chat/completions` endpoint is the authoritative API surface of the proj
 - **Persistence**: Provider/backend-dependent. The selected provider and adapter define whether `conversation_id` maps to local snapshots, provider-side conversation URLs, or no persisted state.
 - **Isolation**: Every request is isolated by its `conversation_id`.
 
+### 3.1 Multimodal Content Parts
+
+`messages[].content` supports both plain strings and OpenAI-style content-part arrays.
+
+- **Text**: `{ "type": "text", "text": "..." }`
+- **File**: `{ "type": "file", "file": { "filename": "...", "file_data": "data:...;base64,..." } }`
+
+Current MVP rules:
+
+- Plain string content remains fully supported.
+- Text parts are accepted and flattened into provider-specific prompt text.
+- File parts are supported only for the Gemini WebAPI backend.
+- File parts are request-scoped only. They are staged to server-owned temporary files for the current request and are not persisted in SQLite snapshots.
+- Gemini Playwright and Atlas must reject file parts with a clear capability error.
+- Remote URLs, filesystem paths, `file_id`, and unsupported content-part types are rejected.
+- For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
+
 ## 4. Conversation Contract
 
 ### `conversation_id`

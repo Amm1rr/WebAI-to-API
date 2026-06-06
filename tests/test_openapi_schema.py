@@ -90,6 +90,30 @@ async def test_openapi_compatibility_endpoint_metadata():
     assert "Google Generative AI Compatibility Endpoint" in v1beta_path["post"]["summary"]
     assert "not guaranteed to provide full protocol parity" in v1beta_path["post"]["description"]
 
+
+@pytest.mark.asyncio
+async def test_openapi_chat_request_supports_content_parts():
+    """Verify the primary chat request schema documents string and multimodal content."""
+    schema = await _get_openapi_schema()
+
+    request_schema = schema["components"]["schemas"]["OpenAIChatRequest"]
+    message_schema = schema["components"]["schemas"]["OpenAIChatMessage"]
+    text_part_schema = schema["components"]["schemas"]["OpenAIChatTextContentPart"]
+    file_part_schema = schema["components"]["schemas"]["OpenAIChatFileContentPart"]
+    file_payload_schema = schema["components"]["schemas"]["OpenAIChatFilePayload"]
+
+    content_schema = message_schema["properties"]["content"]
+    assert "anyOf" in content_schema
+    assert any(item.get("type") == "string" for item in content_schema["anyOf"])
+
+    messages_schema = request_schema["properties"]["messages"]
+    assert messages_schema["items"]["$ref"].endswith("/OpenAIChatMessage")
+
+    assert text_part_schema["properties"]["type"]["const"] == "text"
+    assert file_part_schema["properties"]["type"]["const"] == "file"
+    assert file_payload_schema["properties"]["filename"]["type"] == "string"
+    assert file_payload_schema["properties"]["file_data"]["type"] == "string"
+
 @pytest.mark.asyncio
 async def test_openapi_utility_endpoint_metadata():
     """Verify metadata for utility endpoints."""
