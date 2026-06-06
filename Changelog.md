@@ -1,6 +1,8 @@
 ### WebAI to API
 
-#### Unreleased
+#### Added
+
+- Added support for file attachments and generated artifacts, including images, videos, audio, and documents.
 
 ##### Changed
 
