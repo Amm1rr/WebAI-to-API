@@ -272,6 +272,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker):
 
 @pytest.mark.asyncio
 async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocker):
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
     payload = {
         "model": "gemini-3-flash",
         "conversation_id": "existing-conversation",
@@ -313,7 +314,8 @@ async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocke
         ),
     ],
 )
-async def test_temporary_chat_completions_endpoint_rejects_unsupported_providers(payload, detail_fragment):
+async def test_temporary_chat_completions_endpoint_rejects_unsupported_providers(mocker, payload, detail_fragment):
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/v1/temporary/chat/completions", json=payload)
 

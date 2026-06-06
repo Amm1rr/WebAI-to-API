@@ -61,15 +61,31 @@ def _resolve_temporary_chat_model(request: OpenAIChatRequest) -> str:
     return model
 
 
-async def handle_temporary_chat_completions(request: OpenAIChatRequest):
+def _streaming_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+def _prepare_temporary_chat_request(request: OpenAIChatRequest) -> dict[str, object]:
     model = _resolve_temporary_chat_model(request)
-
-    try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
     normalized = normalize_openai_chat_messages(request.messages, allow_file_parts=True)
+    tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
+    prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
+    return {
+        "model": model,
+        "normalized": normalized,
+        "prompt": prompt,
+        "files": normalized.files or None,
+        "is_stream": request.stream if request.stream is not None else False,
+        "tools": request.tools,
+        "gem": request.gem,
+    }
+
+
+def _build_cleanup_once(normalized):
     cleanup_started = False
 
     async def cleanup_once() -> None:
@@ -79,86 +95,126 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
         cleanup_started = True
         await cleanup_staged_files(normalized)
 
-    tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
-    prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
-    files = normalized.files or None
-    is_stream = request.stream if request.stream is not None else False
+    return cleanup_once
 
-    if is_stream and not request.tools:
 
-        async def sse_generator():
-            final_response = None
-            try:
-                stream = await gemini_client.generate_content_stream(
-                    prompt,
-                    model,
-                    files=files,
-                    gem=request.gem,
-                    temporary=True,
-                )
-                async for chunk in stream:
-                    final_response = chunk
-                    text_delta = getattr(chunk, "text_delta", "")
-                    if text_delta:
-                        openai_chunk = convert_to_openai_format(text_delta, model, stream=True)
-                        yield await format_sse_chunk(openai_chunk)
+def _build_streaming_compatibility_response(openai_response: dict) -> StreamingResponse:
+    # Tool requests currently use buffered SSE compatibility mode rather than fully
+    # incremental tool-aware streaming, so the buffered response is replayed as SSE.
+    return StreamingResponse(
+        simulate_streaming_generator(openai_response),
+        media_type="text/event-stream",
+        headers=_streaming_headers(),
+    )
 
-                if final_response is not None:
-                    artifact_chunk = build_webapi_streaming_artifact_chunk(final_response, model)
-                    if artifact_chunk is not None:
-                        artifact_chunk.pop("conversation_id", None)
-                        artifact_chunk.pop("reused_conversation", None)
-                        yield await format_sse_chunk(artifact_chunk)
-            except (asyncio.CancelledError, GeneratorExit):
-                raise
-            except Exception as e:
-                logger.error(
-                    f"Error in /v1/temporary/chat/completions progressive streaming: {e}",
-                    exc_info=True,
-                )
-                raise
-            else:
-                yield await get_done_chunk()
-            finally:
-                await cleanup_once()
 
-        return StreamingResponse(
-            sse_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+async def _build_buffered_openai_response(
+    gemini_client,
+    *,
+    prompt: str,
+    model: str,
+    files,
+    gem,
+    tools,
+) -> dict:
+    response = await gemini_client.generate_content(
+        prompt,
+        model,
+        files=files,
+        gem=gem,
+        temporary=True,
+    )
+    response_text = getattr(response, "text", "") or ""
+    tool_call = parse_tool_call(response_text) if tools else None
+    return build_webapi_chat_completion_response(
+        response,
+        model,
+        tool_call=tool_call,
+    )
+
+
+async def _build_incremental_streaming_response(
+    gemini_client,
+    *,
+    prompt: str,
+    model: str,
+    files,
+    gem,
+    cleanup_once,
+) -> StreamingResponse:
+    async def sse_generator():
+        final_response = None
+        try:
+            stream = await gemini_client.generate_content_stream(
+                prompt,
+                model,
+                files=files,
+                gem=gem,
+                temporary=True,
+            )
+            async for chunk in stream:
+                final_response = chunk
+                text_delta = getattr(chunk, "text_delta", "")
+                if text_delta:
+                    openai_chunk = convert_to_openai_format(text_delta, model, stream=True)
+                    yield await format_sse_chunk(openai_chunk)
+
+            if final_response is not None:
+                artifact_chunk = build_webapi_streaming_artifact_chunk(final_response, model)
+                if artifact_chunk is not None:
+                    artifact_chunk.pop("conversation_id", None)
+                    artifact_chunk.pop("reused_conversation", None)
+                    yield await format_sse_chunk(artifact_chunk)
+        except (asyncio.CancelledError, GeneratorExit):
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error in /v1/temporary/chat/completions progressive streaming: {e}",
+                exc_info=True,
+            )
+            raise
+        else:
+            yield await get_done_chunk()
+        finally:
+            await cleanup_once()
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers=_streaming_headers(),
+    )
+
+
+async def handle_temporary_chat_completions(request: OpenAIChatRequest):
+    try:
+        gemini_client = get_gemini_client()
+    except GeminiClientNotInitializedError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    prepared = _prepare_temporary_chat_request(request)
+    cleanup_once = _build_cleanup_once(prepared["normalized"])
 
     try:
-        response = await gemini_client.generate_content(
-            prompt,
-            model,
-            files=files,
-            gem=request.gem,
-            temporary=True,
-        )
-        response_text = getattr(response, "text", "") or ""
-        tool_call = parse_tool_call(response_text) if request.tools else None
-        openai_response = build_webapi_chat_completion_response(
-            response,
-            model,
-            tool_call=tool_call,
-        )
-        if is_stream:
-            # Tool requests currently use buffered SSE compatibility mode rather than fully
-            # incremental tool-aware streaming, so the buffered response is replayed as SSE.
-            return StreamingResponse(
-                simulate_streaming_generator(openai_response),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
+        if prepared["is_stream"] and not prepared["tools"]:
+            return await _build_incremental_streaming_response(
+                gemini_client,
+                prompt=prepared["prompt"],
+                model=prepared["model"],
+                files=prepared["files"],
+                gem=prepared["gem"],
+                cleanup_once=cleanup_once,
             )
+
+        openai_response = await _build_buffered_openai_response(
+            gemini_client,
+            prompt=prepared["prompt"],
+            model=prepared["model"],
+            files=prepared["files"],
+            gem=prepared["gem"],
+            tools=prepared["tools"],
+        )
+        if prepared["is_stream"]:
+            return _build_streaming_compatibility_response(openai_response)
         return openai_response
     except HTTPException:
         raise
