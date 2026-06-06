@@ -230,17 +230,10 @@ These endpoints manage locally persisted Gemini WebAPI conversation snapshots an
 
 ## License
 
-Starting from v0.5.0, WebAI-to-API is licensed under GNU AGPLv3.
+WebAI-to-API is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full text.
 
-Versions released before v0.5.0 remain available under the MIT License.
+Versions released before v0.5.0 were historically distributed under the MIT License.
 
-Commercial licensing options are available. See [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) for details.
-
----
-
-## Contributing
-
-By submitting contributions to this project, you agree to the terms described in [CLA.md](CLA.md).
 
 <br>
 

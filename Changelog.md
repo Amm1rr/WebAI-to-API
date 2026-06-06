@@ -1,5 +1,11 @@
 ### WebAI to API
 
+#### Unreleased
+
+##### Changed
+
+- Migrated the project licensing model to Apache License 2.0 as the sole project license.
+
 #### v0.5.0 – 2026-06-01
 
 ##### Added
