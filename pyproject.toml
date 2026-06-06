@@ -10,7 +10,6 @@ readme = "README.md"
 
 packages = [
     { include = "app", from = "src" },
-    { include = "models", from = "src" },
 ]
 
 [tool.poetry.dependencies]
