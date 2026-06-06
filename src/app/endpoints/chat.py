@@ -86,6 +86,143 @@ async def get_models():
         "For Gemini WebAPI, text parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving is not preserved. "
         "Supported file formats are documented in docs/api.md. This is the recommended API for new integrations."
     ),
+    responses={
+        200: {
+            "description": "Successful Response",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "object": {"type": "string"},
+                            "created": {"type": "integer"},
+                            "model": {"type": "string"},
+                            "choices": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "index": {"type": "integer"},
+                                        "message": {
+                                            "type": "object",
+                                            "properties": {
+                                                "role": {"type": "string"},
+                                                "content": {
+                                                    "anyOf": [
+                                                        {"type": "string"},
+                                                        {"type": "null"},
+                                                    ]
+                                                },
+                                            },
+                                            "required": ["role", "content"],
+                                            "additionalProperties": True,
+                                        },
+                                        "finish_reason": {
+                                            "anyOf": [
+                                                {"type": "string"},
+                                                {"type": "null"},
+                                            ]
+                                        },
+                                        "artifacts": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "type": {"type": "string"},
+                                                    "provider": {"type": "string"},
+                                                    "title": {"type": "string"},
+                                                    "url": {"type": "string"},
+                                                    "mime_type": {"type": "string"},
+                                                },
+                                                "additionalProperties": True,
+                                            },
+                                        },
+                                    },
+                                    "required": ["index", "message", "finish_reason"],
+                                    "additionalProperties": True,
+                                },
+                            },
+                        },
+                        "required": ["id", "object", "created", "model", "choices"],
+                        "additionalProperties": True,
+                    },
+                    "examples": {
+                        "bufferedTextOnly": {
+                            "summary": "Buffered text-only response",
+                            "value": {
+                                "id": "chatcmpl-123",
+                                "object": "chat.completion",
+                                "created": 1710000000,
+                                "model": "gemini-3-flash",
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": "Hello!",
+                                        },
+                                        "finish_reason": "stop",
+                                    }
+                                ],
+                            },
+                        },
+                        "bufferedArtifacts": {
+                            "summary": "Buffered response with artifacts",
+                            "value": {
+                                "id": "chatcmpl-456",
+                                "object": "chat.completion",
+                                "created": 1710000001,
+                                "model": "gemini-3-flash",
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": "Done.",
+                                        },
+                                        "finish_reason": "stop",
+                                        "artifacts": [
+                                            {
+                                                "type": "image",
+                                                "provider": "gemini_webapi",
+                                                "title": "Generated image",
+                                                "url": "https://example.invalid/artifacts/generated.png",
+                                                "mime_type": "image/png",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                },
+                "text/event-stream": {
+                    "schema": {"type": "string"},
+                    "examples": {
+                        "streamTextDelta": {
+                            "summary": "Streaming text delta chunk",
+                            "value": (
+                                'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1710000000,'
+                                '"model":"gemini-3-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}\\n\\n'
+                            ),
+                        },
+                        "streamFinalArtifacts": {
+                            "summary": "Final artifact chunk before [DONE]",
+                            "value": (
+                                'data: {"id":"chatcmpl-456","object":"chat.completion.chunk","created":1710000001,'
+                                '"model":"gemini-3-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop","artifacts":[{"type":"image","provider":"gemini_webapi","title":"Generated image","url":"https://example.invalid/artifacts/generated.png","mime_type":"image/png"}]}]}\\n\\n'
+                            ),
+                        },
+                        "streamDone": {
+                            "summary": "Stream terminator",
+                            "value": "data: [DONE]\\n\\n",
+                        },
+                    },
+                },
+            },
+        }
+    },
     openapi_extra={
         "requestBody": {
             "content": {

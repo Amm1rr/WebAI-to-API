@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -65,6 +67,50 @@ async def test_openapi_chat_endpoint_metadata():
     assert models_path is not None
     assert "Chat" in models_path["get"]["tags"]
     assert "List Available Models" in models_path["get"]["summary"]
+
+
+@pytest.mark.asyncio
+async def test_openapi_chat_endpoint_documents_success_responses():
+    schema = await _get_openapi_schema()
+
+    chat_post = schema["paths"]["/v1/chat/completions"]["post"]
+    responses = chat_post["responses"]
+
+    assert "200" in responses
+    assert "422" in responses
+
+    success = responses["200"]
+    assert success["description"] == "Successful Response"
+    content = success["content"]
+    assert "application/json" in content
+    assert "text/event-stream" in content
+
+    json_schema = content["application/json"]["schema"]
+    assert json_schema != {}
+    assert "choices" in json_schema["properties"]
+    choice_schema = json_schema["properties"]["choices"]["items"]
+    assert "artifacts" in choice_schema["properties"]
+    assert "message" in choice_schema["properties"]
+    assert "thoughts" not in json.dumps(json_schema)
+
+    json_examples = content["application/json"]["examples"]
+    assert "bufferedTextOnly" in json_examples
+    assert "bufferedArtifacts" in json_examples
+    assert json_examples["bufferedTextOnly"]["value"]["choices"][0]["message"]["content"] == "Hello!"
+    assert "artifacts" in json_examples["bufferedArtifacts"]["value"]["choices"][0]
+
+    stream_content = content["text/event-stream"]
+    assert stream_content["schema"]["type"] == "string"
+    stream_examples = stream_content["examples"]
+    assert "streamTextDelta" in stream_examples
+    assert "streamFinalArtifacts" in stream_examples
+    assert "streamDone" in stream_examples
+    assert 'delta":{"role":"assistant","content":"Hello"}' in stream_examples["streamTextDelta"]["value"]
+    assert '"delta":{}' in stream_examples["streamFinalArtifacts"]["value"]
+    assert '"finish_reason":"stop"' in stream_examples["streamFinalArtifacts"]["value"]
+    assert '"artifacts":[{' in stream_examples["streamFinalArtifacts"]["value"]
+    assert "data: [DONE]" in stream_examples["streamDone"]["value"]
+    assert "thoughts" not in json.dumps(stream_examples)
 
 @pytest.mark.asyncio
 async def test_openapi_authentication_endpoint_metadata():
