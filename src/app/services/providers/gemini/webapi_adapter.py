@@ -18,9 +18,13 @@ from app.services.providers.exceptions import (
 )
 from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
 from app.services.providers.gemini.shared import (
-    convert_to_openai_format, 
+    convert_to_openai_format,
     parse_tool_call,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
+)
+from app.services.providers.gemini.webapi_response_builder import (
+    build_webapi_chat_completion_response,
+    build_webapi_streaming_artifact_chunk,
 )
 from app.services.providers.gemini.persistence import (
     serialize_session_state,
@@ -379,6 +383,15 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                                 openai_chunk["conversation_id"] = cid
                                 openai_chunk["reused_conversation"] = chunk.get("is_reused", False)
                                 yield await format_sse_chunk(openai_chunk)
+                            elif chunk.get("type") == "final":
+                                artifact_chunk = build_webapi_streaming_artifact_chunk(
+                                    chunk.get("response"),
+                                    request.model or "unknown",
+                                    conversation_id=cid,
+                                    reused_conversation=chunk.get("is_reused", False),
+                                )
+                                if artifact_chunk is not None:
+                                    yield await format_sse_chunk(artifact_chunk)
                     except (asyncio.CancelledError, GeneratorExit):
                         raise
                     except Exception as e:
@@ -412,18 +425,25 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             
             # 4. Parse tool calls if necessary
             tool_call = parse_tool_call(response.text) if request.tools else None
-            
-            # 5. Normalize response to OpenAI format
-            openai_response = convert_to_openai_format(
-                response.text, 
-                request.model or "unknown", 
-                is_stream, 
-                tool_call
-            )
-            
-            # Inject stateful conversation identifiers
-            openai_response["conversation_id"] = cid
-            openai_response["reused_conversation"] = is_reused
+
+            # 5. Normalize Gemini WebAPI response to OpenAI format and attach artifacts
+            if is_stream:
+                openai_response = convert_to_openai_format(
+                    response.text,
+                    request.model or "unknown",
+                    is_stream,
+                    tool_call,
+                )
+                openai_response["conversation_id"] = cid
+                openai_response["reused_conversation"] = is_reused
+            else:
+                openai_response = build_webapi_chat_completion_response(
+                    response,
+                    request.model or "unknown",
+                    conversation_id=cid,
+                    reused_conversation=is_reused,
+                    tool_call=tool_call,
+                )
             
             if is_stream:
                 from app.utils.streaming import simulate_streaming_generator

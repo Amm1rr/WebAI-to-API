@@ -15,6 +15,8 @@
   var metaReused = root.querySelector("[data-meta-reused]");
   var metaModel = root.querySelector("[data-meta-model]");
   var metaStatus = root.querySelector("[data-meta-status]");
+  var artifactOutput = root.querySelector("[data-artifact-output]");
+  var artifactEmpty = root.querySelector("[data-artifact-empty]");
   var fileInput = root.querySelector("[data-file-input]");
   var fileList = root.querySelector("[data-file-list]");
   var fileAttachmentSummary = root.querySelector("[data-file-attachment-summary]");
@@ -372,6 +374,7 @@
 
   function resetOutput() {
     output.textContent = "";
+    clearArtifacts();
     lastConversationId = "";
     lastReusedConversation = "";
     lastReusedConversationSeen = false;
@@ -550,6 +553,78 @@
     return "";
   }
 
+  function extractArtifacts(data) {
+    var choice = data && data.choices && data.choices[0];
+    var artifacts = choice && choice.artifacts;
+    return Array.isArray(artifacts) ? artifacts : [];
+  }
+
+  function clearArtifacts() {
+    artifactOutput.textContent = "";
+    artifactEmpty.style.display = "block";
+  }
+
+  function renderArtifacts(artifacts) {
+    var list = Array.isArray(artifacts) ? artifacts : [];
+    artifactOutput.textContent = "";
+    artifactEmpty.style.display = list.length ? "none" : "block";
+
+    if (!list.length) {
+      return;
+    }
+
+    var fragment = document.createDocumentFragment();
+
+    list.forEach(function (artifact) {
+      if (!artifact || typeof artifact !== "object") {
+        return;
+      }
+
+      var item = document.createElement("article");
+      item.className = "artifact-item";
+
+      var header = document.createElement("div");
+      header.className = "artifact-header";
+
+      var title = document.createElement("div");
+      title.className = "artifact-title";
+      title.textContent = artifact.title || artifact.type || "artifact";
+      header.appendChild(title);
+
+      var meta = document.createElement("div");
+      meta.className = "artifact-meta";
+      var metaBits = [];
+      if (artifact.type) {
+        metaBits.push(String(artifact.type));
+      }
+      if (artifact.mime_type) {
+        metaBits.push(String(artifact.mime_type));
+      }
+      if (artifact.provider) {
+        metaBits.push(String(artifact.provider));
+      }
+      meta.textContent = metaBits.join(" · ");
+      header.appendChild(meta);
+      item.appendChild(header);
+
+      if (artifact.url) {
+        var linkRow = document.createElement("div");
+        linkRow.className = "artifact-link-row";
+        var link = document.createElement("a");
+        link.href = String(artifact.url);
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open artifact";
+        linkRow.appendChild(link);
+        item.appendChild(linkRow);
+      }
+
+      fragment.appendChild(item);
+    });
+
+    artifactOutput.appendChild(fragment);
+  }
+
   function renderError(error) {
     output.textContent = error.message || String(error);
     setState("Error");
@@ -574,6 +649,7 @@
     }
 
     output.textContent = extractAssistantText(body);
+    renderArtifacts(extractArtifacts(body));
     applyMetadata(body, payload.model);
     setState("Complete");
   }
@@ -591,6 +667,10 @@
 
     var parsed = JSON.parse(data);
     output.textContent += extractAssistantText(parsed);
+    var artifacts = extractArtifacts(parsed);
+    if (artifacts.length) {
+      renderArtifacts(artifacts);
+    }
     applyMetadata(parsed, payload.model);
     return false;
   }

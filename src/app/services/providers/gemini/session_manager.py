@@ -126,6 +126,7 @@ class SessionManager:
         """
         self.active_streams += 1
         interrupted_sent = False
+        final_response = None
         
         async with self.lock:
             try:
@@ -143,11 +144,18 @@ class SessionManager:
                 try:
                     async with asyncio.timeout(MAX_GENERATION_DURATION):
                         async for chunk in self.session.send_message_stream(prompt=prompt, files=files):
+                            final_response = chunk
                             yield {
                                 "type": "chunk",
                                 "text_delta": getattr(chunk, 'text_delta', ""),
                                 "is_reused": is_reused
                             }
+                    if final_response is not None:
+                        yield {
+                            "type": "final",
+                            "response": final_response,
+                            "is_reused": is_reused,
+                        }
                 except asyncio.TimeoutError:
                     logger.warning("Stream exceeded MAX_GENERATION_DURATION, interrupting.")
                     interrupted_sent = True

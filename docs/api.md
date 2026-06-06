@@ -89,6 +89,16 @@ Current limits remain unchanged:
 
 See the same note in [docs/specs/api-contract.md](specs/api-contract.md) for the contract-level rules.
 
+#### Generated Artifacts
+
+Gemini WebAPI responses may include `choices[0].artifacts` in buffered responses. `message.content` remains text-only, and thoughts are not exposed.
+
+Streaming responses may emit one final artifact SSE chunk before `[DONE]` with `choices[0].delta = {}` and `choices[0].artifacts = [...]`.
+
+Artifacts are metadata only. Artifact blobs are not persisted.
+
+Artifact URLs are opaque provider metadata and should not be assumed to be permanent, public, or to have stable download semantics.
+
 ---
 
 ### GET `/v1/models`

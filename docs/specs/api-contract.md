@@ -55,6 +55,17 @@ Current MVP rules:
 - The currently verified file format list is maintained in [docs/api.md](../api.md).
 - For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving order is not preserved.
 
+### 3.2 Generated Output Artifacts
+
+Gemini WebAPI may return generated artifacts alongside text output.
+
+- **Buffered Responses**: Gemini WebAPI responses may include `choices[0].artifacts` while `message.content` remains text-only.
+- **Streaming Responses**: Gemini WebAPI may emit one final SSE chunk before `[DONE]` that carries `choices[0].delta = {}` and `choices[0].artifacts = [...]`.
+- **Provider Scope**: Generated output artifacts are Gemini WebAPI-specific. Playwright and Atlas do not expose this response shape.
+- **Thoughts**: Model thoughts remain hidden by default and are not exposed through the public API response shape.
+- **Persistence**: Artifact blobs are not persisted in local snapshots or conversation state.
+- **Metadata Semantics**: Artifact URLs are provider metadata only. Clients must not assume they are permanent, public, or stable download handles.
+
 ## 4. Conversation Contract
 
 ### `conversation_id`

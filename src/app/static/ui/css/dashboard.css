@@ -631,6 +631,65 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.playground-artifacts .panel-head {
+  margin-bottom: 12px;
+}
+
+.artifact-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 10px;
+}
+
+.artifact-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.artifact-header {
+  display: grid;
+  gap: 2px;
+}
+
+.artifact-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.artifact-meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.artifact-link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.artifact-link-row a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.artifact-link-row a:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;

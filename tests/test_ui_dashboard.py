@@ -433,11 +433,16 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "<summary class=\"playground-files-summary\">" in response.text
     assert response.text.index('data-response-output') < response.text.index('data-file-input')
     assert response.text.index('data-file-input') < response.text.index('data-meta-conversation-id')
+    assert response.text.index('data-response-output') < response.text.index('data-artifact-output')
+    assert response.text.index('data-artifact-output') < response.text.index('data-file-input')
     assert "data-file-input" in response.text
     assert "data-file-list" in response.text
     assert "data-clear-files" in response.text
     assert "data-file-guidance" in response.text
     assert "data-file-attachment-summary" in response.text
+    assert "data-artifact-output" in response.text
+    assert "data-artifact-empty" in response.text
+    assert "Generated artifacts will appear here." in response.text
     assert "No files attached." in response.text
     assert "Gemini WebAPI" in response.text
     assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
@@ -488,6 +493,11 @@ async def test_ui_html_references_static_assets():
     assert "data:text/plain;base64," in playground_js
     assert "must be plain text to use without an extension" in playground_js
     assert "must contain UTF-8 plain text" in playground_js
+    assert "extractArtifacts" in playground_js
+    assert "renderArtifacts" in playground_js
+    assert "clearArtifacts" in playground_js
+    assert "artifactOutput" in playground_js
+    assert "artifactEmpty" in playground_js
     assert '"application/json": [".json"]' in playground_js
     assert '"application/xml": [".xml"]' in playground_js
     assert '"text/xml": [".xml"]' in playground_js
@@ -499,6 +509,7 @@ async def test_ui_html_references_static_assets():
     assert "Selected files will be attached on submit" in playground_js
     assert "Gemini Playwright and Atlas do not support file parts" in playground_js
     assert "MAX_TOTAL_FILE_SIZE_BYTES = 40 * 1024 * 1024" in playground_js
+    assert "Open artifact" in playground_js
 
 
 @pytest.mark.asyncio
@@ -511,6 +522,26 @@ async def test_dashboard_docs_mention_playground_file_support():
     assert "Gemini Playwright and Atlas do not support file parts" in docs_text
     assert "conservative file limits" in docs_text
     assert "API documentation" in docs_text
+    assert "Artifacts" in docs_text
+    assert "link-first" in docs_text
+
+
+def test_api_docs_mention_generated_artifacts():
+    docs_path = Path("docs/api.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "#### Generated Artifacts" in docs_text
+    assert "choices[0].artifacts" in docs_text
+    assert "Artifact URLs are opaque provider metadata" in docs_text
+
+
+def test_api_contract_docs_mention_generated_artifacts():
+    docs_path = Path("docs/specs/api-contract.md")
+    assert docs_path.is_file()
+    docs_text = docs_path.read_text(encoding="utf-8")
+    assert "### 3.2 Generated Output Artifacts" in docs_text
+    assert "choices[0].artifacts" in docs_text
+    assert "Artifact URLs are provider metadata only" in docs_text
 
 
 def test_api_docs_mention_extensionless_text_support():
