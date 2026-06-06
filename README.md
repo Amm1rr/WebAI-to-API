@@ -170,6 +170,31 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 > [!TIP]
 > The `playwright/` prefix forces the Playwright backend regardless of the default Gemini backend configured in `config.conf`.
 
+### Temporary Gemini Chat
+
+`POST /v1/temporary/chat/completions`
+
+Use this endpoint for Gemini WebAPI requests that should not persist conversation history.
+
+* Gemini WebAPI-only
+* Uses Gemini temporary requests (`temporary=True`)
+* Requests are not stored in Gemini history
+* Requests do not create SQLite conversation snapshots
+* `conversation_id` is not supported
+* Supports streaming and non-streaming responses
+* Supports multimodal file inputs and artifact outputs
+
+| Endpoint | History | Snapshots | conversation_id | Purpose |
+| --- | --- | --- | --- | --- |
+| `/v1/chat/completions` | Yes | Yes | Supported | Persistent chat |
+| `/v1/temporary/chat/completions` | No | No | Rejected | Temporary/stateless workloads |
+| `/translate` | No | No | Not supported | Legacy translation compatibility |
+
+### `/translate`
+
+The legacy `/translate` endpoint uses Gemini temporary requests and a shared in-memory session.
+It is intended for translation compatibility, is not saved in Gemini history, does not create SQLite conversation snapshots, and is not persistent across restarts.
+
 ---
 
 ## Supported Models
