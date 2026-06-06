@@ -9,6 +9,10 @@ from app.services.providers.base_repository import ConversationSnapshot
 from app.services.providers.exceptions import ConversationInUseError
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.session_manager import SessionRegistry
+from app.services.providers.gemini.webapi_response_builder import (
+    build_choice_artifacts,
+    build_webapi_chat_completion_response,
+)
 
 @pytest.fixture
 def provider():
@@ -89,6 +93,172 @@ def test_convert_to_openai_format_with_tool_call(provider):
     assert result["choices"][0]["finish_reason"] == "tool_calls"
     assert result["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "test_tool"
     assert json.loads(result["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]) == {"arg": 1}
+
+
+def test_build_choice_artifacts_maps_safe_webapi_metadata():
+    response = SimpleNamespace(
+        images=[
+            SimpleNamespace(
+                url="https://example.com/image.png",
+                title="Generated image",
+                alt="A generated image",
+            )
+        ],
+        videos=[
+            SimpleNamespace(
+                url="https://example.com/video.mp4",
+                title="Generated video",
+                thumbnail="https://example.com/video-thumb.jpg",
+            )
+        ],
+        media=[
+            SimpleNamespace(
+                mp3_url="https://example.com/audio.mp3",
+                mp3_thumbnail="https://example.com/audio-thumb.jpg",
+                title="Generated audio",
+            )
+        ],
+    )
+
+    artifacts = build_choice_artifacts(response)
+
+    assert artifacts == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Generated image",
+            "url": "https://example.com/image.png",
+            "alt": "A generated image",
+        },
+        {
+            "type": "video",
+            "provider": "gemini_webapi",
+            "title": "Generated video",
+            "url": "https://example.com/video.mp4",
+            "thumbnail_url": "https://example.com/video-thumb.jpg",
+        },
+        {
+            "type": "audio",
+            "provider": "gemini_webapi",
+            "title": "Generated audio",
+            "url": "https://example.com/audio.mp3",
+            "thumbnail_url": "https://example.com/audio-thumb.jpg",
+        },
+    ]
+
+
+def test_build_choice_artifacts_ignores_missing_and_non_string_fields():
+    response = SimpleNamespace(
+        images=[
+            SimpleNamespace(url=123, title=None, alt=""),
+            SimpleNamespace(url="https://example.com/image.png", unknown_field="ignored"),
+        ],
+        videos=[
+            SimpleNamespace(url=None, title=456, thumbnail={}),
+        ],
+        media=[
+            SimpleNamespace(mp3_url="", mp3_thumbnail=None, title=None),
+        ],
+    )
+
+    artifacts = build_choice_artifacts(response)
+
+    assert artifacts == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "url": "https://example.com/image.png",
+        }
+    ]
+
+
+def test_build_webapi_chat_completion_response_keeps_text_only_shape():
+    response = SimpleNamespace(text="Hello world", images=[], videos=[], media=[])
+
+    result = build_webapi_chat_completion_response(
+        response,
+        "gemini-3-flash",
+        conversation_id="conv-1",
+        reused_conversation=False,
+    )
+
+    assert result["model"] == "gemini-3-flash"
+    assert result["choices"][0]["message"]["content"] == "Hello world"
+    assert "artifacts" not in result["choices"][0]
+    assert result["conversation_id"] == "conv-1"
+    assert result["reused_conversation"] is False
+
+
+def test_build_webapi_chat_completion_response_attaches_artifacts_without_thoughts():
+    response = SimpleNamespace(
+        text="Done.",
+        thoughts="internal reasoning",
+        images=[
+            SimpleNamespace(
+                url="https://example.com/image.png",
+                title="Generated image",
+            )
+        ],
+        videos=[],
+        media=[],
+    )
+
+    result = build_webapi_chat_completion_response(
+        response,
+        "gemini-3-flash",
+        conversation_id="conv-2",
+        reused_conversation=True,
+    )
+
+    assert result["choices"][0]["message"]["content"] == "Done."
+    assert result["choices"][0]["artifacts"] == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Generated image",
+            "url": "https://example.com/image.png",
+        }
+    ]
+    assert "thoughts" not in result["choices"][0]
+    assert result["conversation_id"] == "conv-2"
+    assert result["reused_conversation"] is True
+
+
+def test_build_webapi_chat_completion_response_preserves_tool_calls_and_artifacts():
+    response = SimpleNamespace(
+        text='{"tool_call": {"name": "generate_report", "arguments": {"topic": "status"}}}',
+        thoughts="internal reasoning",
+        images=[
+            SimpleNamespace(
+                url="https://example.com/report.png",
+                title="Report image",
+            )
+        ],
+        videos=[],
+        media=[],
+    )
+
+    result = build_webapi_chat_completion_response(
+        response,
+        "gemini-3-flash",
+        tool_call={"name": "generate_report", "arguments": {"topic": "status"}},
+        conversation_id="conv-3",
+        reused_conversation=False,
+    )
+
+    message = result["choices"][0]["message"]
+    assert message["content"] is None
+    assert message["tool_calls"]
+    assert result["choices"][0]["artifacts"] == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Report image",
+            "url": "https://example.com/report.png",
+        }
+    ]
+    assert "thoughts" not in result["choices"][0]
+    assert result["conversation_id"] == "conv-3"
 
 
 @pytest.mark.asyncio
