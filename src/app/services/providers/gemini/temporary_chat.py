@@ -1,5 +1,7 @@
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -8,7 +10,11 @@ from app.config import CONFIG
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 from app.services.gemini_client import GeminiClientNotInitializedError, get_gemini_client
-from app.services.multimodal import cleanup_staged_files, normalize_openai_chat_messages
+from app.services.multimodal import (
+    NormalizedOpenAIChatMessages,
+    cleanup_staged_files,
+    normalize_openai_chat_messages,
+)
 from app.services.providers.gemini.shared import (
     build_tools_prompt,
     convert_to_openai_format,
@@ -26,11 +32,11 @@ from app.utils.streaming import format_sse_chunk, get_done_chunk, simulate_strea
 @dataclass(slots=True)
 class TemporaryChatRequestContext:
     model: str
-    normalized: object
+    normalized: NormalizedOpenAIChatMessages
     prompt: str
-    files: object | None
+    files: list[Path] | None
     is_stream: bool
-    tools: object | None
+    tools: list[dict[str, Any]] | None
     gem: str | None
 
 
@@ -97,7 +103,9 @@ def _prepare_temporary_chat_request(request: OpenAIChatRequest) -> TemporaryChat
     )
 
 
-def _build_cleanup_once(normalized: object):
+def _build_cleanup_once(
+    normalized: NormalizedOpenAIChatMessages,
+) -> Callable[[], Awaitable[None]]:
     cleanup_started = False
 
     async def cleanup_once() -> None:
@@ -125,9 +133,9 @@ async def _build_buffered_openai_response(
     *,
     prompt: str,
     model: str,
-    files,
-    gem,
-    tools,
+    files: list[Path] | None,
+    gem: str | None,
+    tools: list[dict[str, Any]] | None,
 ) -> dict:
     response = await gemini_client.generate_content(
         prompt,
@@ -150,9 +158,9 @@ async def _build_incremental_streaming_response(
     *,
     prompt: str,
     model: str,
-    files,
-    gem,
-    cleanup_once,
+    files: list[Path] | None,
+    gem: str | None,
+    cleanup_once: Callable[[], Awaitable[None]],
 ) -> StreamingResponse:
     async def sse_generator():
         final_response = None
