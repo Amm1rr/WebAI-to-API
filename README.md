@@ -103,7 +103,9 @@ poetry run python src/run.py
 > [!TIP]
 > If authentication is configured correctly, the startup banner will be displayed and the server will listen on port 6969.
 
-### 2. Send Your First Request
+### 2. Open Dashboard (`http://localhost:6969/ui`)
+
+### 3. Send Your First Request
 
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
@@ -119,81 +121,46 @@ curl -X POST http://localhost:6969/v1/chat/completions \
   }'
 ```
 
-### 2b. Send a File to Gemini WebAPI
+### Dashboard
 
-File input is supported through OpenAI-style `content` parts on `/v1/chat/completions` when routed to the Gemini WebAPI backend.
+Open the dashboard at `http://localhost:6969/ui`.
 
-```bash
-curl -X POST http://localhost:6969/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3-flash",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": "Summarize this document." },
-          {
-            "type": "file",
-            "file": {
-              "filename": "invoice.pdf",
-              "file_data": "data:application/pdf;base64,JVBERi0xLjQK"
-            }
-          }
-        ]
-      }
-    ]
-  }'
-```
+The dashboard provides access to runtime status, authentication, models, the playground, and conversations.
 
-> [!NOTE]
-> File parts are supported only by the Gemini WebAPI backend in the MVP. Gemini Playwright and Atlas reject file parts with a clear capability error.
-> For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved. The currently verified file formats are documented in [docs/api.md](docs/api.md).
-> The built-in `/ui/playground` page uses the same contract for file attachments.
+### Available Endpoints
 
-### 3. Force the Playwright Backend
-
-```bash
-curl -X POST http://localhost:6969/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "playwright/gemini-3-flash",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Hello!"
-      }
-    ]
-  }'
-```
-
-> [!TIP]
-> The `playwright/` prefix forces the Playwright backend regardless of the default Gemini backend configured in `config.conf`.
+| Endpoint | Purpose |
+| --- | --- |
+| `/v1/chat/completions` | OpenAI-compatible chat completions |
+| `/v1/temporary/chat/completions` | Gemini WebAPI temporary chat |
+| `/v1/models` | List supported models |
+| `/v1/auth/status` | Check authentication status |
+| `/v1/auth/login` | Start authentication flow |
+| `/v1/conversations` | Manage Gemini WebAPI conversation snapshots |
+| `/translate` | Legacy translation compatibility |
+| `/ui/*` | Dashboard and playground |
 
 ### Temporary Gemini Chat
 
-`POST /v1/temporary/chat/completions`
+`/v1/temporary/chat/completions` is Gemini WebAPI-only and uses Gemini temporary requests (`temporary=True`).
+Requests are not stored in Gemini history and do not create SQLite conversation snapshots.
+It supports streaming, non-streaming, multimodal file inputs, and artifact outputs. See [docs/api.md](docs/api.md) for details.
 
-Use this endpoint for Gemini WebAPI requests that should not persist conversation history.
+### Legacy Translate Endpoint
 
-* Gemini WebAPI-only
-* Uses Gemini temporary requests (`temporary=True`)
-* Requests are not stored in Gemini history
-* Requests do not create SQLite conversation snapshots
-* `conversation_id` is not supported
-* Supports streaming and non-streaming responses
-* Supports multimodal file inputs and artifact outputs
+The `/translate` endpoint is maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It/) browser extension.
 
-| Endpoint | History | Snapshots | conversation_id | Purpose |
-| --- | --- | --- | --- | --- |
-| `/v1/chat/completions` | Yes | Yes | Supported | Persistent chat |
-| `/v1/temporary/chat/completions` | No | No | Rejected | Temporary/stateless workloads |
-| `/translate` | No | No | Not supported | Legacy translation compatibility |
+It uses Gemini temporary requests and a shared in-memory session. See `docs/api.md` for additional details.
 
-### `/translate`
+### File Support
 
-The legacy `/translate` endpoint uses Gemini temporary requests and a shared in-memory session.
-It is intended for translation compatibility, is not saved in Gemini history, does not create SQLite conversation snapshots, and is not persistent across restarts.
+File input is supported through OpenAI-style `content` parts on `/v1/chat/completions` when routed to the Gemini WebAPI backend.
+The currently verified file formats are documented in [docs/api.md](docs/api.md).
+
+> [!NOTE]
+> File parts are supported only by the Gemini WebAPI backend in the MVP. Gemini Playwright and Atlas reject file parts with a clear capability error.
+> For Gemini WebAPI, text content parts are concatenated into one prompt and file parts are passed as attachments. Exact text/file interleaving order is not preserved.
+> The built-in `/ui/playground` page uses the same contract for file attachments.
 
 ---
 
@@ -216,7 +183,7 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 | `atlas/...` | Atlas Cloud |
 
 > [!TIP]
-> Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`.
+> Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`. Use `playwright/...` model prefixes to force the Playwright backend explicitly.
 
 ---
 
@@ -229,21 +196,6 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 - [Dashboard Guide](docs/dashboard.md)
 
 Interactive API documentation is available through Swagger UI when the server is running.
-
----
-
-## Conversation Management (WebAPI)
-
-These endpoints manage locally persisted Gemini WebAPI conversation snapshots and their corresponding remote chats.
-
-| Action      | Endpoint                      |
-| ----------- | ----------------------------- |
-| List        | GET /v1/conversations         |
-| Delete      | DELETE /v1/conversations/{id} |
-| Bulk Delete | DELETE /v1/conversations      |
-
-> [!NOTE]
-> Conversation persistence and management are currently supported only for the Gemini WebAPI backend.
 
 ---
 
