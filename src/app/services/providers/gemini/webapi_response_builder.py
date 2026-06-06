@@ -130,3 +130,22 @@ def build_webapi_chat_completion_response(
         openai_response["reused_conversation"] = reused_conversation
 
     return openai_response
+
+
+def build_webapi_streaming_artifact_chunk(
+    response: Any,
+    model: str,
+    *,
+    conversation_id: Optional[str] = None,
+    reused_conversation: bool = False,
+) -> Optional[dict]:
+    artifacts = build_choice_artifacts(response)
+    if not artifacts:
+        return None
+
+    openai_chunk = convert_to_openai_format("", model, True)
+    openai_chunk["choices"][0]["delta"] = {}
+    openai_chunk["choices"][0]["artifacts"] = artifacts
+    openai_chunk["conversation_id"] = conversation_id
+    openai_chunk["reused_conversation"] = reused_conversation
+    return openai_chunk

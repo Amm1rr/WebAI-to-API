@@ -24,6 +24,7 @@ from app.services.providers.gemini.shared import (
 )
 from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
+    build_webapi_streaming_artifact_chunk,
 )
 from app.services.providers.gemini.persistence import (
     serialize_session_state,
@@ -382,6 +383,15 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                                 openai_chunk["conversation_id"] = cid
                                 openai_chunk["reused_conversation"] = chunk.get("is_reused", False)
                                 yield await format_sse_chunk(openai_chunk)
+                            elif chunk.get("type") == "final":
+                                artifact_chunk = build_webapi_streaming_artifact_chunk(
+                                    chunk.get("response"),
+                                    request.model or "unknown",
+                                    conversation_id=cid,
+                                    reused_conversation=chunk.get("is_reused", False),
+                                )
+                                if artifact_chunk is not None:
+                                    yield await format_sse_chunk(artifact_chunk)
                     except (asyncio.CancelledError, GeneratorExit):
                         raise
                     except Exception as e:

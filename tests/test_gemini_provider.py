@@ -12,6 +12,7 @@ from app.services.providers.gemini.session_manager import SessionRegistry
 from app.services.providers.gemini.webapi_response_builder import (
     build_choice_artifacts,
     build_webapi_chat_completion_response,
+    build_webapi_streaming_artifact_chunk,
 )
 
 @pytest.fixture
@@ -259,6 +260,51 @@ def test_build_webapi_chat_completion_response_preserves_tool_calls_and_artifact
     ]
     assert "thoughts" not in result["choices"][0]
     assert result["conversation_id"] == "conv-3"
+
+
+def test_build_webapi_streaming_artifact_chunk_behaviour():
+    empty_response = SimpleNamespace(text="Done.", images=[], videos=[], media=[], thoughts="hidden")
+    assert build_webapi_streaming_artifact_chunk(
+        empty_response,
+        "gemini-3-flash",
+        conversation_id="conv-4",
+        reused_conversation=False,
+    ) is None
+
+    response = SimpleNamespace(
+        text="Done.",
+        images=[
+            SimpleNamespace(
+                url="https://example.com/image.png",
+                title="Generated image",
+                alt="A generated image",
+            )
+        ],
+        videos=[],
+        media=[],
+        thoughts="hidden",
+    )
+
+    result = build_webapi_streaming_artifact_chunk(
+        response,
+        "gemini-3-flash",
+        conversation_id="conv-4",
+        reused_conversation=True,
+    )
+
+    assert result["choices"][0]["delta"] == {}
+    assert result["choices"][0]["artifacts"] == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Generated image",
+            "url": "https://example.com/image.png",
+            "alt": "A generated image",
+        }
+    ]
+    assert "thoughts" not in result["choices"][0]
+    assert result["conversation_id"] == "conv-4"
+    assert result["reused_conversation"] is True
 
 
 @pytest.mark.asyncio
@@ -996,6 +1042,17 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
             "text_delta": "Stateful delta content",
             "is_reused": True
         }
+        yield {
+            "type": "final",
+            "response": SimpleNamespace(
+                text="Stateful response content",
+                images=[],
+                videos=[],
+                media=[],
+                thoughts="hidden",
+            ),
+            "is_reused": True,
+        }
 
     mock_manager.get_streaming_response_stateful = mock_generator
     mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
@@ -1032,6 +1089,145 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
     assert chunk_data["conversation_id"] == "test_token_XYZ"
     assert chunk_data["reused_conversation"] is True
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_before_done(mocker, provider):
+    """Verify WebAPI streaming emits a final artifact chunk before [DONE] when artifacts exist."""
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+
+    async def mock_generator(*args, **kwargs):
+        yield {
+            "type": "chunk",
+            "text_delta": "Stateful delta content",
+            "is_reused": False,
+        }
+        yield {
+            "type": "final",
+            "response": SimpleNamespace(
+                text="Stateful response content",
+                images=[
+                    SimpleNamespace(
+                        url="https://example.com/generated.png",
+                        title="Generated image",
+                        alt="A generated image",
+                    )
+                ],
+                videos=[],
+                media=[],
+                thoughts="hidden",
+            ),
+            "is_reused": False,
+        }
+
+    mock_manager.get_streaming_response_stateful = mock_generator
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "I am Ali. What is my name?"}],
+        model="gemini-3-flash",
+        stream=True,
+        conversation_id="test_token_XYZ",
+    )
+
+    response = await provider.chat_completions(request)
+    assert response is not None
+
+    from fastapi.responses import StreamingResponse
+    assert isinstance(response, StreamingResponse)
+
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk)
+
+    assert len(chunks) == 3
+
+    text_chunk = json.loads(chunks[0][6:-2])
+    artifact_chunk = json.loads(chunks[1][6:-2])
+
+    assert text_chunk["choices"][0]["delta"]["content"] == "Stateful delta content"
+    assert text_chunk["conversation_id"] == "test_token_XYZ"
+    assert text_chunk["reused_conversation"] is False
+
+    assert artifact_chunk["choices"][0]["delta"] == {}
+    assert artifact_chunk["choices"][0]["finish_reason"] == "stop"
+    assert artifact_chunk["choices"][0]["artifacts"] == [
+        {
+            "type": "image",
+            "provider": "gemini_webapi",
+            "title": "Generated image",
+            "url": "https://example.com/generated.png",
+            "alt": "A generated image",
+        }
+    ]
+    assert "thoughts" not in artifact_chunk["choices"][0]
+    assert artifact_chunk["conversation_id"] == "test_token_XYZ"
+    assert artifact_chunk["reused_conversation"] is False
+    assert chunks[2] == "data: [DONE]\n\n"
+    mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artifact_chunk(mocker, provider):
+    """Verify interrupting WebAPI streaming does not emit an artifact chunk."""
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+
+    async def mock_generator(*args, **kwargs):
+        yield {
+            "type": "chunk",
+            "text_delta": "Stateful delta content",
+            "is_reused": True,
+        }
+        yield {
+            "type": "interrupt",
+            "interrupted": True,
+            "reason": "timeout",
+            "is_reused": True,
+        }
+
+    mock_manager.get_streaming_response_stateful = mock_generator
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "I am Ali. What is my name?"}],
+        model="gemini-3-flash",
+        stream=True,
+        conversation_id="test_token_XYZ",
+    )
+
+    response = await provider.chat_completions(request)
+    assert response is not None
+
+    from fastapi.responses import StreamingResponse
+    assert isinstance(response, StreamingResponse)
+
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk)
+
+    assert len(chunks) == 2
+    assert json.loads(chunks[0][6:-2])["choices"][0]["delta"]["content"] == "Stateful delta content"
+    assert chunks[1] == "data: [DONE]\n\n"
 
 
 def test_transform_messages_formatting():
