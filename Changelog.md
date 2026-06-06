@@ -32,7 +32,6 @@
 - Improved runtime observability, diagnostics, and request correlation.
 - Updated Docker deployment guidance and Playwright onboarding workflow.
 - Expanded architecture documentation and runtime specifications.
-- Relicensed the project from MIT to GNU AGPLv3 starting with v0.5.0.
 
 ---
 
