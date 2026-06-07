@@ -7,11 +7,20 @@ The `/ui/*` routes are not part of the public API contract and are excluded from
 ## Pages
 
 - `/ui` - overview
+- `/ui/apis` - API endpoint catalog
 - `/ui/status` - runtime status
 - `/ui/auth` - cached authentication state
 - `/ui/models` - registered model list
 - `/ui/playground` - chat prompt playground with optional file attachments for Gemini WebAPI
 - `/ui/conversations` - locally persisted Gemini WebAPI conversation snapshots, with single-delete and bulk-delete actions limited to Gemini WebAPI
+
+## API Discovery (/ui/apis)
+
+The API catalog is dynamically generated from the FastAPI route registry. It provides a human-readable inventory of the available API surface.
+
+- **Categorization**: Endpoints are grouped into Recommended, Compatibility, Advanced, and Legacy sections.
+- **Feature Badges**: Cards display supported features such as Streaming (SSE) and Persistence behavior.
+- **Interactive Documentation**: Direct links to Swagger UI and ReDoc are provided for deep schema inspection.
 
 ## Security posture
 

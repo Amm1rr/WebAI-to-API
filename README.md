@@ -125,7 +125,7 @@ curl -X POST http://localhost:6969/v1/chat/completions \
 
 Open the dashboard at `http://localhost:6969/ui`.
 
-The dashboard provides access to runtime status, authentication, models, the playground, and conversations.
+The dashboard provides a visual interface for runtime status, authentication management, API discovery, and interactive testing.
 
 ### Available Endpoints
 

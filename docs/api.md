@@ -400,14 +400,9 @@ Legacy `playwright/<model>` routing is Gemini-only compatibility behavior. New b
 
 ## Interactive Documentation
 
-Swagger UI is available when the server is running.
+Technical API specifications and interactive testing surfaces:
 
-```text
-http://localhost:6969/docs
-```
-
-OpenAPI schema:
-
-```text
-http://localhost:6969/openapi.json
-```
+- **Dashboard Catalog**: [http://localhost:6969/ui/apis](http://localhost:6969/ui/apis) (User-friendly catalog with feature badges)
+- **Swagger UI**: [http://localhost:6969/docs](http://localhost:6969/docs) (Interactive testing and schema inspection)
+- **ReDoc**: [http://localhost:6969/redoc](http://localhost:6969/redoc) (Clean, three-panel documentation)
+- **OpenAPI Schema**: [http://localhost:6969/openapi.json](http://localhost:6969/openapi.json)
