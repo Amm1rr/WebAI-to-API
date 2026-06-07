@@ -68,6 +68,10 @@ def setup_directories(check_mode=False):
 
 def setup_config(check_mode=False):
     # Handle config.conf
+    if os.path.isdir(CONFIG_FILE):
+        print_error(f"{CONFIG_FILE} exists but is a directory. Remove it and rerun bootstrap.")
+        return False
+
     if not os.path.exists(CONFIG_FILE):
         if not os.path.exists(CONFIG_EXAMPLE):
             print_error(f"Missing example config: {CONFIG_EXAMPLE}")
@@ -82,6 +86,10 @@ def setup_config(check_mode=False):
         print_step(f"{CONFIG_FILE} already exists. Skipping.")
 
     # Handle .env
+    if os.path.isdir(ENV_FILE):
+        print_error(f"{ENV_FILE} exists but is a directory. Remove it and rerun bootstrap.")
+        return False
+
     if not os.path.exists(ENV_FILE):
         if not os.path.exists(ENV_EXAMPLE):
             print_step(f"Optional: {ENV_EXAMPLE} not found. Skipping .env creation.")

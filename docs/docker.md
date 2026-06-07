@@ -36,7 +36,9 @@ cp .env.example .env
 cp config.conf.example config.conf
 ```
 
-**Note:** `config.conf` is mounted into the container at runtime. Changes to this file on the host are reflected in the container after a restart. Do NOT commit `config.conf` or `.env` as they may contain secrets.
+**Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. They must exist as files on your host machine before starting the container; if they are missing, Docker Compose may incorrectly create them as directories, causing the application to fail. Run `python scripts/bootstrap.py` to ensure they are correctly initialized. 
+
+Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
 
 ---
 

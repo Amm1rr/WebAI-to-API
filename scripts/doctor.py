@@ -35,10 +35,14 @@ def print_status(label, status, message="", color=Colors.ENDC):
         print(f"{' ':<20}           {line}")
 
 def check_config():
+    if os.path.isdir("config.conf"):
+        print_status("Configuration", "FAIL", "config.conf exists but is a directory. Remove it.", Colors.FAIL)
+        return False, None
+
     if not os.path.exists("config.conf"):
         print_status("Configuration", "FAIL", "config.conf is missing. Run: python scripts/bootstrap.py", Colors.FAIL)
         return False, None
-    
+
     try:
         config = configparser.ConfigParser()
         config.optionxform = str  # Preserve case for cookie names
@@ -48,6 +52,18 @@ def check_config():
     except Exception as e:
         print_status("Configuration", "FAIL", f"Error reading config.conf: {e}", Colors.FAIL)
         return False, None
+
+def check_env():
+    if os.path.isdir(".env"):
+        print_status("Environment", "FAIL", ".env exists but is a directory. Remove it.", Colors.FAIL)
+        return False
+
+    if os.path.exists(".env"):
+        print_status("Environment", "PASS", ".env found")
+        return True
+    else:
+        print_status("Environment", "WARN", ".env not found. Local runs may use defaults, but Docker Compose requires .env. Run: python scripts/bootstrap.py", Colors.WARNING)
+        return True
 
 def check_poetry():
     poetry_path = shutil.which("poetry")
@@ -242,6 +258,8 @@ def main():
 
     config_ok, config = check_config()
     if not config_ok: has_fail = True
+
+    if not check_env(): has_fail = True
 
     poetry_ok = check_poetry()
     if not poetry_ok: has_fail = True

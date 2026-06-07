@@ -19,9 +19,13 @@ build-fresh:
 	docker build --no-cache -t cornatul/webai.ai:latest .
 
 up:
+	@test -f config.conf || { echo "ERROR: config.conf missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	@test -f .env || { echo "ERROR: .env missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
 	docker compose up -d
 
 up-attach:
+	@test -f config.conf || { echo "ERROR: config.conf missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	@test -f .env || { echo "ERROR: .env missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
 	docker compose up
 
 logs:
