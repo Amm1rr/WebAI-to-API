@@ -394,7 +394,7 @@ async def dashboard_auth_panel(request: Request):
 
 @router.get("/models", response_class=HTMLResponse)
 async def dashboard_models(request: Request):
-    models = await list_models(include_legacy_playwright_aliases=False)
+    models = await list_models(include_legacy_playwright_aliases=False, allow_stale=True)
     model_rows = [
         {
             **model,
@@ -411,7 +411,7 @@ async def dashboard_models(request: Request):
 
 @router.get("/playground", response_class=HTMLResponse)
 async def dashboard_playground(request: Request):
-    models = await list_models(include_legacy_playwright_aliases=False)
+    models = await list_models(include_legacy_playwright_aliases=False, allow_stale=True)
     return templates.TemplateResponse(
         request,
         "ui/playground.html",

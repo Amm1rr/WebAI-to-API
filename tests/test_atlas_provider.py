@@ -79,107 +79,159 @@ async def test_atlas_list_models_unconfigured():
     """Verify list_models returns [] when Atlas is not configured."""
     with patch("app.services.providers.atlas.provider.get_atlas_client", side_effect=AtlasClientNotConfiguredError("Missing key")):
         provider = AtlasProvider()
-        models = await provider.list_models()
+        models = await provider.list_models(allow_stale=True)
         assert models == []
         assert provider._refresh_task is None
+        
+        models_accurate = await provider.list_models(allow_stale=False)
+        assert models_accurate == []
 
 @pytest.mark.asyncio
-async def test_atlas_list_models_non_blocking_initial(mock_atlas_client, atlas_provider):
-    """Verify list_models returns fallback immediately on first call and triggers refresh."""
+async def test_atlas_list_models_non_blocking_fast_path(mock_atlas_client, atlas_provider):
+    """Verify allow_stale=True returns fallback immediately and schedules refresh."""
     mock_atlas_client.list_models.return_value = [{"id": "live-model"}]
     
-    # 1. Call returns fallback immediately
-    models = await atlas_provider.list_models()
+    # 1. Fast call returns fallback immediately
+    models = await atlas_provider.list_models(allow_stale=True)
     assert len(models) == 1
     assert models[0]["id"] == "atlas/MiniMaxAI/MiniMax-M2"
-    
-    # 2. Verify refresh task is scheduled
     assert atlas_provider._refresh_task is not None
     
-    # 3. Wait for refresh to complete
     await atlas_provider._refresh_task
     
-    # 4. Next call should return live models
-    models = await atlas_provider.list_models()
-    assert len(models) == 1
+    # 2. Next call returns live models
+    models = await atlas_provider.list_models(allow_stale=True)
     assert models[0]["id"] == "atlas/live-model"
 
 @pytest.mark.asyncio
-async def test_atlas_list_models_stale_while_revalidate(mock_atlas_client, atlas_provider):
-    """Verify stale cache is returned while refresh happens in background."""
+async def test_atlas_list_models_blocking_accurate_path(mock_atlas_client, atlas_provider):
+    """Verify allow_stale=False awaits live discovery."""
+    mock_atlas_client.list_models.return_value = [{"id": "live-model"}]
+    
+    # Accurate call awaits refresh and returns live models immediately
+    models = await atlas_provider.list_models(allow_stale=False)
+    assert len(models) == 1
+    assert models[0]["id"] == "atlas/live-model"
+    assert mock_atlas_client.list_models.call_count == 1
+
+@pytest.mark.asyncio
+async def test_atlas_list_models_stale_while_revalidate_ui(mock_atlas_client, atlas_provider):
+    """Verify UI path uses stale cache while refreshing."""
     # Setup: Populate cache
     mock_atlas_client.list_models.return_value = [{"id": "old-model"}]
-    await atlas_provider.list_models()
-    await atlas_provider._refresh_task
+    await atlas_provider.list_models(allow_stale=False)
     
     # Expire cache
     atlas_provider._cache_timestamp -= (atlas_provider._CACHE_TTL + 1)
     
-    # Next call: should return 'old-model' immediately and trigger refresh for 'new-model'
+    # Fast call: should return 'old-model' immediately and trigger refresh for 'new-model'
     mock_atlas_client.list_models.return_value = [{"id": "new-model"}]
-    models = await atlas_provider.list_models()
+    models = await atlas_provider.list_models(allow_stale=True)
     
     assert models[0]["id"] == "atlas/old-model"
     assert atlas_provider._refresh_task is not None
     
     await atlas_provider._refresh_task
-    models = await atlas_provider.list_models()
+    models = await atlas_provider.list_models(allow_stale=True)
     assert models[0]["id"] == "atlas/new-model"
+
+@pytest.mark.asyncio
+async def test_atlas_list_models_accurate_discovery_failure_fallback(mock_atlas_client, atlas_provider):
+    """Verify accurate path returns fallback if discovery fails and no cache exists."""
+    mock_atlas_client.list_models.side_effect = Exception("API Down")
+    
+    # Call returns fallback after failed await
+    models = await atlas_provider.list_models(allow_stale=False)
+    assert models[0]["id"] == "atlas/MiniMaxAI/MiniMax-M2"
+
+@pytest.mark.asyncio
+async def test_atlas_list_models_accurate_discovery_failure_stale_fallback(mock_atlas_client, atlas_provider):
+    """Verify accurate path returns stale cache if discovery fails but cache exists."""
+    # 1. Populate cache
+    mock_atlas_client.list_models.return_value = [{"id": "old-model"}]
+    await atlas_provider.list_models(allow_stale=False)
+    
+    # 2. Expire cache
+    atlas_provider._cache_timestamp -= (atlas_provider._CACHE_TTL + 1)
+    
+    # 3. Discovery fails during accurate call
+    mock_atlas_client.list_models.side_effect = Exception("API Down")
+    models = await atlas_provider.list_models(allow_stale=False)
+    
+    # Returns stale cache as best-effort
+    assert models[0]["id"] == "atlas/old-model"
 
 @pytest.mark.asyncio
 async def test_atlas_list_models_concurrent_refresh(mock_atlas_client, atlas_provider):
     """Verify concurrent calls do not schedule multiple refresh tasks."""
     mock_atlas_client.list_models.return_value = [{"id": "m1"}]
     
-    # Trigger first call
-    await atlas_provider.list_models()
+    # Trigger first call (fast)
+    await atlas_provider.list_models(allow_stale=True)
     task1 = atlas_provider._refresh_task
     
-    # Trigger second call immediately
-    await atlas_provider.list_models()
+    # Trigger second call (fast)
+    await atlas_provider.list_models(allow_stale=True)
     task2 = atlas_provider._refresh_task
     
     assert task1 is task2
     
-    # Wait for the task to complete to verify call count
     await task1
     assert mock_atlas_client.list_models.call_count == 1
+    
+    # Expire success cache (1 hour) using the active TTL
+    atlas_provider._cache_timestamp -= (atlas_provider._current_ttl + 10)
+    
+    # Call 3: triggers retry
+    await atlas_provider.list_models(allow_stale=True)
+    assert atlas_provider._refresh_task is not None
 
 @pytest.mark.asyncio
-async def test_atlas_list_models_discovery_failure_fallback_behavior(mock_atlas_client, atlas_provider):
-    """Verify fallback model is used and cached briefly on discovery failure."""
+async def test_atlas_list_models_discovery_failure_retry_behavior(mock_atlas_client, atlas_provider):
+    """Verify fallback model is used and retried after _FALLBACK_CACHE_TTL."""
     mock_atlas_client.list_models.side_effect = Exception("API Down")
     
     # Call 1: triggers refresh (fails), returns fallback
-    await atlas_provider.list_models()
-    await atlas_provider._refresh_task
+    await atlas_provider.list_models(allow_stale=False)
     
     assert atlas_provider._model_cache[0]["id"] == "atlas/MiniMaxAI/MiniMax-M2"
+    assert atlas_provider._current_ttl == atlas_provider._FALLBACK_CACHE_TTL
     
     # Call 2: cache is still valid (within FALLBACK_CACHE_TTL), no new refresh
     mock_atlas_client.list_models.reset_mock()
-    await atlas_provider.list_models()
+    await atlas_provider.list_models(allow_stale=True)
     assert mock_atlas_client.list_models.call_count == 0
     
-    # Expire fallback cache (5 mins)
-    atlas_provider._cache_timestamp -= (atlas_provider._FALLBACK_CACHE_TTL + 10)
+    # Expire fallback cache (5 mins) using active TTL
+    atlas_provider._cache_timestamp -= (atlas_provider._current_ttl + 10)
     
     # Call 3: triggers retry
-    await atlas_provider.list_models()
+    await atlas_provider.list_models(allow_stale=True)
     assert atlas_provider._refresh_task is not None
 
 @pytest.mark.asyncio
 async def test_atlas_provider_close_cancels_task(mock_atlas_client, atlas_provider):
     """Verify that close() cancels a pending refresh task."""
+    # Use a future to control the execution and ensure create_task returns something manageable
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    
     async def slow_refresh():
-        await asyncio.sleep(10)
+        try:
+            await future
+        except asyncio.CancelledError:
+            raise
     
     mock_atlas_client.list_models.side_effect = slow_refresh
     
-    await atlas_provider.list_models()
+    # We need allow_stale=True to trigger the background task without awaiting it
+    await atlas_provider.list_models(allow_stale=True)
     task = atlas_provider._refresh_task
     assert task is not None
     assert not task.done()
     
     await atlas_provider.close()
     assert task.cancelled()
+    # Cleanup
+    if not future.done():
+        future.set_result(None)

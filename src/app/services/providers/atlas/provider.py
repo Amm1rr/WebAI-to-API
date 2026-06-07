@@ -82,10 +82,11 @@ class AtlasProvider(BaseProvider):
                 detail=f"Error processing Atlas chat completion: {str(e)}",
             )
 
-    async def list_models(self) -> List[dict]:
+    async def list_models(self, allow_stale: bool = False) -> List[dict]:
         """
         Return a list of supported models for Atlas Cloud.
-        Returns cached or fallback models immediately and refreshes in background.
+        Returns cached or fallback models immediately if allow_stale is True.
+        Otherwise, awaits live discovery if cache is expired.
         """
         # 1. Check configuration
         try:
@@ -93,12 +94,24 @@ class AtlasProvider(BaseProvider):
         except AtlasClientNotConfiguredError:
             return []
 
-        # 2. Trigger background refresh if needed
+        # 2. Check if cache is still valid
         now = time.time()
-        if not self._model_cache or (now - self._cache_timestamp) >= self._current_ttl:
-            self._trigger_refresh()
+        is_cache_valid = self._model_cache and (now - self._cache_timestamp) < self._current_ttl
 
-        # 3. Return cache or immediate fallback
+        # 3. Fast path: return valid cache immediately
+        if is_cache_valid:
+            return self._model_cache
+
+        # 4. If allow_stale is True, trigger background refresh and return what we have
+        if allow_stale:
+            self._trigger_refresh()
+            if self._model_cache:
+                return self._model_cache
+            return self._get_fallback_models()
+
+        # 5. Accuracy-first path: await refresh before returning
+        await self._refresh_models()
+        
         if self._model_cache:
             return self._model_cache
 
