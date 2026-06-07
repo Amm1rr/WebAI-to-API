@@ -7,17 +7,67 @@ from contextlib import suppress
 # Add src to sys.path to allow imports
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
+try:
+    from playwright.async_api import Error as PlaywrightError
+except ModuleNotFoundError as exc:
+    if exc.name == "playwright":
+        print("\n[ERROR] Playwright is not installed.\n")
+        print("This utility requires Playwright.\n")
+        print("Install dependencies with:\n")
+        print("  poetry install")
+        print("  poetry run playwright install chromium\n")
+        print("Then run:\n")
+        print("  poetry run python verify_login.py")
+        sys.exit(1)
+    raise
+except ImportError as exc:
+    if "greenlet" in str(exc).lower() or "_greenlet" in str(exc).lower():
+        print("\n[ERROR] Playwright dependency failed to load.\n")
+        print("The Python package 'greenlet' is installed but its native extension could not be loaded.\n")
+
+        if os.name == "nt":
+            print(
+                "On Windows, this is commonly caused by a missing or corrupted\n"
+                "Microsoft Visual C++ Redistributable 2015-2022 (x64).\n"
+            )
+            print("Try the following:\n")
+            print("  1. Install or repair Microsoft Visual C++ Redistributable 2015-2022 (x64)")
+            print("  2. Reopen your terminal")
+            print("  3. Reinstall Playwright dependencies:\n")
+            print("     poetry run pip install --force-reinstall greenlet playwright")
+            print("     poetry run playwright install chromium\n")
+        else:
+            print("Try reinstalling dependencies:\n")
+            print("  poetry run pip install --force-reinstall greenlet playwright")
+            print("  poetry run playwright install chromium\n")
+
+        sys.exit(1)
+
+    raise
+
 from app.services.browser.engine import get_browser_engine
 from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
-from playwright.async_api import Error as PlaywrightError
 from app.logger import logger
 
 
 async def _wait_for_stdin_enter():
     """
-    Wait for ENTER without occupying the default executor with a blocking
-    stdin read. This lets browser/page shutdown win the bootstrap wait race.
+    Wait for ENTER without blocking the event loop.
+
+    On Unix-like platforms, use add_reader().
+    On Windows, use non-blocking msvcrt polling because ProactorEventLoop
+    does not support add_reader().
     """
+    if os.name == "nt":
+        import msvcrt
+
+        while True:
+            if msvcrt.kbhit():
+                key = msvcrt.getwch()
+                if key in ("\r", "\n"):
+                    return "enter"
+            await asyncio.sleep(0.1)
+
     loop = asyncio.get_running_loop()
     done = loop.create_future()
     fd = sys.stdin.fileno()
