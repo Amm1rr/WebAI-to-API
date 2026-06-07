@@ -94,7 +94,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error closing BrowserEngine: {e}", exc_info=True)
     logger.info("Application shutdown complete.")
 
-app = FastAPI(lifespan=lifespan)
+# Define explicit OpenAPI tag ordering
+OPENAPI_TAGS = [
+    {"name": "Chat"},
+    {"name": "Translation"},
+    {"name": "Authentication"},
+    {"name": "Compatibility"},
+    {"name": "Utilities"},
+    {"name": "Legacy"},
+    {"name": "System"},
+]
+
+app = FastAPI(lifespan=lifespan, openapi_tags=OPENAPI_TAGS)
 
 app.mount(
     "/ui/static",
