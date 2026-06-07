@@ -38,74 +38,72 @@ Provides access to cloud-hosted AI models through a native API integration power
 
 ---
 
-## Installation
+## Quick Start
 
-### Prerequisites
-
+### 1. Install Dependencies
 ```bash
 poetry install
-```
-
-If you plan to use the Playwright backend:
-
-```bash
 poetry run playwright install chromium
 ```
 
-### Configuration
-
+### 2. Configuration
 ```bash
 cp config.conf.example config.conf
 ```
 
-Edit `config.conf` to match your environment.
+### 3. Authenticate
+```bash
+python verify_login.py
+```
 
-### Authentication
-
-Gemini requires an authenticated Google session. Choose the authentication method that best matches your deployment.
-
-#### Which Authentication Method Should I Use?
-
-| Method | Recommended For |
-|----------|----------|
-| Manual Cookies | Quick testing and WebAPI-only usage |
-| Browser Login (`verify_login.py`) | Playwright backend, Docker deployments, and long-term usage |
-
-#### 1. Manual Cookies (Gemini WebAPI)
-Fastest setup for lightweight use.
-1. Sign in to [Gemini](https://gemini.google.com/).
-2. Press **F12** to open Developer Tools.
-3. Go to the **Network** tab and refresh the page.
-4. Select any request to **gemini.google.com** and copy the values for `__Secure-1PSID` and `__Secure-1PSIDTS` from the **Cookies** or **Headers** tab.
-5. Paste both values into the `[Gemini]` section of `config.conf`.
-
-#### 2. Browser Login (Playwright)
-Recommended for robustness and Docker deployments.
-
-> [!IMPORTANT]
-> `verify_login.py` requires a graphical desktop environment. Run it on your local machine, not inside a headless Docker container or a remote SSH session without GUI access.
-
-1. Run the interactive login helper:
-   ```bash
-   poetry run python verify_login.py
-   ```
-2. Complete the sign-in process in the browser window that opens.
-3. This creates `runtime/auth/gemini.json`, which is automatically used by the Playwright backend and can also be used by the WebAPI backend when cookie configuration is not provided.
-
-## Quick Start
-
-### 1. Start the Server
-
+### 4. Start the Server
 ```bash
 poetry run python src/run.py
 ```
 
 > [!TIP]
-> If authentication is configured correctly, the startup banner will be displayed and the server will listen on port 6969.
+> New users can run `make setup` and `make doctor` for automated setup and diagnostics. See [Convenience Shortcuts](#optional-convenience-shortcuts) below.
 
-### 2. Open Dashboard (`http://localhost:6969/ui`)
+---
 
-### 3. Send Your First Request
+## Optional: Convenience Shortcuts
+
+WebAI-to-API includes a bootstrap utility and a Makefile for common setup tasks.
+
+| Command | Description |
+|---------|-------------|
+| `make setup` | One-step install, directory creation, and config setup. |
+| `make doctor` | Run environment and dependency diagnostics. |
+
+*Alternative (no Make): `python scripts/bootstrap.py` and `python scripts/doctor.py`*
+
+---
+
+## Authentication
+
+Gemini requires an authenticated Google session.
+
+| Method | Recommended For |
+|----------|----------|
+| **Browser Login (`verify_login.py`)** | **Recommended.** Playwright backend, Docker, and long-term usage. |
+| Manual Cookies | Quick testing and WebAPI-only usage. |
+
+### 1. Browser Login (Recommended)
+1. Run the interactive login helper:
+   ```bash
+   python verify_login.py
+   ```
+2. Complete the sign-in process in the browser window.
+3. This creates `runtime/auth/gemini.json`, used by both backends.
+
+### 2. Manual Cookies
+1. Sign in to [Gemini](https://gemini.google.com/).
+2. Copy `__Secure-1PSID` and `__Secure-1PSIDTS` from your browser cookies.
+3. Paste them into the `[Gemini]` section of `config.conf`.
+
+---
+
+## Send Your First Request
 
 ```bash
 curl -X POST http://localhost:6969/v1/chat/completions \
@@ -121,7 +119,9 @@ curl -X POST http://localhost:6969/v1/chat/completions \
   }'
 ```
 
-### Dashboard
+---
+
+## Dashboard
 
 Open the dashboard at `http://localhost:6969/ui`.
 
