@@ -1,8 +1,16 @@
 # Makefile
 
 # Load .env file if it exists
-include .env
+-include .env
+ifneq ("$(wildcard .env)","")
 export $(shell sed 's/=.*//' .env)
+endif
+
+setup:
+	python scripts/bootstrap.py
+
+doctor:
+	python scripts/doctor.py
 
 build:
 	docker build -t cornatul/webai.ai:latest .
