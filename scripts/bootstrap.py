@@ -20,6 +20,8 @@ REQUIRED_PYTHON_VERSION = (3, 10)
 MAX_PYTHON_VERSION = (3, 13)
 CONFIG_FILE = "config.conf"
 CONFIG_EXAMPLE = "config.conf.example"
+ENV_FILE = ".env"
+ENV_EXAMPLE = ".env.example"
 RUNTIME_DIRS = [
     "runtime",
     "runtime/auth",
@@ -65,6 +67,7 @@ def setup_directories(check_mode=False):
             print_step(f"Directory already exists: {dir_path}")
 
 def setup_config(check_mode=False):
+    # Handle config.conf
     if not os.path.exists(CONFIG_FILE):
         if not os.path.exists(CONFIG_EXAMPLE):
             print_error(f"Missing example config: {CONFIG_EXAMPLE}")
@@ -77,6 +80,20 @@ def setup_config(check_mode=False):
             print_step(f"Created {CONFIG_FILE} from {CONFIG_EXAMPLE}")
     else:
         print_step(f"{CONFIG_FILE} already exists. Skipping.")
+
+    # Handle .env
+    if not os.path.exists(ENV_FILE):
+        if not os.path.exists(ENV_EXAMPLE):
+            print_step(f"Optional: {ENV_EXAMPLE} not found. Skipping .env creation.")
+        else:
+            if check_mode:
+                print_step(f"[DRY-RUN] Would create {ENV_FILE} from {ENV_EXAMPLE}")
+            else:
+                shutil.copyfile(ENV_EXAMPLE, ENV_FILE)
+                print_step(f"Created {ENV_FILE} from {ENV_EXAMPLE}")
+    else:
+        print_step(f"{ENV_FILE} already exists. Skipping.")
+
     return True
 
 def run_install(check_mode=False):

@@ -16,4 +16,5 @@ services:
       - PYTHONPATH=/app/src
       - PLAYWRIGHT_HEADLESS=true
     volumes:
+      - ./config.conf:/app/config.conf:ro
       - ./runtime:/app/runtime

@@ -46,7 +46,7 @@ The service is defined in `docker-compose.yml` for production execution:
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
 - **Port Exposure**: Maps host port `6969` to container port `6969`.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
-- **Persistent Runtime State**: Mounts `./runtime` into the container to preserve browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.
+- **Persistent Runtime State**: Mounts `./config.conf` (read-only) and `./runtime` into the container to preserve application settings, browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.
 
 ### 3.2 Runtime Topology
 
@@ -64,10 +64,17 @@ Browser session data is persisted through mounted volumes, ensuring it survives 
 
 ### 4.1 Ephemeral vs. Persistent Boundaries
 - **Ephemeral assets**: Source files, dependencies, and internal Playwright page caches are stored in transient container layers and discarded on container rebuilds.
-- **Persistent runtime files**: User-visible session profiles, cookies (`runtime/auth/gemini.json`), SQLite conversation snapshots, and runtime-generated cache are persisted. Application logs are streamed to stdout/stderr for ingestion by the container engine.
+- **Persistent runtime files**:
+  - **`config.conf`**: Application settings (mounted read-only).
+  - **`runtime/auth/gemini.json`**: Cookies and session state.
+  - **`runtime/conversations/`**: SQLite conversation snapshots.
+  - **`runtime/cache/`**: Runtime-generated cache.
+  - **Logs**: Application logs are streamed to stdout/stderr.
 
 ### 4.2 Storage Mounts
-- **Bind mount configuration**: Maps the local host path `./runtime` to `/app/runtime` inside the container.
+- **Bind mount configuration**:
+  - Maps the local host file `./config.conf` to `/app/config.conf` (read-only).
+  - Maps the local host path `./runtime` to `/app/runtime`.
 - **Volume persistence**: Runtime-generated state files are written within the mounted volume, surviving container recreation.
 
 ---
