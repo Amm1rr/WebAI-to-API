@@ -19,9 +19,11 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    async def list_models(self) -> List[dict]:
+    async def list_models(self, allow_stale: bool = False) -> List[dict]:
         """
         Return a list of supported models for this provider in OpenAI format.
+        If allow_stale is True, the provider may return cached data immediately
+        and refresh in the background.
         """
         pass
 

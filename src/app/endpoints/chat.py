@@ -111,7 +111,7 @@ async def temporary_chat_completions(request: OpenAIChatRequest):
     description="Returns available models from all registered providers. Includes provider-prefixed models used for discovery and routing."
 )
 async def get_models():
-    return await build_model_catalog(include_legacy_playwright_aliases=False)
+    return await build_model_catalog(include_legacy_playwright_aliases=False, allow_stale=False)
 
 
 @router.post(

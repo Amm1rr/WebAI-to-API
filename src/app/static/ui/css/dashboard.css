@@ -81,6 +81,13 @@ select:focus-visible {
   margin-bottom: 20px;
 }
 
+.page-description {
+  margin-top: 8px;
+  max-width: 600px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--accent);

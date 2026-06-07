@@ -122,7 +122,7 @@ class GeminiProvider(BaseProvider):
     async def list_conversations(self) -> dict:
         return await self.webapi_adapter.list_conversations()
 
-    async def list_models(self) -> List[dict]:
+    async def list_models(self, allow_stale: bool = False) -> List[dict]:
         from app.services.providers.gemini.shared import get_gemini_models
         return get_gemini_models()
 

@@ -17,17 +17,19 @@ def filter_advertised_model_catalog(models: list[dict[str, object]]) -> list[dic
     return [model for model in models if not is_legacy_playwright_gemini_alias(str(model.get("id", "")))]
 
 
-async def list_models(*, include_legacy_playwright_aliases: bool = True) -> dict[str, object]:
+async def list_models(*, include_legacy_playwright_aliases: bool = True, allow_stale: bool = False) -> dict[str, object]:
     """Build the shared model catalog.
 
     UI callers keep legacy aliases for backward-compatible selection.
     The public /v1/models route disables them to advertise only canonical IDs.
+    
+    If allow_stale is True, providers may return cached data immediately.
     """
     all_models = []
     for provider_key in ProviderFactory._registry.keys():
         dummy_request = OpenAIChatRequest(messages=[], provider=provider_key)
         provider, _ = ProviderFactory.get_provider(dummy_request)
-        all_models.extend(await provider.list_models())
+        all_models.extend(await provider.list_models(allow_stale=allow_stale))
 
     if not include_legacy_playwright_aliases:
         all_models = filter_advertised_model_catalog(all_models)

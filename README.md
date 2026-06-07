@@ -180,7 +180,7 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 |---------|---------|
 | `gemini-3-flash` | Gemini (default configured backend) |
 | `playwright/gemini-3-flash` | Gemini Playwright |
-| `atlas/MiniMax-M2` | Atlas Cloud |
+| `atlas/<model-id>` | Atlas Cloud via OpenAI-compatible API, with 50 validated chat models exposed in `/v1/models` |
 
 > [!TIP]
 > Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`. Use `playwright/...` model prefixes to force the Playwright backend explicitly.

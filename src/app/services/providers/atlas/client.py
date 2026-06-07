@@ -17,7 +17,8 @@ class AtlasClientError(Exception):
 class AtlasClient:
     def __init__(self, api_key: str, base_url: str):
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        # Ensure base_url ends with a slash for httpx relative path resolution
+        self.base_url = base_url.rstrip("/") + "/"
 
     async def chat_completions(
         self,
@@ -63,6 +64,33 @@ class AtlasClient:
         # Attach client to response so it can be closed after streaming
         response._atlas_client = client  # type: ignore[attr-defined]
         return response
+
+    async def list_models(self) -> list[dict[str, Any]]:
+        """Fetch the live model list from Atlas Cloud."""
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=timeout,
+        ) as client:
+            response = await client.get("models")
+            if response.is_error:
+                detail_text = response.text
+                logger.error("Atlas Cloud model discovery failed: %s", detail_text)
+                raise AtlasClientError(
+                    f"Atlas Cloud API returned {response.status_code} for /models: {detail_text}"
+                )
+            
+            data = response.json()
+            # Atlas returns { "code": 200, "msg": "succeed", "data": [...] }
+            if isinstance(data, dict) and isinstance(data.get("data"), list):
+                return data["data"]
+            
+            logger.error("Atlas Cloud model discovery returned invalid format: %s", data)
+            raise AtlasClientError("Atlas Cloud API returned invalid model list format")
 
 
 def get_atlas_client() -> AtlasClient:

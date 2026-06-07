@@ -347,8 +347,9 @@ async def test_ui_auth_panel_renders_status_classes(mocker):
 
 @pytest.mark.asyncio
 async def test_ui_models_returns_html(mocker):
-    async def list_models(include_legacy_playwright_aliases=True):
+    async def list_models(include_legacy_playwright_aliases=True, allow_stale=False):
         assert include_legacy_playwright_aliases is False
+        assert allow_stale is True
         return {
             "object": "list",
             "data": [
@@ -386,13 +387,14 @@ async def test_ui_models_returns_html(mocker):
     assert "Playwright" in response.text
     assert "Atlas" in response.text
     list_models.assert_called_once()
-    list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
+    list_models.assert_called_once_with(include_legacy_playwright_aliases=False, allow_stale=True)
 
 
 @pytest.mark.asyncio
 async def test_ui_playground_returns_html_and_populates_models(mocker):
-    async def list_models(include_legacy_playwright_aliases=True):
+    async def list_models(include_legacy_playwright_aliases=True, allow_stale=False):
         assert include_legacy_playwright_aliases is False
+        assert allow_stale is True
         return {
             "object": "list",
             "data": [
@@ -428,6 +430,7 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "playwright/gemini-3.5-flash" not in response.text
     assert "/ui/static/js/playground.js?v=" in response.text
     assert 'fetch("/v1/chat/completions"' not in response.text
+    list_models.assert_called_once_with(include_legacy_playwright_aliases=False, allow_stale=True)
     assert 'class="playground-stack"' in response.text
     assert "<details class=\"panel playground-files\">" in response.text
     assert "<summary class=\"playground-files-summary\">" in response.text
@@ -448,7 +451,6 @@ async def test_ui_playground_returns_html_and_populates_models(mocker):
     assert "Exact text/file interleaving is not preserved by Gemini WebAPI." in response.text
     assert "40 MiB total raw size" in response.text
     list_models.assert_called_once()
-    list_models.assert_called_once_with(include_legacy_playwright_aliases=False)
 
 
 def test_ui_static_mount_uses_staticfiles():
