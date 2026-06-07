@@ -136,8 +136,17 @@ class GeminiAuthStateLoader:
             return None, False
 
         gemini_config = dict(CONFIG["Gemini"])
-        psid_val = cls._normalize_config_value(gemini_config.get("__Secure-1PSID"))
-        psidts_val = cls._normalize_config_value(gemini_config.get("__Secure-1PSIDTS"))
+        # Support both canonical and common alias names in the [Gemini] section
+        psid_val = (
+            cls._normalize_config_value(gemini_config.get("__Secure-1PSID")) or
+            cls._normalize_config_value(gemini_config.get("gemini_cookie_1psid")) or
+            cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSID"))
+        )
+        psidts_val = (
+            cls._normalize_config_value(gemini_config.get("__Secure-1PSIDTS")) or
+            cls._normalize_config_value(gemini_config.get("gemini_cookie_1psidts")) or
+            cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSIDTS"))
+        )
 
         # Source is usable ONLY when BOTH cookies are present and non-empty
         if psid_val and psidts_val:

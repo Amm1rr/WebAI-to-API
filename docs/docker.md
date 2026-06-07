@@ -79,22 +79,20 @@ Authentication must be generated on the host machine.
 
 ### Generate Authentication
 
-Install dependencies:
+Install dependencies and prepare the environment:
 
 ```bash
 poetry install
-```
-
-Install Playwright browser binaries:
-
-```bash
 poetry run playwright install chromium
+cp config.conf.example config.conf
 ```
+
+*Note: You can also use `make setup` as a shortcut.*
 
 Run the authentication workflow:
 
 ```bash
-poetry run python verify_login.py
+python verify_login.py
 ```
 
 A browser window will open.
