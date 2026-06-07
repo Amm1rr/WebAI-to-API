@@ -4,6 +4,7 @@ import socket
 import json
 import configparser
 import subprocess
+import shutil
 from pathlib import Path
 
 # Import platform utils
@@ -47,6 +48,24 @@ def check_config():
     except Exception as e:
         print_status("Configuration", "FAIL", f"Error reading config.conf: {e}", Colors.FAIL)
         return False, None
+
+def check_poetry():
+    poetry_path = shutil.which("poetry")
+    if not poetry_path:
+        print_status("Poetry", "FAIL", "Poetry not found in PATH. Install Poetry: https://python-poetry.org/docs/#installation", Colors.FAIL)
+        return False
+    
+    try:
+        res = subprocess.run(["poetry", "--version"], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            version = res.stdout.strip()
+            print_status("Poetry", "PASS", version)
+        else:
+            print_status("Poetry", "PASS", "Installed")
+    except Exception:
+        print_status("Poetry", "PASS", "Installed")
+    
+    return True
 
 def check_runtime_dirs():
     dirs = ["runtime", "runtime/auth", "runtime/cache", "runtime/conversations"]
@@ -224,12 +243,15 @@ def main():
     config_ok, config = check_config()
     if not config_ok: has_fail = True
 
+    poetry_ok = check_poetry()
+    if not poetry_ok: has_fail = True
+
     if not check_runtime_dirs(): has_fail = True
     
     is_arch_based = check_platform()
 
-    # Only check playwright if we have config
-    if config_ok:
+    # Only check playwright if we have config and poetry
+    if config_ok and poetry_ok:
         if not check_playwright(is_arch_based): has_fail = True
         if not check_auth_material(config): has_fail = True
 
