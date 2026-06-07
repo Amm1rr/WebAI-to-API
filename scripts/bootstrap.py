@@ -5,6 +5,16 @@ import subprocess
 import argparse
 from pathlib import Path
 
+# Import platform utils
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+try:
+    from platform_utils import get_linux_distro
+except ImportError:
+    def get_linux_distro():
+        return None, "Unknown", False
+
 # Constants
 REQUIRED_PYTHON_VERSION = (3, 10)
 MAX_PYTHON_VERSION = (3, 13)
@@ -89,6 +99,17 @@ def run_install(check_mode=False):
     except subprocess.CalledProcessError as e:
         print_error(f"Playwright install failed with exit code {e.returncode}")
         return False
+
+    # PR #2: Linux distribution detection and Arch-based note
+    _, pretty_name, is_arch_based = get_linux_distro()
+    if is_arch_based:
+        print("\n" + "-" * 40)
+        print(f"NOTE: Arch-based Linux detected ({pretty_name}).")
+        print("\nPlaywright does not officially support Arch Linux distributions.")
+        print("Using Ubuntu fallback Chromium builds is expected.")
+        print("\nIf browser startup fails later, install the required system libraries using pacman.")
+        print("See the Playwright Linux dependency documentation for details.")
+        print("-" * 40)
 
     return True
 

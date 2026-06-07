@@ -6,6 +6,16 @@ import configparser
 import subprocess
 from pathlib import Path
 
+# Import platform utils
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+try:
+    from platform_utils import get_linux_distro
+except ImportError:
+    def get_linux_distro():
+        return None, sys.platform, False
+
 # Colors
 class Colors:
     HEADER = '\033[95m'
@@ -18,7 +28,10 @@ class Colors:
     BOLD = '\033[1m'
 
 def print_status(label, status, message="", color=Colors.ENDC):
-    print(f"{Colors.BOLD}{label:<20}{Colors.ENDC} [{color}{status:<7}{Colors.ENDC}] {message}")
+    lines = message.split("\n")
+    print(f"{Colors.BOLD}{label:<20}{Colors.ENDC} [{color}{status:<7}{Colors.ENDC}] {lines[0]}")
+    for line in lines[1:]:
+        print(f"{' ':<20}           {line}")
 
 def check_config():
     if not os.path.exists("config.conf"):
@@ -46,7 +59,14 @@ def check_runtime_dirs():
         print_status("Directories", "FAIL", f"Missing: {', '.join(missing)}", Colors.FAIL)
         return False
 
-def check_playwright():
+def check_platform():
+    _, pretty_name, is_arch_based = get_linux_distro()
+    
+    suffix = " (Arch-based)" if is_arch_based else ""
+    print_status("Platform", "INFO", f"{pretty_name}{suffix}")
+    return is_arch_based
+
+def check_playwright(is_arch_based=False):
     # Check if playwright package is installed via poetry
     try:
         res = subprocess.run(["poetry", "run", "python", "-c", "import playwright; print('ok')"], 
@@ -86,11 +106,21 @@ def check_playwright():
             print_status("Chromium Bin", "FAIL", "Chromium binaries missing. Run: poetry run playwright install chromium", Colors.FAIL)
             return False
         else:
-            # If we got an error or unexpected output, we can't be 100% sure
-            print_status("Chromium Bin", "WARN", "Unable to determine Chromium status reliably. Run: poetry run playwright install chromium", Colors.WARNING)
+            # PR #2: Arch-aware Chromium diagnostics
+            if is_arch_based:
+                msg = (
+                    "Unable to verify Chromium installation on an Arch-based system.\n"
+                    "Playwright fallback browser builds are expected on this platform.\n"
+                    "If browser startup fails later, review Playwright Linux dependency requirements."
+                )
+            else:
+                msg = "Unable to determine Chromium status reliably. Run: poetry run playwright install chromium"
+            
+            print_status("Chromium Bin", "WARN", msg, Colors.WARNING)
             return True  # WARN doesn't fail the whole doctor run
     except Exception as e:
-        print_status("Chromium Bin", "WARN", f"Check failed: {e}. Run: poetry run playwright install chromium", Colors.WARNING)
+        msg = f"Check failed: {e}. Run: poetry run playwright install chromium"
+        print_status("Chromium Bin", "WARN", msg, Colors.WARNING)
         return True
 
 def check_auth_material(config):
@@ -196,9 +226,11 @@ def main():
 
     if not check_runtime_dirs(): has_fail = True
     
+    is_arch_based = check_platform()
+
     # Only check playwright if we have config
     if config_ok:
-        if not check_playwright(): has_fail = True
+        if not check_playwright(is_arch_based): has_fail = True
         if not check_auth_material(config): has_fail = True
 
     if not check_port(): has_fail = True
