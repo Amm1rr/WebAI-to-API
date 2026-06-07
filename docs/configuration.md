@@ -129,6 +129,16 @@ http_proxy =
 | `backend`       | Execution backend (`webapi` or `playwright`) |
 | `default_model` | Default Gemini model                         |
 
+### Atlas Cloud
+
+| Option     | Description                  |
+| ---------- | ---------------------------- |
+| `api_key`  | Atlas Cloud API key          |
+| `base_url` | Atlas Cloud API base address |
+
+> [!NOTE]
+> Atlas models are only advertised when Atlas is configured with a valid API key. If Atlas is not configured, Atlas models will not appear in the model catalog or dashboard UI.
+
 ### Browser
 
 | Option | Description                       |
