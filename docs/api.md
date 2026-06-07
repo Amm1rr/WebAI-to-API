@@ -107,6 +107,9 @@ Returns the list of models exposed by registered providers.
 
 The returned model list is registry-driven at runtime. Each registered provider contributes its available model IDs to this endpoint. Browser-native provider-aware namespaces may be used by registered browser providers, such as `playwright/<provider>/<model>`.
 
+> [!NOTE]
+> Atlas models are only advertised when Atlas is configured with a valid API key. If Atlas is not configured, Atlas models will not appear in the model catalog.
+
 Legacy Gemini browser-native routing remains supported for backward compatibility using `playwright/<gemini-model>`.
 
 ---
