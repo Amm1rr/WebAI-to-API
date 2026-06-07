@@ -1,5 +1,4 @@
-import os
-import httpx
+import time
 from typing import Any, List
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,6 +13,12 @@ class AtlasProvider(BaseProvider):
     HTTP-native provider for Atlas Cloud.
     Stateless and leverages direct streaming.
     """
+    
+    def __init__(self):
+        self._model_cache: List[dict] = []
+        self._cache_timestamp: float = 0
+        self._CACHE_TTL: int = 3600  # 1 hour for success
+        self._FALLBACK_CACHE_TTL: int = 300  # 5 minutes for failure
 
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
         # Atlas logic currently splitting model name occurs in Factory, 
@@ -68,23 +73,75 @@ class AtlasProvider(BaseProvider):
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error in AtlasProvider.chat_completions: {e}", exc_info=True)
+            logger.error("Error in AtlasProvider.chat_completions: %s", e, exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"Error processing Atlas chat completion: {str(e)}",
             )
 
     async def list_models(self) -> List[dict]:
-        import time
-        ts = int(time.time())
-        return [
+        """
+        Return a list of supported models for Atlas Cloud.
+        Attempts dynamic discovery with a resilient fallback.
+        """
+        # 1. Check configuration
+        try:
+            atlas_client = get_atlas_client()
+        except AtlasClientNotConfiguredError:
+            # If not configured, we return an empty list to avoid advertising non-actionable models.
+            return []
+
+        # 2. Check Cache
+        now = time.time()
+        if self._model_cache and (now - self._cache_timestamp) < self._CACHE_TTL:
+            return self._model_cache
+
+        # 3. Dynamic Discovery
+        fallback_id = "atlas/MiniMaxAI/MiniMax-M2"
+        ts = int(now)
+        
+        try:
+            raw_models = await atlas_client.list_models()
+            normalized_models = []
+            
+            for m in raw_models:
+                original_id = m.get("id")
+                if not original_id:
+                    continue
+                
+                # Normalize ID: prefix with atlas/ if not already present
+                model_id = original_id if original_id.startswith("atlas/") else f"atlas/{original_id}"
+                
+                normalized_models.append({
+                    "id": model_id,
+                    "object": "model",
+                    "created": m.get("created", ts),
+                    "owned_by": "atlascloud",
+                })
+            
+            if normalized_models:
+                self._model_cache = normalized_models
+                self._cache_timestamp = now
+                return normalized_models
+            
+            logger.warning("Atlas discovery returned empty list, using fallback.")
+
+        except Exception as e:
+            logger.warning("Atlas dynamic model discovery failed: %s. Using fallback.", e)
+
+        # 4. Fallback (Cached briefly to avoid repeated failures while allowing recovery)
+        fallback_models = [
             {
-                "id": "atlas/MiniMaxAI/MiniMax-M2",
+                "id": fallback_id,
                 "object": "model",
                 "created": ts,
                 "owned_by": "atlascloud",
             }
         ]
+        self._model_cache = fallback_models
+        # Set timestamp such that it expires in _FALLBACK_CACHE_TTL
+        self._cache_timestamp = now - (self._CACHE_TTL - self._FALLBACK_CACHE_TTL)
+        return fallback_models
 
     async def close(self) -> None:
         # Atlas client handles its own httpx client lifecycle per request currently.
