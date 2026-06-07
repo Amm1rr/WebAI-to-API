@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import unittest
 import tempfile
+import json
 from pathlib import Path
 
 class TestBootstrapDoctor(unittest.TestCase):
@@ -107,11 +108,53 @@ class TestBootstrapDoctor(unittest.TestCase):
             text=True
         )
         
-        # It might still FAIL on Playwright (since we are in a temp dir without poetry env locally),
-        # but it should PASS on Config and Directories.
+        # It should PASS on Config and Directories.
         self.assertIn("Configuration", res.stdout)
         self.assertIn("Directories", res.stdout)
         self.assertIn("PASS", res.stdout)
+
+    def test_doctor_auth_scenarios(self):
+        # Run bootstrap to get dirs
+        subprocess.run(["python", self.bootstrap_path, "--no-install"], cwd=self.test_dir, capture_output=True)
+        config_path = os.path.join(self.test_dir, "config.conf")
+        auth_json_path = os.path.join(self.test_dir, "runtime", "auth", "gemini.json")
+
+        # Scenario A: [Gemini] section with canonical keys
+        with open(config_path, 'w') as f:
+            f.write("[Gemini]\n__Secure-1PSID = psid_val\n__Secure-1PSIDTS = ts_val\n")
+        res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
+        self.assertIn("PASS", res.stdout)
+        self.assertIn("Gemini cookies found in [Gemini] configuration", res.stdout)
+
+        # Scenario B: [Gemini] section with supported alias keys
+        with open(config_path, 'w') as f:
+            f.write("[Gemini]\ngemini_cookie_1psid = psid_val\ngemini_cookie_1psidts = ts_val\n")
+        res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
+        self.assertIn("PASS", res.stdout)
+        self.assertIn("Gemini cookies found in [Gemini] configuration", res.stdout)
+
+        # Scenario C: Legacy [Cookies] section
+        with open(config_path, 'w') as f:
+            f.write("[Cookies]\ngemini_cookie_1psid = psid_val\ngemini_cookie_1psidts = ts_val\n")
+        res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
+        self.assertIn("WARN", res.stdout)
+        self.assertIn("Using legacy [Cookies] configuration (supported but deprecated)", res.stdout)
+
+        # Scenario D: JSON-only auth
+        with open(config_path, 'w') as f:
+            f.write("[Gemini]\n") # No cookies
+        os.makedirs(os.path.dirname(auth_json_path), exist_ok=True)
+        with open(auth_json_path, 'w') as f:
+            json.dump({"cookies": [{"name": "__Secure-1PSID", "value": "val"}]}, f)
+        res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
+        self.assertIn("WARN", res.stdout)
+        self.assertIn("No Gemini cookies configured; runtime/auth/gemini.json will be used", res.stdout)
+
+        # Scenario E: No auth
+        if os.path.exists(auth_json_path): os.remove(auth_json_path)
+        res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
+        self.assertIn("WARN", res.stdout)
+        self.assertIn("No Gemini auth material found", res.stdout)
 
 if __name__ == "__main__":
     unittest.main()

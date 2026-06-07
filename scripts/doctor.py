@@ -27,6 +27,7 @@ def check_config():
     
     try:
         config = configparser.ConfigParser()
+        config.optionxform = str  # Preserve case for cookie names
         config.read("config.conf", encoding="utf-8")
         print_status("Configuration", "PASS", "config.conf found")
         return True, config
@@ -95,37 +96,70 @@ def check_playwright():
 def check_auth_material(config):
     has_fail = False
     
-    # Check config cookies
-    psid = config.get("Gemini", "__Secure-1PSID", fallback="")
-    psidts = config.get("Gemini", "__Secure-1PSIDTS", fallback="")
+    # Priority 1: [Gemini] section (current supported format)
+    # Both canonical and common alias names are accepted in the [Gemini] section
+    psid = (
+        config.get("Gemini", "__Secure-1PSID", fallback="") or 
+        config.get("Gemini", "gemini_cookie_1psid", fallback="") or 
+        config.get("Gemini", "gemini_cookie_1PSID", fallback="")
+    )
+    psidts = (
+        config.get("Gemini", "__Secure-1PSIDTS", fallback="") or 
+        config.get("Gemini", "gemini_cookie_1psidts", fallback="") or 
+        config.get("Gemini", "gemini_cookie_1PSIDTS", fallback="")
+    )
     
-    if psid and psidts:
-        print_status("Auth (Config)", "PASS", "Gemini cookies found in config.conf")
-    else:
-        # Check legacy section
-        psid_l = config.get("Cookies", "gemini_cookie_1psid", fallback="")
-        psidts_l = config.get("Cookies", "gemini_cookie_1psidts", fallback="")
-        if psid_l and psidts_l:
-            print_status("Auth (Config)", "WARN", "Using legacy [Cookies] section. Please migrate to [Gemini].", Colors.WARNING)
-        else:
-            print_status("Auth (Config)", "WARN", "No Gemini cookies in config.conf", Colors.WARNING)
+    # Priority 2: Legacy [Cookies] section (compatibility)
+    # The runtime supports several keys in [Cookies]
+    psid_l = (
+        config.get("Cookies", "gemini_cookie_1psid", fallback="") or 
+        config.get("Cookies", "gemini_cookie_1PSID", fallback="") or 
+        config.get("Cookies", "__Secure-1PSID", fallback="")
+    )
+    psidts_l = (
+        config.get("Cookies", "gemini_cookie_1psidts", fallback="") or 
+        config.get("Cookies", "gemini_cookie_1PSIDTS", fallback="") or 
+        config.get("Cookies", "__Secure-1PSIDTS", fallback="")
+    )
 
-    # Check runtime/auth/gemini.json
+    # Priority 3: runtime/auth/gemini.json
     json_path = "runtime/auth/gemini.json"
+    json_exists = False
     if os.path.exists(json_path):
         try:
             with open(json_path, 'r') as f:
                 data = json.load(f)
                 if isinstance(data, dict) and "cookies" in data:
-                    print_status("Auth (JSON)", "PASS", "runtime/auth/gemini.json exists and is valid")
+                    json_exists = True
+        except Exception:
+            pass
+
+    if psid and psidts:
+        print_status("Auth (Config)", "PASS", "Gemini cookies found in [Gemini] configuration")
+    elif psid_l and psidts_l:
+        print_status("Auth (Config)", "WARN", "Using legacy [Cookies] configuration (supported but deprecated)", Colors.WARNING)
+    elif json_exists:
+        print_status("Auth (Config)", "WARN", "No Gemini cookies configured; runtime/auth/gemini.json will be used", Colors.WARNING)
+    else:
+        print_status("Auth (Config)", "WARN", "No Gemini auth material found (cookies or JSON state)", Colors.WARNING)
+
+    # Detailed Auth (JSON) check
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "cookies" in data:
+                    print_status("Auth (JSON)", "PASS", f"{json_path} exists and is valid")
                 else:
-                    print_status("Auth (JSON)", "FAIL", "runtime/auth/gemini.json is invalid format", Colors.FAIL)
+                    print_status("Auth (JSON)", "FAIL", f"{json_path} is invalid format", Colors.FAIL)
                     has_fail = True
         except Exception as e:
-            print_status("Auth (JSON)", "FAIL", f"Error reading gemini.json: {e}", Colors.FAIL)
+            print_status("Auth (JSON)", "FAIL", f"Error reading {json_path}: {e}", Colors.FAIL)
             has_fail = True
     else:
-        print_status("Auth (JSON)", "WARN", "runtime/auth/gemini.json missing. Run: python verify_login.py", Colors.WARNING)
+        # If no JSON and no config, this is where we'd advise verify_login
+        if not (psid and psidts) and not (psid_l and psidts_l):
+            print_status("Auth (JSON)", "WARN", f"{json_path} missing. Run: python verify_login.py", Colors.WARNING)
 
     return not has_fail
 
