@@ -150,7 +150,7 @@ It supports streaming, non-streaming, multimodal file inputs, and artifact outpu
 
 The `/translate` endpoint is maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It/) browser extension.
 
-It uses Gemini temporary requests and a shared in-memory session. See `docs/api.md` for additional details.
+It uses Gemini temporary requests and a shared in-memory session. See [docs/api.md](docs/api.md) for additional details.
 
 ### File Support
 
@@ -180,7 +180,7 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 |---------|---------|
 | `gemini-3-flash` | Gemini (default configured backend) |
 | `playwright/gemini-3-flash` | Gemini Playwright |
-| `atlas/...` | Atlas Cloud |
+| `atlas/MiniMax-M2` | Atlas Cloud |
 
 > [!TIP]
 > Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`. Use `playwright/...` model prefixes to force the Playwright backend explicitly.
