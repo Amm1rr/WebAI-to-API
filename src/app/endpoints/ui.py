@@ -5,6 +5,7 @@ from re import escape as re_escape
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.routing import APIRoute
 
 from app.endpoints.auth import get_auth_status
 from app.services.model_catalog import list_models
@@ -12,6 +13,59 @@ from app.endpoints.chat import delete_conversation as delete_conversation_api
 from app.endpoints.chat import delete_conversations as delete_conversations_api
 from app.endpoints.chat import list_conversations
 from app.endpoints.system import runtime_status
+
+CATEGORY_MAPPING = {
+    "Chat": "Recommended",
+    "Authentication": "Recommended",
+    "Compatibility": "Compatibility",
+    "Translation": "Compatibility",
+    "System": "Advanced",
+    "Utilities": "Advanced",
+    "Legacy": "Legacy",
+}
+
+FEATURE_REGISTRY = {
+    "/v1/chat/completions": {
+        "streaming": True,
+        "persistence": "provider-dependent",
+    },
+    "/v1/temporary/chat/completions": {
+        "streaming": True,
+        "persistence": "none",
+    },
+    "/v1beta/models/{model_path:path}": {
+        "streaming": True,
+    },
+    "/v1/models": {
+        "streaming": False,
+    },
+    "/v1/conversations": {
+        "streaming": False,
+        "persistence": "sqlite",
+    },
+    "/v1/conversations/{conversation_id}": {
+        "streaming": False,
+        "persistence": "sqlite",
+    },
+    "/v1/auth/status": {
+        "streaming": False,
+    },
+    "/v1/auth/login": {
+        "streaming": False,
+    },
+    "/gemini": {
+        "streaming": True,
+        "persistence": "none",
+    },
+    "/gemini-chat": {
+        "streaming": True,
+        "persistence": "memory",
+    },
+    "/translate": {
+        "streaming": False,
+        "persistence": "shared-memory",
+    },
+}
 
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -227,6 +281,65 @@ async def dashboard_index(request: Request):
         request,
         "ui/index.html",
         _template_context(request, active_page="overview"),
+    )
+
+
+@router.get("/apis", response_class=HTMLResponse)
+async def dashboard_apis(request: Request):
+    # Discovery logic
+    discovered_apis = []
+    routes = request.app.routes
+    for route in routes:
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+
+        # Extract metadata
+        path = route.path
+        # Deterministic method ordering
+        methods = sorted(list(route.methods))
+        summary = getattr(route, "summary", None) or "n/a"
+        description = getattr(route, "description", None) or "No description provided."
+        tags = getattr(route, "tags", [])
+
+        # Normalize description (remove excessive whitespace and handle multiline better)
+        normalized_description = " ".join(description.split()) if description else "No description provided."
+
+        # Categorization
+        primary_tag = tags[0] if tags else "None"
+        category = CATEGORY_MAPPING.get(primary_tag, "Advanced")
+
+        # Feature Injection
+        features = FEATURE_REGISTRY.get(path, {})
+
+        discovered_apis.append(
+            {
+                "path": path,
+                "methods": methods,
+                "summary": summary,
+                "description": normalized_description,
+                "category": category,
+                "streaming": features.get("streaming"),
+                "persistence": features.get("persistence"),
+            }
+        )
+
+    # Grouping by category
+    categories = ["Recommended", "Compatibility", "Advanced", "Legacy"]
+    grouped_apis = {cat: [] for cat in categories}
+    for api in discovered_apis:
+        cat = api["category"]
+        if cat in grouped_apis:
+            grouped_apis[cat].append(api)
+        else:
+            # Fallback for unexpected categories
+            if "Advanced" not in grouped_apis:
+                grouped_apis["Advanced"] = []
+            grouped_apis["Advanced"].append(api)
+
+    return templates.TemplateResponse(
+        request,
+        "ui/apis.html",
+        _template_context(request, active_page="apis", grouped_apis=grouped_apis),
     )
 
 

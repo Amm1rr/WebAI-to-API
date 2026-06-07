@@ -1,0 +1,33 @@
+<div class="panel" style="margin-bottom: 0;">
+  <div class="panel-head" style="margin-bottom: 12px; align-items: flex-start;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+        {% for method in api.methods %}
+          <span class="badge {% if method == 'GET' %}success{% elif method == 'POST' %}primary{% elif method == 'DELETE' %}danger{% else %}neutral{% endif %}" style="min-height: 22px; padding: 2px 8px; font-size: 11px;">
+            {{ method }}
+          </span>
+        {% endfor %}
+        <code style="font-size: 14px; font-weight: 700; color: var(--text);">{{ api.path }}</code>
+      </div>
+      <div style="font-weight: 600; font-size: 16px;">{{ api.summary }}</div>
+    </div>
+    <div class="badge neutral" style="font-size: 11px; min-height: 22px; padding: 2px 8px;">{{ api.category }}</div>
+  </div>
+  
+  <div class="tile-copy" style="font-size: 14px; margin-bottom: 12px;">
+    {{ api.description }}
+  </div>
+
+  <div class="indicator-list">
+    {% if api.streaming is not none %}
+      <div class="indicator-badge {% if api.streaming %}indicator-neutral{% else %}indicator-warning{% endif %}">
+        Streaming: {{ 'Supported' if api.streaming else 'Not Supported' }}
+      </div>
+    {% endif %}
+    {% if api.persistence %}
+      <div class="indicator-badge indicator-neutral">
+        Persistence: {{ api.persistence }}
+      </div>
+    {% endif %}
+  </div>
+</div>
