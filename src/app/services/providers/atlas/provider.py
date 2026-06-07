@@ -1,5 +1,6 @@
+import asyncio
 import time
-from typing import Any, List
+from typing import Any, List, Optional
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from app.services.base import BaseProvider
@@ -19,6 +20,8 @@ class AtlasProvider(BaseProvider):
         self._cache_timestamp: float = 0
         self._CACHE_TTL: int = 3600  # 1 hour for success
         self._FALLBACK_CACHE_TTL: int = 300  # 5 minutes for failure
+        self._current_ttl: int = 3600
+        self._refresh_task: Optional[asyncio.Task] = None
 
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
         # Atlas logic currently splitting model name occurs in Factory, 
@@ -82,36 +85,52 @@ class AtlasProvider(BaseProvider):
     async def list_models(self) -> List[dict]:
         """
         Return a list of supported models for Atlas Cloud.
-        Attempts dynamic discovery with a resilient fallback.
+        Returns cached or fallback models immediately and refreshes in background.
         """
         # 1. Check configuration
         try:
-            atlas_client = get_atlas_client()
+            get_atlas_client()
         except AtlasClientNotConfiguredError:
-            # If not configured, we return an empty list to avoid advertising non-actionable models.
             return []
 
-        # 2. Check Cache
+        # 2. Trigger background refresh if needed
         now = time.time()
-        if self._model_cache and (now - self._cache_timestamp) < self._CACHE_TTL:
+        if not self._model_cache or (now - self._cache_timestamp) >= self._current_ttl:
+            self._trigger_refresh()
+
+        # 3. Return cache or immediate fallback
+        if self._model_cache:
             return self._model_cache
 
-        # 3. Dynamic Discovery
-        fallback_id = "atlas/MiniMaxAI/MiniMax-M2"
-        ts = int(now)
+        return self._get_fallback_models()
+
+    def _trigger_refresh(self) -> None:
+        """Schedule a background refresh if one isn't already running."""
+        if self._refresh_task and not self._refresh_task.done():
+            return
         
         try:
+            loop = asyncio.get_running_loop()
+            self._refresh_task = loop.create_task(self._refresh_models())
+        except RuntimeError:
+            # Fallback for environments without a running loop
+            logger.warning("Failed to create Atlas refresh task: no running event loop.")
+
+    async def _refresh_models(self) -> None:
+        """Perform the actual network request to Atlas to update the model cache."""
+        try:
+            atlas_client = get_atlas_client()
             raw_models = await atlas_client.list_models()
-            normalized_models = []
+            now = time.time()
+            ts = int(now)
             
+            normalized_models = []
             for m in raw_models:
                 original_id = m.get("id")
                 if not original_id:
                     continue
                 
-                # Normalize ID: prefix with atlas/ if not already present
                 model_id = original_id if original_id.startswith("atlas/") else f"atlas/{original_id}"
-                
                 normalized_models.append({
                     "id": model_id,
                     "object": "model",
@@ -122,28 +141,42 @@ class AtlasProvider(BaseProvider):
             if normalized_models:
                 self._model_cache = normalized_models
                 self._cache_timestamp = now
-                return normalized_models
-            
-            logger.warning("Atlas discovery returned empty list, using fallback.")
+                self._current_ttl = self._CACHE_TTL
+                logger.debug("Atlas model cache updated with %d models.", len(normalized_models))
+                return
 
+            logger.warning("Atlas discovery returned empty list.")
+
+        except AtlasClientNotConfiguredError:
+            # Configuration was lost while task was pending
+            self._model_cache = []
+            return
         except Exception as e:
-            logger.warning("Atlas dynamic model discovery failed: %s. Using fallback.", e)
+            logger.warning("Atlas dynamic model discovery failed: %s", e)
 
-        # 4. Fallback (Cached briefly to avoid repeated failures while allowing recovery)
-        fallback_models = [
+        # On failure or empty list, ensure we don't block next time but retry in FALLBACK_CACHE_TTL
+        now = time.time()
+        if not self._model_cache:
+            self._model_cache = self._get_fallback_models()
+            
+        self._cache_timestamp = now
+        self._current_ttl = self._FALLBACK_CACHE_TTL
+
+    def _get_fallback_models(self) -> List[dict]:
+        """Return the hardcoded safety fallback model list."""
+        return [
             {
-                "id": fallback_id,
+                "id": "atlas/MiniMaxAI/MiniMax-M2",
                 "object": "model",
-                "created": ts,
+                "created": int(time.time()),
                 "owned_by": "atlascloud",
             }
         ]
-        self._model_cache = fallback_models
-        # Set timestamp such that it expires in _FALLBACK_CACHE_TTL
-        self._cache_timestamp = now - (self._CACHE_TTL - self._FALLBACK_CACHE_TTL)
-        return fallback_models
 
     async def close(self) -> None:
-        # Atlas client handles its own httpx client lifecycle per request currently.
-        # This could be optimized later, but for now we follow existing logic.
-        pass
+        if self._refresh_task and not self._refresh_task.done():
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
