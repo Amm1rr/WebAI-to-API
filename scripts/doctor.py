@@ -49,7 +49,7 @@ def check_config():
         return False, None
 
 def check_runtime_dirs():
-    dirs = ["runtime", "runtime/auth", "runtime/cache", "runtime/logs", "runtime/conversations"]
+    dirs = ["runtime", "runtime/auth", "runtime/cache", "runtime/conversations"]
     missing = [d for d in dirs if not os.path.isdir(d)]
     
     if not missing:

@@ -46,7 +46,7 @@ The service is defined in `docker-compose.yml` for production execution:
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
 - **Port Exposure**: Maps host port `6969` to container port `6969`.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
-- **Persistent Runtime State**: Mounts `./runtime` into the container to preserve browser authentication state, conversation snapshots, and runtime-generated cache directories. Note: `runtime/logs` is currently reserved for future persistent storage; application logs are emitted to stdout/stderr.
+- **Persistent Runtime State**: Mounts `./runtime` into the container to preserve browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.
 
 ### 3.2 Runtime Topology
 

@@ -24,7 +24,6 @@ RUNTIME_DIRS = [
     "runtime",
     "runtime/auth",
     "runtime/cache",
-    "runtime/logs",
     "runtime/conversations",
 ]
 
