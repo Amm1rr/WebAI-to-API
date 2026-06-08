@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 6969
 
 # Run the application via the startup wrapper
-CMD ["python", "src/run.py", "--host", "0.0.0.0", "--port", "6969", "--log-level", "info"]
+CMD ["python", "src/run.py", "--host", "0.0.0.0", "--port", "6969"]
