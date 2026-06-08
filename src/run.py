@@ -101,6 +101,10 @@ def setup_logging(log_level: str, disable_access_logs: bool) -> None:
     """Configures the root logger, overrides verbose loggers, and bridges Loguru to standard logging."""
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
+    # Register custom levels (e.g. from Loguru) in standard logging
+    logging.addLevelName(25, "SUCCESS")
+    logging.addLevelName(5, "TRACE")
+
     # Initialize the Python standard root logger
     logging.basicConfig(
         level=numeric_level,

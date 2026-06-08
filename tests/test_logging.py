@@ -53,3 +53,9 @@ def test_fallback_logger_works_on_import():
     from app.logger import logger
     assert logger.name == "app"
     assert len(logging.getLogger().handlers) > 0
+
+def test_custom_logging_levels():
+    # Verify SUCCESS (25) and TRACE (5) levels are registered in standard logging
+    assert logging.getLevelName(25) == "SUCCESS"
+    assert logging.getLevelName(5) == "TRACE"
+
