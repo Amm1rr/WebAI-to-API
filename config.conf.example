@@ -124,3 +124,13 @@ chunk_timeout = 90
 total_request_timeout = 120
 idle_conversation_timeout = 900
 lease_timeout = 180
+
+# --- Logging Settings ---
+# Configure server log output and verbosity.
+# Precedence: CLI Arg > OS Env > config.conf > Default
+[Logging]
+# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+level = INFO
+# Set to true to disable Uvicorn HTTP access logging
+disable_access_logs = false
+
