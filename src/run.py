@@ -43,14 +43,17 @@ def _read_project_metadata() -> Tuple[str, str]:
 
 # Helper class for terminal colors
 class Colors:
-    """A class to hold ANSI color codes for terminal output."""
+    """A class to hold ANSI color codes for terminal output, dynamically checking TTY support."""
 
-    YELLOW = "\033[93m"
-    CYAN = "\033[96m"
-    MAGENTA = "\033[95m"
-    RED = "\033[91m"
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
+    _use_color = sys.stdout.isatty() if hasattr(sys.stdout, "isatty") else False
+
+    YELLOW = "\033[93m" if _use_color else ""
+    GREEN = "\033[92m" if _use_color else ""
+    CYAN = "\033[96m" if _use_color else ""
+    MAGENTA = "\033[95m" if _use_color else ""
+    RED = "\033[91m" if _use_color else ""
+    RESET = "\033[0m" if _use_color else ""
+    BOLD = "\033[1m" if _use_color else ""
 
 
 # --- Helper function to get app info ---
@@ -142,15 +145,15 @@ if __name__ == "__main__":
     webai_is_available = CONFIG.getboolean("EnabledAI", "gemini", fallback=True)
     if webai_is_available:
         print(
-            f"INFO:     ✅ {Colors.CYAN}Gemini service is enabled; starting WebAI-to-API server.{Colors.RESET}"
+            f"INFO:     {Colors.GREEN}✅ Gemini service is enabled; starting WebAI-to-API server.{Colors.RESET}"
         )
     else:
         print(
-            f"WARN:     ⚠️ {Colors.YELLOW}WebAI-to-API mode is not available{Colors.RESET} (Gemini is disabled in config)."
+            f"WARN:     {Colors.YELLOW}⚠️ WebAI-to-API mode is not available (Gemini is disabled in config).{Colors.RESET}"
         )
 
     if not webai_is_available:
-        print("\nERROR:    Gemini service is disabled. Exiting.")
+        print(f"\n{Colors.RED}ERROR:    Gemini service is disabled. Exiting.{Colors.RESET}")
         sys.exit(1)
 
     # Print server information summary banner
