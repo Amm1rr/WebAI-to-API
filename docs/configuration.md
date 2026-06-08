@@ -193,6 +193,50 @@ See `Docker.md` for complete deployment instructions.
 
 ---
 
+## Logging Configuration
+
+WebAI-to-API logging behavior can be configured centrally to manage console output verbosity and HTTP access logging.
+
+### Priority Resolution
+Logging settings are resolved in the following priority order:
+1. **CLI Arguments** (highest priority)
+2. **OS Environment Variables**
+3. **Configuration File** (`[Logging]` section in `config.conf`, if present)
+4. **System Defaults** (`INFO` level, access logs enabled)
+
+### Local Configuration Options
+
+You can manage logging in `config.conf` using the `[Logging]` section:
+
+```ini
+[Logging]
+# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+level = INFO
+# Disable Uvicorn request logs (default: false)
+disable_access_logs = false
+```
+
+### Local Execution Examples
+
+* **Default Run** (runs at `INFO` level, access logs enabled):
+  ```bash
+  poetry run python src/run.py
+  ```
+* **Enable DEBUG via CLI**:
+  ```bash
+  poetry run python src/run.py --log-level debug
+  ```
+* **Enable DEBUG via Environment Variable**:
+  ```bash
+  LOG_LEVEL=DEBUG poetry run python src/run.py
+  ```
+* **Disable HTTP Access Logs**:
+  ```bash
+  poetry run python src/run.py --disable-access-logs
+  ```
+
+---
+
 ## Configuration Template
 
 The full configuration template is available in:
