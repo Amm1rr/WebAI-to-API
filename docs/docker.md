@@ -40,6 +40,25 @@ cp config.conf.example config.conf
 
 Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
 
+### Container Logging Controls
+
+Container logging is configured via environment variables passed into the service. By default, the container logs at `INFO` level and outputs web request access logs to stderr.
+
+You can override these behaviors by passing environment variables:
+
+* **Default Run** (INFO level logs, access logs enabled):
+  ```bash
+  docker compose up
+  ```
+* **Enable Container DEBUG Logs**:
+  ```bash
+  LOG_LEVEL=DEBUG docker compose up
+  ```
+* **Disable HTTP Request Access Logs**:
+  ```bash
+  DISABLE_ACCESS_LOGS=true docker compose up
+  ```
+
 ---
 
 ## Build

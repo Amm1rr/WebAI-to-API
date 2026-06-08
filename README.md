@@ -50,6 +50,8 @@ poetry run playwright install chromium
 ```bash
 cp config.conf.example config.conf
 ```
+*For detailed settings (including logging verbosity and access log configurations), see [Configuration Guide](docs/configuration.md).*
+
 
 ### 3. Authenticate
 ```bash
