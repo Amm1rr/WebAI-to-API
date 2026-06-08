@@ -97,42 +97,6 @@ def print_server_info(host: str, port: int, mode: str):
     print("=" * 80)
 
 
-def setup_logging(log_level: str, disable_access_logs: bool) -> None:
-    """Configures the root logger, overrides verbose loggers, and bridges Loguru to standard logging."""
-    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-
-    # Register custom levels (e.g. from Loguru) in standard logging
-    logging.addLevelName(25, "SUCCESS")
-    logging.addLevelName(5, "TRACE")
-
-    # Initialize the Python standard root logger
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler(sys.stderr)]
-    )
-    logging.getLogger().setLevel(numeric_level)
-
-    # Prevent verbose logs from third-party libraries/HTTP clients from flooding the console
-    logging.getLogger("httpx").setLevel(logging.DEBUG if log_level.upper() in ("DEBUG", "TRACE") else logging.WARNING)
-
-    # Bridge Loguru (gemini_webapi) logs into standard logging via a function sink
-    try:
-        from loguru import logger as loguru_logger
-
-        def loguru_sink(message):
-            record = message.record
-            name = record["extra"].get("name", record["name"])
-            level_no = record["level"].no
-            msg = record["message"]
-            logging.getLogger(name).log(level_no, msg)
-
-        loguru_logger.remove()  # Remove Loguru default handler
-        loguru_logger.add(loguru_sink, level=0)  # Route all Loguru logs to Python logging
-    except ImportError:
-        pass
-
-
 def resolve_logging_config(cli_log_level: str | None, cli_disable_access_logs: bool) -> Tuple[str, bool]:
     """Resolves log level and access log settings based on CLI, env, and config precedence."""
     # 1. Resolve log level precedence: explicit CLI > LOG_LEVEL env > config.conf > INFO
@@ -167,6 +131,7 @@ if __name__ == "__main__":
     resolved_level, resolved_disable_access = resolve_logging_config(args.log_level, args.disable_access_logs)
 
     # Setup logging
+    from app.logger import setup_logging
     setup_logging(resolved_level, resolved_disable_access)
 
     # 4. Import app.main now that the standard root logger handlers are set up

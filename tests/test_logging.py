@@ -4,7 +4,8 @@ import logging
 from unittest import mock
 import pytest
 
-from run import resolve_logging_config, setup_logging
+from run import resolve_logging_config
+from app.logger import setup_logging
 
 def test_default_log_level_is_info():
     # Clear environment variables to test default fallback
