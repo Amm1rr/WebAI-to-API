@@ -73,6 +73,7 @@ def print_server_info(host: str, port: int, mode: str, default_model: str | None
             print("  - Could not load config details.")
         print("\n🔗 Primary APIs:")
         print(f"  - POST {base_url}/v1/chat/completions")
+        print(f"  - POST {base_url}/v1/temporary/chat/completions")
         print(f"  - POST {base_url}/translate")
         print(f"  - POST {base_url}/v1beta/models/{{model_path:path}}")
         print("\n🔗 Useful Endpoints:")
