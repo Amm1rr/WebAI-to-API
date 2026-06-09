@@ -1,31 +1,12 @@
 # src/run.py
 import argparse
 import asyncio
-import logging
-import os
 import sys
 import uvicorn
-from typing import Tuple
-from fastapi.routing import APIRoute
-
 # --- App and Service Imports ---
-from app.config import CONFIG
+from app.config import CONFIG, resolve_logging_config
 from app.utils.startup import print_server_info, print_gemini_preflight_status
 
-
-def resolve_logging_config(cli_log_level: str | None, cli_disable_access_logs: bool) -> Tuple[str, bool]:
-    """Resolves log level and access log settings based on CLI, env, and config precedence."""
-    # 1. Resolve log level precedence: explicit CLI > LOG_LEVEL env > config.conf > INFO
-    env_log_level = os.environ.get("LOG_LEVEL")
-    conf_log_level = CONFIG.get("Logging", "level", fallback=None) if CONFIG.has_section("Logging") else None
-    resolved_level = cli_log_level or env_log_level or conf_log_level or "INFO"
-
-    # 2. Resolve access logs precedence: explicit CLI --disable-access-logs > DISABLE_ACCESS_LOGS env > config.conf > false
-    env_disable_access = os.environ.get("DISABLE_ACCESS_LOGS", "false").lower() in ("true", "1", "yes", "on")
-    conf_disable_access = CONFIG.getboolean("Logging", "disable_access_logs", fallback=False) if CONFIG.has_section("Logging") else False
-    resolved_disable_access = cli_disable_access_logs or env_disable_access or conf_disable_access
-
-    return resolved_level, resolved_disable_access
 
 
 # --- Main Execution Block ---
@@ -50,7 +31,7 @@ if __name__ == "__main__":
     from app.logger import setup_logging
     setup_logging(resolved_level, resolved_disable_access)
 
-    # 4. Import app.main now that the standard root logger handlers are set up
+    # Import app.main now that the root logger is configured
     from app.main import app as webai_app
 
     # Preflight gate: only start the server when Gemini is enabled in config.

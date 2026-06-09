@@ -1,40 +1,45 @@
 # File: tests/test_logging.py
 import os
 import logging
+import configparser
 from unittest import mock
 import pytest
 
-from run import resolve_logging_config
+from app.config import resolve_logging_config
 from app.logger import setup_logging
 
 def test_default_log_level_is_info():
     # Clear environment variables to test default fallback
     with mock.patch.dict(os.environ, {}, clear=True):
-        with mock.patch("app.config.CONFIG.has_section", return_value=False):
-            level, disable_access = resolve_logging_config(None, False)
-            assert level == "INFO"
-            assert disable_access is False
+        test_config = configparser.ConfigParser()
+        level, disable_access = resolve_logging_config(None, False, config=test_config)
+        assert level == "INFO"
+        assert disable_access is False
 
 def test_cli_overrides_env_and_config():
     with mock.patch.dict(os.environ, {"LOG_LEVEL": "WARNING", "DISABLE_ACCESS_LOGS": "true"}):
-        with mock.patch("app.config.CONFIG.has_section", return_value=True):
-            with mock.patch("app.config.CONFIG.get", return_value="ERROR"):
-                with mock.patch("app.config.CONFIG.getboolean", return_value=True):
-                    # Explicit CLI value overrides
-                    level, disable_access = resolve_logging_config("DEBUG", False)
-                    assert level == "DEBUG"
-                    # Note: resolved_disable_access resolves to True because (CLI: False OR Env: True OR Config: True) is True
-                    assert disable_access is True
+        test_config = configparser.ConfigParser()
+        test_config.add_section("Logging")
+        test_config.set("Logging", "level", "ERROR")
+        test_config.set("Logging", "disable_access_logs", "true")
+        
+        # Explicit CLI value overrides
+        level, disable_access = resolve_logging_config("DEBUG", False, config=test_config)
+        assert level == "DEBUG"
+        assert disable_access is True
 
 def test_env_overrides_config():
     with mock.patch.dict(os.environ, {"LOG_LEVEL": "WARNING", "DISABLE_ACCESS_LOGS": "true"}):
-        with mock.patch("app.config.CONFIG.has_section", return_value=True):
-            with mock.patch("app.config.CONFIG.get", return_value="ERROR"):
-                with mock.patch("app.config.CONFIG.getboolean", return_value=False):
-                    # With no CLI arg, Env takes precedence over Config
-                    level, disable_access = resolve_logging_config(None, False)
-                    assert level == "WARNING"
-                    assert disable_access is True
+        test_config = configparser.ConfigParser()
+        test_config.add_section("Logging")
+        test_config.set("Logging", "level", "ERROR")
+        test_config.set("Logging", "disable_access_logs", "false")
+        
+        # With no CLI arg, Env takes precedence over Config
+        level, disable_access = resolve_logging_config(None, False, config=test_config)
+        assert level == "WARNING"
+        assert disable_access is True
+
 
 def test_loguru_debug_suppressed_at_info():
     # Set logging to INFO
