@@ -1,0 +1,53 @@
+<div class="panel" role="status" aria-live="polite">
+  <div class="panel-head">
+    <h2>Provider Auth</h2>
+    <span class="badge">{{ auth_status.login_state }}</span>
+  </div>
+
+  <div class="table-wrap">
+    <table class="auth-table">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Backend</th>
+          <th>Status</th>
+          <th>Auth Source</th>
+          <th>Last Checked</th>
+          <th>Indicators</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in auth_rows %}
+        <tr>
+          <td>{{ row.provider }}</td>
+          <td>{{ row.backend }}</td>
+          <td>
+            <span class="badge {{ row.status_class }}">{{ row.status }}</span>
+          </td>
+          <td><code>{{ row.auth_source }}</code></td>
+          <td>
+            {% if row.last_checked != 'n/a' %}
+              <time datetime="{{ row.last_checked }}">{{ row.last_checked }}</time>
+            {% else %}
+              n/a
+            {% endif %}
+          </td>
+          <td>
+            {% if row.indicators %}
+              <div class="indicator-list">
+                {% for indicator in row.indicators %}
+                  <span class="indicator-badge indicator-{{ indicator.severity }}" title="{{ indicator.title }}" aria-label="{{ indicator.title }}">
+                    {{ indicator.label }}
+                  </span>
+                {% endfor %}
+              </div>
+            {% else %}
+              n/a
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

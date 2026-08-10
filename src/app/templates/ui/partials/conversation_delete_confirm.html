@@ -1,0 +1,77 @@
+<div class="delete-flow">
+  <p id="conversation-action-indicator" class="loading htmx-indicator" aria-live="polite">
+    Deleting conversation...
+  </p>
+  <div class="panel-head">
+    <h2>Confirm Delete</h2>
+    <span class="badge destructive">Destructive</span>
+  </div>
+
+  {% if delete_error %}
+    <div class="alert alert-error" role="alert">{{ delete_error }}</div>
+  {% endif %}
+
+  <dl class="metrics delete-metrics">
+    <div>
+      <dt>Conversation ID</dt>
+      <dd><code>{{ conversation.masked_conversation_id }}</code></dd>
+    </div>
+    <div>
+      <dt>Provider</dt>
+      <dd>{{ conversation.provider }}</dd>
+    </div>
+    <div>
+      <dt>Backend</dt>
+      <dd>{{ conversation.backend }}</dd>
+    </div>
+    <div>
+      <dt>Model</dt>
+      <dd><code>{{ conversation.model if conversation.model is not none else "n/a" }}</code></dd>
+    </div>
+    <div>
+      <dt>Gem ID</dt>
+      <dd><code>{{ conversation.gem_id if conversation.gem_id is not none else "n/a" }}</code></dd>
+    </div>
+    <div>
+      <dt>Updated At</dt>
+      <dd>{{ conversation.updated_at }}</dd>
+    </div>
+    <div>
+      <dt>Schema Version</dt>
+      <dd>{{ conversation.schema_version }}</dd>
+    </div>
+  </dl>
+
+  <form
+    class="delete-form"
+    hx-post="/ui/conversations/delete"
+    hx-indicator="#conversation-action-indicator"
+    hx-target="#conversation-action"
+    hx-swap="innerHTML"
+    hx-disabled-elt="button"
+  >
+    <input type="hidden" name="conversation_id" value="{{ conversation.id }}">
+    <div class="field">
+      <label for="confirmation_suffix">Type the last 4 characters to confirm</label>
+      <input
+        id="confirmation_suffix"
+        name="confirmation_suffix"
+        required
+        maxlength="4"
+        pattern="{{ conversation.confirmation_pattern }}"
+        inputmode="text"
+        autocomplete="off"
+        placeholder="{{ conversation.confirmation_suffix }}"
+        aria-describedby="confirmation_suffix_help{% if delete_error %} confirmation_suffix_error{% endif %}"
+      >
+      <p id="confirmation_suffix_help" class="note">Enter only the last 4 characters of the conversation ID.</p>
+      {% if delete_error %}
+        <p id="confirmation_suffix_error" class="error-help" role="alert">{{ delete_error }}</p>
+      {% endif %}
+    </div>
+    <div class="actions">
+      <button class="danger" type="submit">Delete conversation</button>
+      <a class="cancel-link" href="/ui/conversations">Cancel</a>
+    </div>
+  </form>
+</div>

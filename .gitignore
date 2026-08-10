@@ -5,5 +5,29 @@
 __pycache__
 .idea
 config.conf
+.env.local
+.venv
+.env
+.claude/
+.codex/
+.gemini/
+.agent/
+.agents/
+.antigravitycli/
 generated_media
 har_and_cookies
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+dist/
+.playwright_data/
+conversation_snapshots.db
+conversation_snapshots.db-wal
+conversation_snapshots.db-shm
+
+# Runtime state
+runtime/
+
+# Legacy auth directory (backward compatibility)
+auth_state/

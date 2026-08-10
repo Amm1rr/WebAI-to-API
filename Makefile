@@ -1,8 +1,16 @@
 # Makefile
 
 # Load .env file if it exists
-include .env
+-include .env
+ifneq ("$(wildcard .env)","")
 export $(shell sed 's/=.*//' .env)
+endif
+
+setup:
+	python scripts/bootstrap.py
+
+doctor:
+	python scripts/doctor.py
 
 build:
 	docker build -t cornatul/webai.ai:latest .
@@ -11,19 +19,26 @@ build-fresh:
 	docker build --no-cache -t cornatul/webai.ai:latest .
 
 up:
-	@if [ "$(ENVIRONMENT)" = "development" ]; then \
-		printf "\033[1;33m🧪 Running in DEVELOPMENT mode...\033[0m\n"; \
-		docker-compose up; \
-	else \
-		printf "\033[0;37m🚀 Running in PRODUCTION mode...\033[0m\n"; \
-		docker-compose up -d; \
-	fi
+	@test -f config.conf || { echo "ERROR: config.conf missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	@test -f .env || { echo "ERROR: .env missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	docker compose up -d
+
+up-attach:
+	@test -f config.conf || { echo "ERROR: config.conf missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	@test -f .env || { echo "ERROR: .env missing or is a directory. Run 'python scripts/bootstrap.py' first."; exit 1; }
+	docker compose up
+
+logs:
+	docker compose logs -f web_ai
 
 stop:
-	docker-compose down
+	docker compose down
 
 down:
-	docker-compose down
+	docker compose down
 
 push:
 	docker push cornatul/webai.ai:latest
+
+export-reqs:
+	poetry export -f requirements.txt --output requirements.txt --without-hashes

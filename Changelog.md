@@ -1,11 +1,42 @@
-### Changelog – WebAI to API
+### WebAI to API
 
-#### v0.x.x – Draft
+#### Added
+
+- Added support for file attachments and generated artifacts, including images, videos, audio, and documents.
+- Added `POST /v1/temporary/chat/completions` for Gemini WebAPI temporary conversations that are not stored in Gemini history and do not create SQLite conversation snapshots.
+
+##### Changed
+
+- Migrated the project licensing model to Apache License 2.0 as the sole project license.
+- Updated `/translate` to use Gemini temporary requests so translation conversations are not stored in Gemini history.
+- Updated README and OpenAPI documentation for temporary Gemini chat and translation behavior.
+
+#### v0.5.0 – 2026-06-01
+
+##### Added
+
+- Added `Atlas Cloud` provider support.
+- Added health, readiness, and runtime diagnostics endpoints.
+- Added provider-scoped authentication configuration.
+- Added contributor and commercial licensing framework.
+- Expanded automated test coverage across core runtime components.
 
 ##### Fixed
 
-- Added missing `nodriver` and `platformdirs` dependencies to `pyproject.toml` for `g4f` server compatibility.
-- Unified server runner functions to implement a consistent and graceful shutdown mechanism.
+- Restored `Playwright` bootstrap authentication flow.
+- Improved authentication source discovery and fallback behavior.
+- Hardened browser lifecycle, session recovery, and shutdown handling.
+- Fixed Playwright interaction timeout configuration.
+- Fixed authentication issues related to cookie configuration and loading.
+
+##### Changed
+
+- Migrated to a provider-centric architecture with unified backend routing.
+- Unified Gemini WebAPI and Playwright execution models behind a common provider layer.
+- Removed the legacy `g4f` integration and related dependencies.
+- Improved runtime observability, diagnostics, and request correlation.
+- Updated Docker deployment guidance and Playwright onboarding workflow.
+- Expanded architecture documentation and runtime specifications.
 
 ---
 

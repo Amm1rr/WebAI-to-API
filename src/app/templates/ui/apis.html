@@ -1,0 +1,42 @@
+{% extends "ui/base.html" %}
+
+{% block title %}API Endpoints - WebAI Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="eyebrow">Discovery</div>
+  <h1>API Endpoints</h1>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Recommended starting point</h2>
+  </div>
+  <p>The <strong>/v1/chat/completions</strong> endpoint is the primary way to interact with the service using OpenAI-compatible libraries.</p>
+  
+  <div class="indicator-list" style="margin-bottom: 16px;">
+    <div class="indicator-badge indicator-neutral">✓ Streaming</div>
+    <div class="indicator-badge indicator-neutral">✓ Conversation continuity</div>
+    <div class="indicator-badge indicator-neutral">✓ File support</div>
+  </div>
+
+  <div class="actions">
+    <a href="/docs" class="badge" target="_blank" style="text-decoration: none;">Swagger UI</a>
+    <a href="/redoc" class="badge" target="_blank" style="text-decoration: none;">ReDoc</a>
+  </div>
+</div>
+
+{% for category, apis in grouped_apis.items() %}
+  {% if apis %}
+    <div style="margin: 32px 0 16px;">
+      <h2 style="font-size: 22px; color: var(--accent);">{{ category }}</h2>
+    </div>
+    <div class="grid" style="grid-template-columns: 1fr; gap: 16px;">
+      {% for api in apis %}
+        {% include "ui/partials/api_card.html" %}
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endfor %}
+
+{% endblock %}
