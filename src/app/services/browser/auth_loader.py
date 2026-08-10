@@ -128,21 +128,22 @@ class GeminiAuthStateLoader:
     @classmethod
     def get_gemini_config_source(cls) -> Tuple[Optional[Dict[str, Any]], bool]:
         """
-        Get cookies from [Gemini] section in config.conf.
+        Get cookies from [Gemini] section in config.conf or environment variables.
         Returns Tuple (cookies_data_dict, is_legacy_fallback).
-        Returns (None, False) if section missing or cookies incomplete.
+        Returns (None, False) if config missing and environment variables incomplete.
         """
-        if "Gemini" not in CONFIG:
-            return None, False
-
-        gemini_config = dict(CONFIG["Gemini"])
-        # Support both canonical and common alias names in the [Gemini] section
+        gemini_config = dict(CONFIG["Gemini"]) if "Gemini" in CONFIG else {}
+        # Support both canonical and common alias names in the [Gemini] section, with env overrides
         psid_val = (
+            os.getenv("GEMINI_COOKIE_1PSID") or
+            os.getenv("__Secure-1PSID") or
             cls._normalize_config_value(gemini_config.get("__Secure-1PSID")) or
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1psid")) or
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSID"))
         )
         psidts_val = (
+            os.getenv("GEMINI_COOKIE_1PSIDTS") or
+            os.getenv("__Secure-1PSIDTS") or
             cls._normalize_config_value(gemini_config.get("__Secure-1PSIDTS")) or
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1psidts")) or
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSIDTS"))
@@ -175,19 +176,20 @@ class GeminiAuthStateLoader:
         Returns Tuple (cookies_data_dict, is_legacy_fallback).
         Returns (None, False) if section missing or cookies incomplete.
         """
-        if "Cookies" not in CONFIG:
-            return None, False
-
-        config_cookies = dict(CONFIG["Cookies"])
+        config_cookies = dict(CONFIG["Cookies"]) if "Cookies" in CONFIG else {}
         # Support all legacy and standard key variants for backward compatibility
-        # Select the first normalized non-empty candidate
+        # Select the first normalized non-empty candidate, with env overrides
         psid_val = (
+            os.getenv("GEMINI_COOKIE_1PSID") or
+            os.getenv("__Secure-1PSID") or
             cls._normalize_config_value(config_cookies.get("gemini_cookie_1psid")) or 
             cls._normalize_config_value(config_cookies.get("gemini_cookie_1PSID")) or 
             cls._normalize_config_value(config_cookies.get("__Secure-1PSID"))
         )
         
         psidts_val = (
+            os.getenv("GEMINI_COOKIE_1PSIDTS") or
+            os.getenv("__Secure-1PSIDTS") or
             cls._normalize_config_value(config_cookies.get("gemini_cookie_1psidts")) or 
             cls._normalize_config_value(config_cookies.get("gemini_cookie_1PSIDTS")) or 
             cls._normalize_config_value(config_cookies.get("__Secure-1PSIDTS"))

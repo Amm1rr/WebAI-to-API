@@ -13,7 +13,7 @@
   }: let
     systems = flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
-      python = pkgs.python313;
+      python = pkgs.python312;
       g4f = python.pkgs.buildPythonPackage rec {
         pname = "g4f";
         version = "6.8.2";
@@ -30,11 +30,11 @@
 
       gemini-webapi = python.pkgs.buildPythonPackage rec {
         pname = "gemini_webapi";
-        version = "1.21.0";
+        version = "2.0.0";
         pyproject = true;
         src = python.pkgs.fetchPypi {
           inherit pname version;
-          sha256 = "0v5p8rm03yaxs8mlfami37ldli2jdzvqsp5kcgv0kcc0afdw4x8b";
+          sha256 = "0dcp0g5s1ngyvzkbm14rgq7w7i0xrz4m5ldz1v2zviylkynxisay";
         };
         build-system = with python.pkgs; [ setuptools setuptools-scm ];
         nativeBuildInputs = with python.pkgs; [ pythonRelaxDepsHook ];
@@ -42,8 +42,8 @@
         # Core deps from PyPI metadata (browser-cookie3 is an optional extra).
         # Use pythonRelaxDepsHook so the strict ~= version pins in the wheel
         # metadata don't reject the compatible nixpkgs versions of orjson/pydantic.
-        pythonRelaxDeps = [ "orjson" "pydantic" ];
-        dependencies = with python.pkgs; [ httpx loguru orjson pydantic ];
+        pythonRelaxDeps = [ "orjson" "pydantic" "curl-cffi" ];
+        dependencies = with python.pkgs; [ httpx loguru orjson pydantic curl-cffi ];
       };
 
       webai-python = python.withPackages (ps:
@@ -59,6 +59,13 @@
           platformdirs
           tomli
           click
+          pytest
+          pytest-asyncio
+          pytest-mock
+          pytest-cov
+          pytest-timeout
+          playwright
+          jinja2
         ] ++ [ g4f gemini-webapi ]);
 
       webai-to-api = pkgs.stdenv.mkDerivation {
@@ -89,71 +96,16 @@
       };
 
       devShells.default = pkgs.mkShell {
-        # Don't add Python packages here directly
-        packages =
-          [
-            python
-            pkgs.git
-          ]
-          ++ (with python.pkgs; [
-            # Add runtime dependencies needed for development here
-            uvicorn
-            fastapi # This might pull in problematic dependencies like matplotlib
-            requests
-            python-dotenv
-            pip
-            click
-            # Add other dependencies as needed
-            # python.pkgs.gemini-webapi
-          ]); # Just the interpreter
-        buildInputs = [
-          pkgs.tcl
-          pkgs.tk
-          pkgs.libtommath # The missing header file
-          pkgs.libxcrypt # Often needed for Python builds
-          pkgs.tcl # Sometimes the .dev package is needed explicitly
-          pkgs.tk.dev
+        packages = [
+          webai-python
+          pkgs.git
+          pkgs.poetry
         ];
-        # Instead, set PYTHONPATH to include the built dependencies
-        PYTHONPATH =
-          pkgs.lib.makeLibraryPath (with python.pkgs; [
-            fastapi
-            uvicorn
-            requests
-            python-dotenv
-            pip
-            # Add ALL your project's Python dependencies here
-            # python.pkgs.gemini-webapi # This might not exist in nixpkgs
-          ])
-          + ":${./src}"; # Include your source code
+        PYTHONPATH = "./src";
         shellHook = ''
-          echo "Entering WebAI-to-API dev shell (Python $(${pkgs.python313}/bin/python --version))"
-
-          # Create a Python virtual environment inside the Nix shell
-          VENV_DIR="$TMPDIR/webai_venv_dev"
-          echo "Setting up development venv in $VENV_DIR"
-          ${python}/bin/python -m venv "$VENV_DIR"
-
-          # Activate the virtual environment
-          source "$VENV_DIR/bin/activate"
-
-          # Upgrade pip first, often good practice
-          pip install --upgrade pip
-
-          # Install the project and its dependencies (listed in pyproject.toml) into the venv
-          # Using --verbose can help diagnose issues if it fails again
-          echo "Installing project (editable) and dependencies into venv using pyproject.toml..."
-          pip install --verbose -e .
-
-          # Optional: Verify key dependencies are installed after the install
-          echo "Checking if key dependencies are installed..."
-          python -c "import click; print(f'click {click.__version__} OK')"
-          python -c "import uvicorn; print(f'uvicorn {uvicorn.__version__} OK')"
-          python -c "import fastapi; print(f'fastapi {fastapi.__version__} OK')"
-          python -c "import gemini_webapi; print(f'gemini_webapi OK')" # Check the core dependency
-
-          echo "Development environment ready (VENV: $VENV_DIR)."
-          echo "Run 'PYTHONPATH=src python src/run.py' or './bin/webai-server' (if updated)."
+          echo "Entering WebAI-to-API dev shell (Python $(${webai-python}/bin/python --version))"
+          echo "Development environment ready."
+          echo "Run 'pytest' to run tests, or 'python src/run.py' to run the server."
         '';
       };
     });

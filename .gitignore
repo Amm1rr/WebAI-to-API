@@ -31,3 +31,6 @@ runtime/
 
 # Legacy auth directory (backward compatibility)
 auth_state/
+
+# Python packaging / development build files
+*.egg-info/
