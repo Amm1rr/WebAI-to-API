@@ -43,12 +43,12 @@ async def test_openapi_translate_endpoint_metadata():
     assert translate_path["post"].get("deprecated") is not True
     assert "Translation" in translate_path["post"]["tags"]
     assert "Translate Extension Compatibility" in translate_path["post"]["summary"]
-    assert "shared global in-memory session" in translate_path["post"]["description"]
+    assert "stateless Gemini WebAPI requests concurrently" in translate_path["post"]["description"]
     assert "temporary requests" in translate_path["post"]["description"]
     assert "not saved in Gemini history" in translate_path["post"]["description"]
     assert "no `conversation_id`" in translate_path["post"]["description"]
     assert "does not support streaming" in translate_path["post"]["description"]
-    assert "not survive server restarts" in translate_path["post"]["description"]
+    assert "does not maintain conversation state" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
 
 

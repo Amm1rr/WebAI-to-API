@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -99,15 +100,12 @@ async def test_chat_completions_endpoint_atlas(mocker):
 @pytest.mark.asyncio
 async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
     """Verify /translate forwards Gemini requests with temporary=True."""
-    mock_response = mocker.Mock()
-    mock_response.text = "Translated response"
+    mock_response = SimpleNamespace(text="Translated response")
 
     mock_client = mocker.Mock()
-    mock_session_manager = mocker.Mock()
-    mock_session_manager.get_response = mocker.AsyncMock(return_value=mock_response)
+    mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
 
     mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
-    mocker.patch("app.endpoints.chat.get_translate_session_manager", return_value=mock_session_manager)
 
     payload = {
         "model": "gemini-3-flash",
@@ -121,13 +119,79 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
 
     assert response.status_code == 200
     assert response.json() == {"response": "Translated response"}
-    mock_session_manager.get_response.assert_called_once_with(
-        "gemini-3-flash",
+    mock_client.generate_content.assert_awaited_once_with(
         "Translate this text",
-        [],
-        None,
+        "gemini-3-flash",
+        files=[],
+        gem=None,
         temporary=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_translate_requests_execute_concurrently_and_independently(mocker):
+    """Verify /translate uses independent direct Gemini requests."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
+
+    async def generate_content(message, model, *, files, gem, temporary):
+        calls.append((message, model, files, gem, temporary))
+        if len(calls) == 2:
+            entered.set()
+        await release.wait()
+        return SimpleNamespace(text=f"translated:{message}")
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content = generate_content
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    mocker.patch(
+        "app.services.providers.gemini.session_manager.SessionManager.get_response",
+        side_effect=AssertionError("/translate must not use SessionManager"),
+    )
+
+    payloads = [
+        {"model": "gemini-3-flash", "message": "alpha", "files": ["a.txt"], "gem": "gem-a"},
+        {"model": "gemini-3-pro", "message": "beta", "files": ["b.txt"], "gem": "gem-b"},
+    ]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        tasks = [asyncio.create_task(ac.post("/translate", json=payload)) for payload in payloads]
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        release.set()
+        responses = await asyncio.gather(*tasks)
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert [response.json() for response in responses] == [
+        {"response": "translated:alpha"},
+        {"response": "translated:beta"},
+    ]
+    assert sorted(calls) == sorted([
+        ("alpha", "gemini-3-flash", ["a.txt"], "gem-a", True),
+        ("beta", "gemini-3-pro", ["b.txt"], "gem-b", True),
+    ])
+
+
+@pytest.mark.asyncio
+async def test_translate_failure_does_not_block_other_request(mocker):
+    """Verify one direct translation failure does not affect another request."""
+    async def generate_content(message, model, *, files, gem, temporary):
+        if message == "bad":
+            raise RuntimeError("translation failed")
+        return SimpleNamespace(text="good result")
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content = generate_content
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        bad, good = await asyncio.gather(
+            ac.post("/translate", json={"message": "bad"}),
+            ac.post("/translate", json={"message": "good"}),
+        )
+
+    assert bad.status_code == 500
+    assert good.status_code == 200
+    assert good.json() == {"response": "good result"}
 
 
 @pytest.mark.asyncio
