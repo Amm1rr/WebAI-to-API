@@ -5,7 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uuid
 
-from app.services.providers.gemini.client import init_gemini_client, GeminiClientNotInitializedError
+from app.services.providers.gemini.client import (
+    close_gemini_client,
+    init_gemini_client,
+    GeminiClientNotInitializedError,
+)
 from app.services.providers.gemini.session_manager import init_session_managers
 from app.services.browser.auth_manager import get_auth_manager
 from app.logger import logger
@@ -82,6 +86,12 @@ async def lifespan(app: FastAPI):
             )
     except Exception as e:
         logger.error(f"[SHUTDOWN-DEBUG] Error during task inspection: {e}", exc_info=True)
+
+    try:
+        await close_gemini_client()
+        logger.info("Gemini WebAPI client closed gracefully.")
+    except Exception as e:
+        logger.error(f"Error closing Gemini WebAPI client: {e}", exc_info=True)
 
     # Shutdown logic
     logger.info("Gracefully closing BrowserEngine during application shutdown...")

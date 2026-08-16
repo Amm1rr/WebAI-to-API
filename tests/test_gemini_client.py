@@ -2,7 +2,7 @@ import pytest
 import json
 import configparser
 from unittest.mock import AsyncMock, MagicMock
-from app.services.providers.gemini.client import init_gemini_client
+from app.services.providers.gemini.client import close_gemini_client, init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
@@ -68,6 +68,82 @@ def patch_auth_sources(mocker, gemini=None, legacy=None, json_source=None):
             return_value=(json_source, False),
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_disabled_gemini_clears_previous_auth_source(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "false"}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+
+    assert await init_gemini_client() is False
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._gemini_client_auth_source is None
+    assert gemini_client_module._initialization_error == "Gemini client is disabled in config."
+    old_client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_failed_init_clears_previous_auth_source(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({
+        "EnabledAI": {"gemini": "true"},
+        "Proxy": {"http_proxy": ""},
+    })
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(GeminiAuthStateLoader, "get_gemini_config_source", return_value=(None, False))
+    mocker.patch.object(GeminiAuthStateLoader, "get_legacy_cookie_source", return_value=(None, False))
+    mocker.patch.object(GeminiAuthStateLoader, "get_json_source", return_value=(None, False))
+    mocker.patch("app.services.providers.gemini.client.get_cookie_from_browser", return_value=None)
+
+    assert await init_gemini_client() is False
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._gemini_client_auth_source is None
+    assert gemini_client_module._initialization_error
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_closes_and_resets_state(mocker):
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+    gemini_client_module._initialization_error = "old error"
+
+    await close_gemini_client()
+
+    client.close.assert_awaited_once_with()
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._gemini_client_auth_source is None
+    assert gemini_client_module._initialization_error is None
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_is_safe_without_client_and_on_repeat():
+    await close_gemini_client()
+    await close_gemini_client()
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_resets_state_when_close_fails(mocker):
+    client = make_mock_client("AVAILABLE")
+    client.close.side_effect = RuntimeError("close failed")
+    gemini_client_module._gemini_client = client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+    gemini_client_module._initialization_error = "old error"
+
+    await close_gemini_client()
+
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._gemini_client_auth_source is None
+    assert gemini_client_module._initialization_error is None
 
 
 @pytest.mark.asyncio

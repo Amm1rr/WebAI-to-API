@@ -42,21 +42,25 @@ async def init_gemini_client() -> bool:
     
     async with _gemini_client_init_lock:
         _initialization_error = None
+        _gemini_client_auth_source = None
 
-        if _gemini_client is not None:
+        old_client = _gemini_client
+        _gemini_client = None
+        if old_client is not None:
             logger.info("Closing existing Gemini client before re-initialization...")
             try:
-                if hasattr(_gemini_client, "close"):
-                    res = _gemini_client.close()
+                if hasattr(old_client, "close"):
+                    res = old_client.close()
                     if inspect.isawaitable(res):
                         await res
             except Exception as e:
                 logger.warning(f"Error closing existing Gemini client: {e}")
-            _gemini_client = None
 
         if not CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
             error_msg = "Gemini client is disabled in config."
             logger.info(error_msg)
+            _gemini_client = None
+            _gemini_client_auth_source = None
             _initialization_error = error_msg
             return False
 
@@ -204,3 +208,24 @@ def get_gemini_client():
         raise GeminiClientNotInitializedError(error_detail)
 
     return _gemini_client
+
+
+async def close_gemini_client() -> None:
+    """Close and clear the process-global Gemini client state."""
+    global _gemini_client, _initialization_error, _gemini_client_auth_source
+
+    async with _gemini_client_init_lock:
+        client = _gemini_client
+        _gemini_client = None
+        _gemini_client_auth_source = None
+        _initialization_error = None
+
+        if client is None:
+            return
+
+        try:
+            result = client.close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.warning(f"Error closing Gemini client during shutdown: {e}")
