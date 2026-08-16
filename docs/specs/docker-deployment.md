@@ -24,7 +24,7 @@ The **Docker Deployment Model** provides environment parity across development, 
 The containerized environment operates under defined technical constraints to ensure predictable and consistent automation.
 
 ### 2.1 Base Operating System & Driver Packages
-- **Base Image**: Uses the Playwright-native standard image `mcr.microsoft.com/playwright/python:v1.52.0-noble`.
+- **Base Image**: Uses the Playwright-native standard image `mcr.microsoft.com/playwright/python:v1.62.0-noble`.
 - **Pre-configured Drivers**: Contains system-level dependencies for running headless Chromium processes without needing runtime package downloads.
 
 ### 2.2 System & Python Environment Variables
@@ -179,7 +179,7 @@ Because the production-only container maps only persistent runtime state directo
 
 ### 7.2 Version Alignment
 > WARNING:
-> The Playwright library version installed via `requirements.txt` (e.g., `playwright==1.52.0`) MUST match the browser driver versions packed inside the base image (`mcr.microsoft.com/playwright/python:v1.52.0-noble`). Mismatches between the library and driver versions can lead to runtime execution failures during browser automation.
+> The Playwright library version installed via `requirements.txt` (e.g., `playwright==1.62.0`) MUST match the browser driver versions packed inside the base image (`mcr.microsoft.com/playwright/python:v1.62.0-noble`). Mismatches between the library and driver versions can lead to runtime execution failures during browser automation.
 
 ### 7.3 Frequently Asked Questions
 
