@@ -8,6 +8,17 @@ from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
 
 
+@pytest.fixture(autouse=True)
+def reset_gemini_client_state():
+    gemini_client_module._gemini_client = None
+    gemini_client_module._initialization_error = None
+    gemini_client_module._gemini_client_auth_source = None
+    yield
+    gemini_client_module._gemini_client = None
+    gemini_client_module._initialization_error = None
+    gemini_client_module._gemini_client_auth_source = None
+
+
 class Status:
     def __init__(self, name):
         self.name = name

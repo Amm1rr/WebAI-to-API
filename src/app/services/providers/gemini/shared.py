@@ -127,24 +127,25 @@ PLAYWRIGHT_GEMINI_MODEL_UI_LABELS = {
 
 PLAYWRIGHT_GEMINI_PROVIDER_NAMESPACE = "playwright/gemini"
 
-def get_gemini_models() -> List[dict]:
-    """Return the canonical list of supported Gemini models in OpenAI format."""
-    from gemini_webapi.constants import Model
+def get_gemini_models(runtime_models: Optional[List[Any]] = None) -> List[dict]:
+    """Return runtime WebAPI models followed by canonical Playwright models."""
     ts = int(time.time())
-    
-    # 1. Standard WebAPI Models
-    models = [
-        {
-            "id": model.model_name,
+
+    models = []
+    seen_ids = set()
+    for model in runtime_models or []:
+        model_id = getattr(model, "model_name", None)
+        if getattr(model, "is_available", False) is not True or not model_id or model_id in seen_ids:
+            continue
+        seen_ids.add(model_id)
+        models.append({
+            "id": model_id,
             "object": "model",
             "created": ts,
             "owned_by": "google",
-        }
-        for model in Model
-        if model != Model.UNSPECIFIED
-    ]
-    
-    # 2. Playwright-native Models
+        })
+
+    # Playwright-native models
     for model_id in PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.keys():
         models.append({
             "id": f"playwright/{model_id}",

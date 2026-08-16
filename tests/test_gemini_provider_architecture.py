@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from fastapi import HTTPException
 from app.config import load_config
 from app.services.providers.gemini.provider import GeminiProvider
@@ -18,7 +19,15 @@ def test_invalid_gemini_backend_config_fails_fast(tmp_path):
 
 @pytest.mark.asyncio
 async def test_list_models_stability_across_backends(mocker):
-    """Verify that list_models returns the same list regardless of the configured backend."""
+    """Verify that list_models returns runtime WebAPI and Playwright models."""
+    runtime_models = [
+        SimpleNamespace(model_name="gemini-runtime", is_available=True),
+    ]
+    mocker.patch(
+        "app.services.providers.gemini.provider.get_gemini_client",
+        return_value=SimpleNamespace(list_models=lambda: runtime_models),
+    )
+
     # 1. Test with webapi backend
     mocker.patch("app.services.providers.gemini.provider.CONFIG", {"Gemini": {"backend": "webapi"}})
     provider_webapi = GeminiProvider()
@@ -32,9 +41,8 @@ async def test_list_models_stability_across_backends(mocker):
     # 3. Verify stability
     assert models_webapi == models_playwright
     assert len(models_webapi) > 0
-    assert any("gemini-3" in m["id"] for m in models_webapi)
-    # Ensure it's not just the single "gemini" model from Playwright
-    assert len(models_webapi) > 1
+    assert "gemini-runtime" in [m["id"] for m in models_webapi]
+    assert any(m["id"].startswith("playwright/") for m in models_webapi)
 
 def test_import_graph_safety():
     """Verify that components can be imported without relying on package-level side effects."""

@@ -8,7 +8,7 @@ from app.services.providers.gemini.playwright_adapter import (
     PlaywrightRequestState, 
     PlaywrightAdapterConfig
 )
-from app.services.providers.gemini.shared import PLAYWRIGHT_GEMINI_MODEL_UI_LABELS
+from app.services.providers.gemini.shared import PLAYWRIGHT_GEMINI_MODEL_UI_LABELS, get_gemini_models
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.errors import TransientSessionError, GatedModelError, ModelNotFoundError
 from app.services.browser.auth_types import AuthStatus
@@ -263,12 +263,9 @@ async def test_select_model_collision_prevention_flash_vs_lite(adapter, mock_pag
     assert opt_flash.click.call_count == 1
     assert opt_lite.click.call_count == 0
 
-@pytest.mark.asyncio
-async def test_get_gemini_models_discovery_consistency():
-    """Verify that get_gemini_models returns exactly the verified playwright models."""
-    from app.services.providers.gemini.shared import get_gemini_models
-    
-    models = get_gemini_models()
+def test_get_gemini_models_preserves_playwright_models_without_runtime_catalog():
+    """Runtime catalog absence must not remove Playwright models."""
+    models = get_gemini_models(None)
     model_ids = [m["id"] for m in models]
     
     # 1. Verify exactly these models exist

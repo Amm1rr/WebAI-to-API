@@ -35,6 +35,10 @@ class MyGeminiClient:
         """Resolve a model against upstream's account-discovered catalog."""
         return self.client.resolve_model(model_name)
 
+    def list_models(self):
+        """Return the account-discovered model catalog."""
+        return self.client.list_models()
+
     async def _persist_cookies(self) -> None:
         """
         No-op under unified-auth-state architecture.
