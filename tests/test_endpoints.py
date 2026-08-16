@@ -264,6 +264,26 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
 
 
 @pytest.mark.asyncio
+async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_generation(mocker):
+    mock_client = mocker.Mock()
+    mock_client.resolve_model.side_effect = ValueError("Unknown model name: gemini-3")
+    mock_client.generate_content = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+
+    payload = {
+        "model": "gemini-3",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/v1/temporary/chat/completions", json=payload)
+
+    assert response.status_code == 400
+    assert "Unknown model name: gemini-3" in response.json()["detail"]
+    mock_client.generate_content.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_temporary_chat_completions_endpoint_streaming(mocker):
     """Verify /v1/temporary/chat/completions streams SSE chunks and forwards temporary=True."""
     async def mock_stream():

@@ -31,6 +31,10 @@ class MyGeminiClient:
         """Initialize the Gemini client."""
         await self.client.init(**kwargs)
 
+    def resolve_model(self, model_name: str):
+        """Resolve a model against upstream's account-discovered catalog."""
+        return self.client.resolve_model(model_name)
+
     async def _persist_cookies(self) -> None:
         """
         No-op under unified-auth-state architecture.

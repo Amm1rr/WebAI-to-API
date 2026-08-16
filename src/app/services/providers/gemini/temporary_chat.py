@@ -40,7 +40,7 @@ class TemporaryChatRequestContext:
     gem: str | None
 
 
-def _resolve_temporary_chat_model(request: OpenAIChatRequest) -> str:
+def _resolve_temporary_chat_model(request: OpenAIChatRequest, gemini_client) -> str:
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
 
@@ -75,7 +75,7 @@ def _resolve_temporary_chat_model(request: OpenAIChatRequest) -> str:
     if model.startswith("gemini/"):
         model = model.split("/", 1)[1].strip()
 
-    validate_model_name(model)
+    validate_model_name(model, gemini_client)
     return model
 
 
@@ -87,8 +87,8 @@ def _streaming_headers() -> dict[str, str]:
     }
 
 
-def _prepare_temporary_chat_request(request: OpenAIChatRequest) -> TemporaryChatRequestContext:
-    model = _resolve_temporary_chat_model(request)
+def _prepare_temporary_chat_request(request: OpenAIChatRequest, gemini_client) -> TemporaryChatRequestContext:
+    model = _resolve_temporary_chat_model(request, gemini_client)
     normalized = normalize_openai_chat_messages(request.messages, allow_file_parts=True)
     tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
     prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
@@ -211,7 +211,7 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
     except GeminiClientNotInitializedError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    prepared = _prepare_temporary_chat_request(request)
+    prepared = _prepare_temporary_chat_request(request, gemini_client)
     cleanup_once = _build_cleanup_once(prepared.normalized)
 
     try:

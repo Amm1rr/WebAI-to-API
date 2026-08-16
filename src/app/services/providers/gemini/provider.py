@@ -15,7 +15,7 @@ from app.utils.tokens import generate_opaque_token
 from app.schemas.request import OpenAIChatRequest
 from app.config import CONFIG
 
-from app.services.providers.gemini.shared import validate_model_name, build_tools_prompt
+from app.services.providers.gemini.shared import build_tools_prompt
 from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.playwright_adapter import GeminiPlaywrightAdapter
 
@@ -51,8 +51,6 @@ class GeminiProvider(BaseProvider):
         # Apply default model if none provided
         if not request.model:
             request.model = CONFIG["Gemini"].get("default_model", "gemini-3-flash")
-
-        validate_model_name(request.model)
 
         # 1. Resolve or generate conversation_id securely
         cid = request.conversation_id
