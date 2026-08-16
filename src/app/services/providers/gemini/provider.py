@@ -18,6 +18,7 @@ from app.config import CONFIG
 from app.services.providers.gemini.shared import build_tools_prompt
 from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.playwright_adapter import GeminiPlaywrightAdapter
+from app.services.providers.gemini.client import GeminiClientNotInitializedError, get_gemini_client
 
 class GeminiProvider(BaseProvider):
     """
@@ -122,7 +123,13 @@ class GeminiProvider(BaseProvider):
 
     async def list_models(self, allow_stale: bool = False) -> List[dict]:
         from app.services.providers.gemini.shared import get_gemini_models
-        return get_gemini_models()
+
+        try:
+            runtime_models = get_gemini_client().list_models()
+        except GeminiClientNotInitializedError:
+            runtime_models = None
+
+        return get_gemini_models(runtime_models)
 
     async def close(self) -> None:
         await self.webapi_adapter.close()

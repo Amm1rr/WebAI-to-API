@@ -8,6 +8,7 @@ from gemini_webapi.exceptions import APIError, AuthError
 from app.services.providers.base_repository import ConversationSnapshot
 from app.services.providers.exceptions import ConversationInUseError
 from app.services.providers.gemini.provider import GeminiProvider
+from app.services.providers.gemini.client import GeminiClientNotInitializedError
 from app.services.providers.gemini.session_manager import SessionRegistry
 from app.services.providers.gemini.webapi_response_builder import (
     build_choice_artifacts,
@@ -33,6 +34,69 @@ def make_delete_snapshot(conversation_id="conv-delete", remote_cid="c_remote_del
         schema_version=1,
         updated_at=datetime.now(timezone.utc),
     )
+
+
+def test_my_gemini_client_exposes_runtime_models(mocker):
+    from app.services.providers.gemini.webapi_client import MyGeminiClient
+
+    client = MyGeminiClient(secure_1psid="test", secure_1psidts="test")
+    client.client.list_models = mocker.Mock(return_value=["runtime-model"])
+
+    assert client.list_models() == ["runtime-model"]
+    client.client.list_models.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runtime_models", [None, []])
+async def test_list_models_without_runtime_catalog_returns_playwright_only(mocker, runtime_models):
+    mocker.patch(
+        "app.services.providers.gemini.provider.get_gemini_client",
+        return_value=SimpleNamespace(list_models=lambda: runtime_models),
+    )
+
+    models = await GeminiProvider().list_models()
+    model_ids = [model["id"] for model in models]
+
+    assert not any(model_id.startswith("gemini-") for model_id in model_ids)
+    assert "playwright/gemini-3.1-pro" in model_ids
+    assert "playwright/gemini/gemini-3.1-pro" in model_ids
+
+
+@pytest.mark.asyncio
+async def test_list_models_filters_unavailable_and_deduplicates_runtime_models(mocker):
+    runtime_models = [
+        SimpleNamespace(model_id="hex-1", model_name="gemini-first", is_available=True, aliases=["alias"]),
+        SimpleNamespace(model_id="hex-2", model_name="gemini-hidden", is_available=False, aliases=[]),
+        SimpleNamespace(model_id="hex-3", model_name="gemini-first", is_available=True, aliases=[]),
+        SimpleNamespace(model_id="hex-4", model_name="gemini-second", is_available=True, aliases=["other"]),
+    ]
+    mocker.patch(
+        "app.services.providers.gemini.provider.get_gemini_client",
+        return_value=SimpleNamespace(list_models=lambda: runtime_models),
+    )
+
+    models = await GeminiProvider().list_models()
+    model_ids = [model["id"] for model in models]
+    runtime_entries = [model for model in models if not model["id"].startswith("playwright/")]
+
+    assert model_ids[:2] == ["gemini-first", "gemini-second"]
+    assert len(runtime_entries) == 2
+    assert "gemini-hidden" not in model_ids
+    assert "hex-1" not in model_ids
+    assert "alias" not in model_ids
+
+
+@pytest.mark.asyncio
+async def test_list_models_handles_uninitialized_runtime_client(mocker):
+    mocker.patch(
+        "app.services.providers.gemini.provider.get_gemini_client",
+        side_effect=GeminiClientNotInitializedError("not initialized"),
+    )
+
+    models = await GeminiProvider().list_models()
+
+    assert any(model["id"] == "playwright/gemini-3.5-flash" for model in models)
+    assert not any(model["id"] == "gemini-pro" for model in models)
 
 
 def make_delete_client(mocker, status_name="AVAILABLE"):
