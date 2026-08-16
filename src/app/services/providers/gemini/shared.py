@@ -15,6 +15,14 @@ def is_unknown_model_error(error: ValueError) -> bool:
     """Check if the error is due to an unknown model name."""
     return "Unknown model name" in str(error)
 
+
+def _ensure_model_available(model: str, resolved_model: Any) -> None:
+    if getattr(resolved_model, "is_available", None) is not True:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model}' is not available for the current Gemini account or session.",
+        )
+
 def validate_model_name(model: Optional[str], gemini_client: Any = None) -> None:
     """Validate a WebAPI model against the initialized runtime model catalog."""
     if not model:
@@ -29,7 +37,8 @@ def validate_model_name(model: Optional[str], gemini_client: Any = None) -> None
         gemini_client = get_gemini_client()
 
     try:
-        gemini_client.resolve_model(resolve_model_name(model))
+        resolved_model = gemini_client.resolve_model(resolve_model_name(model))
+        _ensure_model_available(model, resolved_model)
     except ValueError as e:
         if is_unknown_model_error(e):
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -49,7 +58,8 @@ def validate_direct_webapi_model_name(model: Optional[str], gemini_client: Any) 
         )
 
     try:
-        gemini_client.resolve_model(resolved_model)
+        resolved = gemini_client.resolve_model(resolved_model)
+        _ensure_model_available(model, resolved)
     except ValueError as e:
         if is_unknown_model_error(e):
             raise HTTPException(status_code=400, detail=str(e)) from e

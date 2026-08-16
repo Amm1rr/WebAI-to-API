@@ -536,6 +536,7 @@ async def test_gemini_webapi_adapter_passes_files_to_buffered_session(mocker):
         client=SimpleNamespace(account_status=SimpleNamespace(name="AVAILABLE")),
         resolve_model=mocker.Mock(),
     )
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock()
     mock_manager = mocker.Mock()
     mock_response = SimpleNamespace(text="buffered response")
@@ -588,6 +589,7 @@ async def test_gemini_webapi_adapter_passes_files_to_streaming_session(mocker):
         client=SimpleNamespace(account_status=SimpleNamespace(name="AVAILABLE")),
         resolve_model=mocker.Mock(),
     )
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock()
     mock_manager = mocker.Mock()
 
@@ -653,6 +655,7 @@ async def test_gemini_webapi_adapter_cleans_up_on_provider_error(mocker):
         client=SimpleNamespace(account_status=SimpleNamespace(name="AVAILABLE")),
         resolve_model=mocker.Mock(),
     )
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock()
     mock_manager = mocker.Mock()
     mock_manager.get_response_stateful = mocker.AsyncMock(side_effect=RuntimeError("boom"))

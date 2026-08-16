@@ -865,6 +865,7 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     
@@ -953,6 +954,34 @@ async def test_chat_completions_invalid_model_streaming_returns_400_before_strea
 
     assert exc_info.value.status_code == 400
     assert "Unknown model name: gemini-3" in exc_info.value.detail
+    mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_unavailable_model_returns_400_before_session_use(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.providers.gemini.session_manager import SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(
+        model_name="gemini-3-flash", is_available=False
+    )
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3-flash",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 400
+    assert "not available for the current Gemini account or session" in exc_info.value.detail
     mock_registry.get_session.assert_not_called()
 
 
@@ -1051,6 +1080,7 @@ async def test_chat_completions_with_stale_conversation_id_returns_410(mocker, p
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     mock_manager.get_response_stateful = mocker.AsyncMock(
@@ -1089,6 +1119,7 @@ async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_err
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     mock_manager.get_response_stateful = mocker.AsyncMock(
@@ -1130,6 +1161,7 @@ async def test_chat_completions_stateful_streaming(mocker, provider):
     
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
     
@@ -1197,6 +1229,7 @@ async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_be
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
 
@@ -1283,6 +1316,7 @@ async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artif
 
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_manager = mocker.Mock(spec=SessionManager)
 
@@ -1432,9 +1466,23 @@ def test_validate_model_name_uses_runtime_resolver_for_aliases(mocker, alias, re
     from app.services.providers.gemini.shared import validate_model_name
 
     client = mocker.Mock()
+    client.resolve_model.return_value = SimpleNamespace(model_name=resolved, is_available=True)
     validate_model_name(alias, client)
 
     client.resolve_model.assert_called_once_with(resolved)
+
+
+def test_runtime_model_catalog_excludes_unavailable_models():
+    from app.services.providers.gemini.shared import get_gemini_models
+
+    models = get_gemini_models([
+        SimpleNamespace(model_name="gemini-available", is_available=True),
+        SimpleNamespace(model_name="gemini-unavailable", is_available=False),
+    ])
+
+    model_ids = [model["id"] for model in models]
+    assert "gemini-available" in model_ids
+    assert "gemini-unavailable" not in model_ids
 
 
 def test_validate_model_name_bypasses_playwright_models(mocker):
