@@ -6,6 +6,7 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
+from app.services.providers.gemini.client import GeminiClientNotInitializedError
 from app.services.providers.atlas import AtlasProvider
 
 @pytest.mark.asyncio
@@ -103,6 +104,7 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
     mock_response = SimpleNamespace(text="Translated response")
 
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
 
     mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
@@ -129,6 +131,100 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["unknown-model", "playwright/gemini-3.1-pro", "atlas/model"])
+async def test_translate_rejects_invalid_direct_webapi_models_before_generation(mocker, model):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    if "/" not in model:
+        mock_client.resolve_model.side_effect = ValueError(f"Unknown model name: {model}")
+    mock_client.generate_content = mocker.AsyncMock()
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"model": model, "message": "Translate this text"})
+
+    assert response.status_code == 400
+    mock_client.generate_content.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "resolved_model"),
+    [("flash", "gemini-3-flash"), ("pro", "gemini-3-pro"), ("thinking", "gemini-3-flash-thinking")],
+)
+async def test_translate_validates_and_preserves_aliases(mocker, model, resolved_model):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name=resolved_model)
+    mock_client.generate_content = mocker.AsyncMock(return_value=SimpleNamespace(text="translated"))
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"model": model, "message": "Translate this text"})
+
+    assert response.status_code == 200
+    mock_client.resolve_model.assert_called_once_with(resolved_model)
+    mock_client.generate_content.assert_awaited_once_with(
+        "Translate this text",
+        model,
+        files=[],
+        gem=None,
+        temporary=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_translate_client_unavailable_precedes_model_validation(mocker):
+    mocker.patch(
+        "app.endpoints.chat.get_gemini_client",
+        side_effect=GeminiClientNotInitializedError("client unavailable"),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"model": "unknown-model", "message": "Translate this text"})
+
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_name", "expected_status"),
+    [("UNAUTHENTICATED", 401), ("BLOCKED", 503)],
+)
+async def test_translate_readiness_precedes_model_validation(mocker, status_name, expected_status):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = status_name
+    mock_client.resolve_model = mocker.Mock()
+    mock_client.generate_content = mocker.AsyncMock()
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"model": "unknown-model", "message": "Translate this text"})
+
+    assert response.status_code == expected_status
+    if status_name == "UNAUTHENTICATED":
+        assert response.json()["detail"] == "Gemini authentication is required. Please sign in and try again."
+        assert "conversation_id" not in response.json()["detail"]
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+    mock_client.resolve_model.assert_not_called()
+    mock_client.generate_content.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_translate_non_model_value_error_remains_500(mocker):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash")
+    mock_client.generate_content = mocker.AsyncMock(side_effect=ValueError("generation failed"))
+    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"message": "Translate this text"})
+
+    assert response.status_code == 500
+
+
+@pytest.mark.asyncio
 async def test_translate_requests_execute_concurrently_and_independently(mocker):
     """Verify /translate uses independent direct Gemini requests."""
     entered = asyncio.Event()
@@ -143,6 +239,7 @@ async def test_translate_requests_execute_concurrently_and_independently(mocker)
         return SimpleNamespace(text=f"translated:{message}")
 
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.generate_content = generate_content
     mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
     mocker.patch(
@@ -180,6 +277,7 @@ async def test_translate_failure_does_not_block_other_request(mocker):
         return SimpleNamespace(text="good result")
 
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.generate_content = generate_content
     mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
 

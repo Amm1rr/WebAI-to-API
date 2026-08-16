@@ -35,6 +35,50 @@ def validate_model_name(model: Optional[str], gemini_client: Any = None) -> None
             raise HTTPException(status_code=400, detail=str(e)) from e
         raise
 
+
+def validate_direct_webapi_model_name(model: Optional[str], gemini_client: Any) -> None:
+    """Validate a model for direct WebAPI endpoints without provider routing."""
+    if not model:
+        return
+
+    resolved_model = resolve_model_name(model)
+    if "/" in resolved_model:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model}' is not supported by the Gemini WebAPI endpoint.",
+        )
+
+    try:
+        gemini_client.resolve_model(resolved_model)
+    except ValueError as e:
+        if is_unknown_model_error(e):
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        raise
+
+
+def ensure_gemini_client_ready(
+    gemini_client: Any,
+    *,
+    unauthenticated_detail: Optional[str] = None,
+) -> None:
+    """Raise the standard HTTP error for a non-ready Gemini client."""
+    account_status = getattr(gemini_client.client, "account_status", None)
+    status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
+    if status_name == "AVAILABLE":
+        return
+
+    logger.warning(f"Gemini client account status is '{status_name}'.")
+    if status_name == "UNAUTHENTICATED":
+        raise HTTPException(
+            status_code=401,
+            detail=unauthenticated_detail or "Gemini authentication is required. Please sign in and try again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    raise HTTPException(
+        status_code=401 if status_name == "UNKNOWN" else 503,
+        detail=f"Gemini client is not ready (status: {status_name}).",
+    )
+
 def build_tools_prompt(tools: list) -> str:
     """Convert OpenAI tool definitions to a system prompt for Gemini."""
     declarations = []
