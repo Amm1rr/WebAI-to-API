@@ -1,6 +1,7 @@
 # src/run.py
 import argparse
 import asyncio
+import os
 import sys
 import uvicorn
 # --- App and Service Imports ---
@@ -18,10 +19,29 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run the WebAI-to-API server."
     )
-    parser.add_argument("--host", type=str, default="localhost", help="Host IP address")
-    parser.add_argument("--port", type=int, default=6969, help="Port number")
-    parser.add_argument("--log-level", type=str, default=None, help="Logging level (DEBUG, INFO, WARNING, ERROR)")
-    parser.add_argument("--disable-access-logs", action="store_true", help="Disable HTTP access logs")
+    parser.add_argument(
+        "--host", 
+        type=str, 
+        default=os.getenv("WEBAI_HOST", "localhost"), 
+        help="Host IP address"
+    )
+    # Check WEBAI_PORT first, then standard PORT, then 6969
+    env_port = os.getenv("WEBAI_PORT") or os.getenv("PORT")
+    parser.add_argument(
+        "--port", 
+        type=int, 
+        default=int(env_port) if env_port else 6969, 
+        help="Port number"
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Enable auto-reloading for WebAI mode"
+    )
+    parser.add_argument(
+        "--log-level", type=str, default=None, help="Logging level (DEBUG, INFO, WARNING, ERROR)"
+    )
+    parser.add_argument(
+        "--disable-access-logs", action="store_true", help="Disable HTTP access logs"
+    )
     args = parser.parse_args()
 
     # Resolve configuration options

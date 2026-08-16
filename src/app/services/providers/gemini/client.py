@@ -60,7 +60,7 @@ async def init_gemini_client() -> bool:
             _initialization_error = error_msg
             return False
 
-        gemini_proxy = CONFIG["Proxy"].get("http_proxy")
+        gemini_proxy = os.getenv("GEMINI_PROXY") or CONFIG["Proxy"].get("http_proxy")
         if gemini_proxy == "":
             gemini_proxy = None
 

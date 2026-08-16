@@ -1,7 +1,7 @@
-# src/app/config.py
 import configparser
 import logging
 import os
+from typing import Optional
 
 from app.env import load_local_env
 
@@ -26,7 +26,10 @@ def get_default_playwright_cache_dir() -> str:
     return os.path.join(get_runtime_dir(), "cache", "playwright")
 
 
-def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
+def load_config(config_file: Optional[str] = None) -> configparser.ConfigParser:
+    if config_file is None:
+        config_file = os.getenv("WEBAI_CONFIG_PATH", "config.conf")
+    
     config = configparser.ConfigParser()
     config.optionxform = str  # Preserve case for cookie names
     try:
@@ -43,6 +46,12 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     # Set default sections and values if they don't exist
     if "Browser" not in config:
         config["Browser"] = {"name": "chrome"}
+    
+    # Environment variable overrides
+    env_browser = os.getenv("WEBAI_BROWSER")
+    if env_browser:
+        config["Browser"]["name"] = env_browser
+
     if "Cookies" not in config:
         config["Cookies"] = {}
     if "Proxy" not in config:
