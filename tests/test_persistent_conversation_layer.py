@@ -57,6 +57,9 @@ class MockGeminiClient:
         self.sessions.append(session)
         return session
 
+    def resolve_model(self, model_name):
+        return SimpleNamespace(model_name=model_name)
+
 
 @pytest.mark.asyncio
 async def test_session_manager_get_response_passes_temporary_flag(mocker):

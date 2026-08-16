@@ -15,8 +15,8 @@ def is_unknown_model_error(error: ValueError) -> bool:
     """Check if the error is due to an unknown model name."""
     return "Unknown model name" in str(error)
 
-def validate_model_name(model: Optional[str]) -> None:
-    """Validate the Gemini model name using the official constants."""
+def validate_model_name(model: Optional[str], gemini_client: Any = None) -> None:
+    """Validate a WebAPI model against the initialized runtime model catalog."""
     if not model:
         return
 
@@ -24,10 +24,12 @@ def validate_model_name(model: Optional[str]) -> None:
     if model.startswith("playwright/"):
         return
 
-    from gemini_webapi.constants import Model
+    if gemini_client is None:
+        from app.services.gemini_client import get_gemini_client
+        gemini_client = get_gemini_client()
 
     try:
-        Model.from_name(resolve_model_name(model))
+        gemini_client.resolve_model(resolve_model_name(model))
     except ValueError as e:
         if is_unknown_model_error(e):
             raise HTTPException(status_code=400, detail=str(e)) from e

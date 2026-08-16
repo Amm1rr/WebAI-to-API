@@ -843,7 +843,10 @@ async def test_chat_completions_invalid_model_buffered_returns_400_before_sessio
     from app.schemas.request import OpenAIChatRequest
     from app.services.providers.gemini.session_manager import SessionRegistry
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.side_effect = ValueError("Unknown model name: gemini-3")
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
@@ -867,7 +870,10 @@ async def test_chat_completions_invalid_model_streaming_returns_400_before_strea
     from app.schemas.request import OpenAIChatRequest
     from app.services.providers.gemini.session_manager import SessionRegistry
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mocker.Mock())
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.side_effect = ValueError("Unknown model name: gemini-3")
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
     mock_registry = mocker.Mock(spec=SessionRegistry)
     mock_registry.get_session = mocker.AsyncMock()
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
@@ -901,7 +907,7 @@ async def test_chat_completions_with_conversation_id_requires_authenticated_clie
 
     request = OpenAIChatRequest(
         messages=[{"role": "user", "content": "What is my name?"}],
-        model="gemini-3-flash",
+        model="gemini-3",
         conversation_id="existing-conversation",
         stream=False,
     )
@@ -915,6 +921,34 @@ async def test_chat_completions_with_conversation_id_requires_authenticated_clie
         "Please sign in and try again."
     )
     assert exc_info.value.headers["WWW-Authenticate"] == "Bearer"
+    mock_client.resolve_model.assert_not_called()
+    mock_registry.get_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_unavailable_client_precedes_model_validation(mocker, provider):
+    from app.schemas.request import OpenAIChatRequest
+    from app.services.providers.gemini.session_manager import SessionRegistry
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "BLOCKED"
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry.get_session = mocker.AsyncMock()
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    request = OpenAIChatRequest(
+        messages=[{"role": "user", "content": "What is my name?"}],
+        model="gemini-3",
+        conversation_id="existing-conversation",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(request)
+
+    assert exc_info.value.status_code == 503
+    mock_client.resolve_model.assert_not_called()
     mock_registry.get_session.assert_not_called()
 
 
@@ -1292,6 +1326,7 @@ async def test_my_gemini_client_forwards_temporary_flag(mocker):
     underlying_client.generate_content = mocker.AsyncMock(
         return_value=SimpleNamespace(text="ok")
     )
+    underlying_client.resolve_model = mocker.Mock(return_value=SimpleNamespace(model_name="gemini-3-flash"))
 
     async def mock_stream():
         yield SimpleNamespace(text_delta="chunk")
@@ -1301,6 +1336,8 @@ async def test_my_gemini_client_forwards_temporary_flag(mocker):
 
     await client.generate_content("hello", "gemini-3-flash", temporary=True)
     stream = await client.generate_content_stream("hello", "gemini-3-flash", temporary=True)
+    assert client.resolve_model("gemini-3-flash").model_name == "gemini-3-flash"
+    underlying_client.resolve_model.assert_called_once_with("gemini-3-flash")
 
     assert hasattr(stream, "__aiter__")
     underlying_client.generate_content.assert_awaited_once_with(
@@ -1317,3 +1354,29 @@ async def test_my_gemini_client_forwards_temporary_flag(mocker):
         gem=None,
         temporary=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("alias", "resolved"),
+    [
+        ("flash", "gemini-3-flash"),
+        ("pro", "gemini-3-pro"),
+        ("thinking", "gemini-3-flash-thinking"),
+    ],
+)
+def test_validate_model_name_uses_runtime_resolver_for_aliases(mocker, alias, resolved):
+    from app.services.providers.gemini.shared import validate_model_name
+
+    client = mocker.Mock()
+    validate_model_name(alias, client)
+
+    client.resolve_model.assert_called_once_with(resolved)
+
+
+def test_validate_model_name_bypasses_playwright_models(mocker):
+    from app.services.providers.gemini.shared import validate_model_name
+
+    client = mocker.Mock()
+    validate_model_name("playwright/gemini-3-flash", client)
+
+    client.resolve_model.assert_not_called()

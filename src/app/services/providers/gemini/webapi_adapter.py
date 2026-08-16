@@ -20,6 +20,7 @@ from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
 from app.services.providers.gemini.shared import (
     convert_to_openai_format,
     parse_tool_call,
+    validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
 )
 from app.services.providers.gemini.webapi_response_builder import (
@@ -334,6 +335,8 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                 status_code=401 if status_name == "UNKNOWN" else 503,
                 detail=f"Gemini client is not ready (status: {status_name}).",
             )
+
+        validate_model_name(request.model, gemini_client)
 
         # 1. Retrieve stateful SessionManager from SessionRegistry
         registry = get_gemini_chat_registry()
