@@ -1,23 +1,7 @@
 # src/app/schemas/request.py
-from enum import Enum
 from typing import Any, Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
-
-class GeminiModels(str, Enum):
-    """
-    An enumeration of the available Gemini models.
-    """
-
-    # Gemini 3 Series
-    PRO = "gemini-3-pro"
-    FLASH = "gemini-3-flash"
-    FLASH_THINKING = "gemini-3-flash-thinking"
-
-    # Default model
-    DEFAULT = "unspecified"
-    
-
 
 class GeminiRequest(BaseModel):
     message: str

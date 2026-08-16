@@ -35,7 +35,7 @@ name = chrome
 #
 # Default Model:
 # Choose the model to be used when none is specified in the request.
-# Available models: gemini-3-pro, gemini-3-flash, gemini-3-flash-thinking, unspecified
+# Default Gemini model. Runtime availability is discovered from the current account.
 #
 # Optional manual Gemini WebAPI authentication.
 # Prefer browser login which stores auth state in runtime/auth/gemini.json.
