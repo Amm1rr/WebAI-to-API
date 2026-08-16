@@ -91,6 +91,8 @@ AI Agents working on the concurrency or locking logic must adhere to these stric
 
 ## 6. Gemini Conversation Sessions
 
+This section applies to persistent conversations using `conversation_id`, primarily `/v1/chat/completions`. It does not apply to stateless temporary endpoints such as `/translate` and `/v1/temporary/chat/completions`.
+
 ### 6.1 Per-Session Locking via SessionManager.lock
 Each `SessionManager` utilizes an internal `asyncio.Lock` (`self.lock`) to serialize all stateful completion and streaming operations under the same `conversation_id`. Every request accessing a specific conversation must acquire this lock before mutating the session or sending messages.
 
@@ -124,5 +126,4 @@ The lock safety and event-loop-safe guarantees of this concurrency model depend 
 * Within the supported deployment model, SessionRegistry and SessionManager execute inside a single asyncio event loop per worker process.
 * The atomic update of `active_streams` and lock acquisition relies on the fact that context switches only occur at explicit `await` boundaries.
 * **Important**: This model assumes a single-event-loop execution environment. It is not designed or proven as a universal guarantee across arbitrary multi-threaded or multi-worker systems running without proper IPC/distributed locking.
-
 

@@ -152,7 +152,7 @@ It supports streaming, non-streaming, multimodal file inputs, and artifact outpu
 
 The `/translate` endpoint is maintained for compatibility with the [Translate It!](https://github.com/iSegaro/Translate-It/) browser extension.
 
-It uses Gemini temporary requests and a shared in-memory session. See [docs/api.md](docs/api.md) for additional details.
+It uses stateless Gemini temporary requests with no conversation state. Independent requests can execute concurrently at the application layer. See [docs/api.md](docs/api.md) for additional details.
 
 ### File Support
 

@@ -25,7 +25,7 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | `/v1beta/models/{model}` | Compatibility | No | N/A | Yes | Google Generative AI compatibility bridge. |
 | `/gemini` | Legacy | No | Stateless | Yes | Original MVP endpoint. No session state. |
 | `/gemini-chat` | Legacy | No | In-memory | Yes | Simple session state; does not survive restarts. |
-| `/translate` | Specialized | No | Shared In-memory | No | Shared global context for "Translate It!"; Gemini WebAPI requests are temporary and are not persisted in Gemini history. |
+| `/translate` | Specialized | No | Stateless temporary | No | Independent Gemini WebAPI requests through the shared authenticated client; no conversation state or Gemini history persistence. |
 | `/v1/gems` | Utilities | Yes | N/A | No | Gemini "Gems" enumeration. |
 
 ## 3. Primary Contract: /v1/chat/completions
@@ -131,7 +131,7 @@ Persistence semantics vary significantly across endpoints and across `/v1/chat/c
 | `/v1/chat/completions` - Gemini Playwright | Provider-dependent | Provider-side URL-backed | Navigate to `https://gemini.google.com/app/{conversation_id}`; reuse `PersistentTab` when still in memory. |
 | `/v1/chat/completions` - Atlas | No | Stateless | No local conversation persistence; requests are forwarded independently. |
 | `/gemini-chat` | No | In-memory only | Volatile; lost on server shutdown or crash. |
-| `/translate` | No | Shared In-memory | Volatile; uses a singleton shared across all users. |
+| `/translate` | No | Stateless temporary | No conversation state; requests use `temporary=True` and execute independently. |
 | `/gemini` | N/A | Stateless | Every request is a fresh, isolated session. |
 
 ## 6. Compatibility Layer Contract
@@ -158,9 +158,10 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 ### `/translate`
 
 - **Status**: **Supported (Specialized)**.
-- **Context Sharing**: Intentionally uses a **shared global session** by design. This is optimized for high-frequency, short-prompt translation extension workloads.
-- **Risk**: There is **no privacy isolation** between users of this endpoint as it uses a shared global session. It is intended primarily for personal or trusted environments.
-- **Temporary Requests**: Gemini WebAPI requests issued through this endpoint are temporary and are not saved in Gemini history.
+- **Execution**: Uses stateless per-request Gemini WebAPI calls through the shared authenticated client.
+- **Conversation State**: Requests do not share conversation state and are not persisted in Gemini history.
+- **Temporary Requests**: Gemini WebAPI requests use `temporary=True`.
+- **Concurrency**: Independent requests can execute concurrently at the application layer. Dependency, network, and Gemini remote limits still apply.
 - **Retention**: Maintained as long as the "Translate It!" extension remains a primary project use case.
 
 ### `/v1/temporary/chat/completions`
