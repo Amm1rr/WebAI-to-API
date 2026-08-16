@@ -418,25 +418,21 @@ class SessionRegistry:
                         break
 
 
-# Global instances
-_translate_session_manager = None
+# Global persistent-chat registry.
 _gemini_chat_registry = None
 
 async def init_session_managers():
     """
-    Initialize session managers. 
-    /translate keeps its singleton legacy manager.
-    /gemini-chat moves to the new SessionRegistry.
+    Initialize persistent chat session managers.
     If already initialized, safely updates client references in all active 
     session managers and registries to preserve runtime/concurrency state.
     """
-    global _translate_session_manager, _gemini_chat_registry
+    global _gemini_chat_registry
     try:
         client = get_gemini_client()
         
         # If already initialized, safely update their client references to preserve runtime state
-        if _translate_session_manager is not None and _gemini_chat_registry is not None:
-            _translate_session_manager.client = client
+        if _gemini_chat_registry is not None:
             await _gemini_chat_registry.update_client(client)
             logger.info("Session managers safely updated with new client reference.")
             return
@@ -447,13 +443,9 @@ async def init_session_managers():
             db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", get_default_conversation_snapshot_db())
         )
         repository.initialize_sync()
-        _translate_session_manager = SessionManager(client)
         _gemini_chat_registry = SessionRegistry(client, repository=repository)
     except GeminiClientNotInitializedError:
         logger.warning("Session managers not initialized: Gemini client not available.")
-
-def get_translate_session_manager():
-    return _translate_session_manager
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry

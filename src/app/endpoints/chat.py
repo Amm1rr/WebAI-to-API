@@ -9,7 +9,6 @@ from app.openapi.chat_completions import (
 )
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
-from app.services.providers.gemini.session_manager import get_translate_session_manager
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
 from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
@@ -51,7 +50,7 @@ async def list_gems():
     "/translate",
     tags=["Translation"],
     summary="Translate Extension Compatibility",
-    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint uses a shared global in-memory session, sends Gemini WebAPI translation requests as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not survive server restarts. The client is responsible for sending a translation-specific prompt. For isolated or persistent translation workflows, use `/v1/chat/completions`."
+    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint executes stateless Gemini WebAPI requests concurrently, sends them as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not maintain conversation state. The client is responsible for sending a translation-specific prompt. For persistent translation workflows, use `/v1/chat/completions`."
 )
 async def translate_chat(request: GeminiRequest):
     try:
@@ -59,15 +58,12 @@ async def translate_chat(request: GeminiRequest):
     except GeminiClientNotInitializedError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    session_manager = get_translate_session_manager()
-    if not session_manager:
-        raise HTTPException(status_code=503, detail="Session manager is not initialized.")
     try:
-        response = await session_manager.get_response(
-            request.model,
+        response = await gemini_client.generate_content(
             request.message,
-            request.files,
-            request.gem,
+            request.model,
+            files=request.files,
+            gem=request.gem,
             temporary=True,
         )
         return {"response": response.text}
