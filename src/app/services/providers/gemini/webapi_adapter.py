@@ -19,6 +19,7 @@ from app.services.providers.exceptions import (
 from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
 from app.services.providers.gemini.shared import (
     convert_to_openai_format,
+    ensure_gemini_client_ready,
     parse_tool_call,
     validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
@@ -51,20 +52,13 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
         except GeminiClientNotInitializedError as e:
             raise HTTPException(status_code=503, detail=str(e))
 
-        account_status = getattr(gemini_client.client, "account_status", None)
-        status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
-        if status_name != "AVAILABLE":
-            logger.warning(f"Gemini client account status is '{status_name}'.")
-            if status_name == "UNAUTHENTICATED":
-                raise HTTPException(
-                    status_code=401,
-                    detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            raise HTTPException(
-                status_code=401 if status_name == "UNKNOWN" else 503,
-                detail=f"Gemini client is not ready (status: {status_name}).",
-            )
+        ensure_gemini_client_ready(
+            gemini_client,
+            unauthenticated_detail=(
+                "The provided conversation_id requires an authenticated Gemini session. "
+                "Please sign in and try again."
+            ),
+        )
 
         return gemini_client
 
@@ -319,22 +313,13 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             cleanup_started = True
             await cleanup_staged_files(normalized)
 
-        # Check client authentication status
-        account_status = getattr(gemini_client.client, "account_status", None)
-        status_name = getattr(account_status, "name", "UNKNOWN") if account_status else "UNKNOWN"
-        
-        if status_name != "AVAILABLE":
-            logger.warning(f"Gemini client account status is '{status_name}'.")
-            if status_name == "UNAUTHENTICATED":
-                raise HTTPException(
-                    status_code=401,
-                    detail="The provided conversation_id requires an authenticated Gemini session. Please sign in and try again.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            raise HTTPException(
-                status_code=401 if status_name == "UNKNOWN" else 503,
-                detail=f"Gemini client is not ready (status: {status_name}).",
-            )
+        ensure_gemini_client_ready(
+            gemini_client,
+            unauthenticated_detail=(
+                "The provided conversation_id requires an authenticated Gemini session. "
+                "Please sign in and try again."
+            ),
+        )
 
         validate_model_name(request.model, gemini_client)
 

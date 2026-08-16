@@ -12,6 +12,10 @@ from app.services.gemini_client import get_gemini_client, GeminiClientNotInitial
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
 from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
+from app.services.providers.gemini.shared import (
+    ensure_gemini_client_ready,
+    validate_direct_webapi_model_name,
+)
 
 router = APIRouter()
 
@@ -59,6 +63,8 @@ async def translate_chat(request: GeminiRequest):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
+        ensure_gemini_client_ready(gemini_client)
+        validate_direct_webapi_model_name(request.model, gemini_client)
         response = await gemini_client.generate_content(
             request.message,
             request.model,
@@ -67,6 +73,8 @@ async def translate_chat(request: GeminiRequest):
             temporary=True,
         )
         return {"response": response.text}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
