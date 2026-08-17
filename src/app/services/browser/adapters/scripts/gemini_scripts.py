@@ -8,7 +8,7 @@ Stream lifecycle and orchestration remain completely owned by the Python orchest
 
 SELECTORS = {
     "INPUT": 'div[contenteditable="true"][role="textbox"], textarea.gds-body-l, textarea[placeholder*="Gemini"]',
-    "SEND_BUTTON": 'button.send-button, button[aria-label*="Send message"], [data-test-id="send-button"]',
+    "SEND_BUTTON": 'button.send-button, button[aria-label*="Send message"], button[aria-label="Send"], [data-test-id="send-button"]',
     "STOP_BUTTON": 'button[aria-label*="Stop"], .stop-button',
     "RESPONSE_CONTAINER": 'message-content, .message-content, [data-test-id="message-content"]',
     "MODEL_PICKER": 'button[aria-label*="Open mode picker"]',
@@ -79,7 +79,11 @@ STREAM_EXTRACTOR_SCRIPT = f"""
                 return false;
             }}
             const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden';
+            return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                el.getAttribute('aria-hidden') !== 'true'
+            );
         }} catch (e) {{
             return !!el;
         }}
@@ -102,6 +106,30 @@ STREAM_EXTRACTOR_SCRIPT = f"""
     const hasMeaningfulContent = (text) => {{
         if (!text) return false;
         return text.replace(/[\\s\\u200B\\u200C\\u200D\\uFEFF]+/g, "").length > 0;
+    }};
+
+    const getMatchingElements = (selector) => {{
+        try {{
+            return Array.from(document.querySelectorAll(selector));
+        }} catch (e) {{
+            return [];
+        }}
+    }};
+
+    const isControlEnabled = (element) => {{
+        return !element.disabled && element.getAttribute("aria-disabled") !== "true";
+    }};
+
+    const getSendState = () => {{
+        const visible = getMatchingElements('{SELECTORS["SEND_BUTTON"]}').filter(isElementVisible);
+        return {{
+            hasReady: visible.some(isControlEnabled),
+            hasBusy: visible.some((element) => !isControlEnabled(element))
+        }};
+    }};
+
+    const hasVisibleStopButton = () => {{
+        return getMatchingElements('{SELECTORS["STOP_BUTTON"]}').some(isElementVisible);
     }};
 
     // Initialize Global Request Registry (Singleton for the window)
@@ -264,10 +292,9 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         try {{
             if (state.cleanedUp || state.done) return;
             
-            const sendButton = document.querySelector('{SELECTORS["SEND_BUTTON"]}');
-            const stopButton = document.querySelector('{SELECTORS["STOP_BUTTON"]}');
-            const isStopVisible = isElementVisible(stopButton);
-            const isGenerating = (state.responseContainer && sendButton && sendButton.disabled) || isStopVisible;
+            const sendState = getSendState();
+            const isStopVisible = hasVisibleStopButton();
+            const isGenerating = (state.responseContainer && sendState.hasBusy) || isStopVisible;
 
             // INVARIANT: Transition to 'started' is strictly one-way
             if (isGenerating && !state.started) {{
@@ -276,7 +303,7 @@ STREAM_EXTRACTOR_SCRIPT = f"""
             }}
 
             // INVARIANT: Completion required a detected start and a stable idle state
-            if (state.started && state.responseContainer && sendButton && !sendButton.disabled && !isStopVisible) {{
+            if (state.started && state.responseContainer && sendState.hasReady && !isStopVisible) {{
                 // Terminal State Transition
                 state.done = true;
                 
