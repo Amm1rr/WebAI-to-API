@@ -26,8 +26,8 @@ This document specifies the architectural governance, runtime contracts, and ope
 The system operates according to a strict ownership hierarchy and state machine.
 
 ### 2.1 Component Hierarchy
-1. **BrowserEngine**: Global singleton. Authoritative orchestrator for the core Chromium process and coordinator for terminal shutdown.
-2. **ProviderSession**: Created per provider (Gemini, etc.). Authoritative owner of the `BrowserContext`, the `keepalive_page`, and session-scoped recovery logic (context recreation, tab invalidation).
+1. **BrowserEngine**: Global singleton. Authoritative owner of Playwright, Browser, browser generation, shutdown intent/source, provider-session registry, and terminal orchestration.
+2. **ProviderSession**: Created per provider (Gemini, etc.). Authoritative owner of the `BrowserContext`, `keepalive_page`, PersistentTabs/pages, lifecycle tasks, active-request abort/signal handles, and session-scoped recovery logic.
 3. **AuthManager**: Provider-agnostic orchestrator for authentication lifecycle, concurrency locks, and background login tasks.
 4. **ManagedPage**: Request-scoped resource container. Authoritatively owns exactly one semaphore permit and one `PersistentTab` lease.
 5. **PersistentTab**: Long-lived browser page in the session registry. Owns its individual `_lock` and internal state.
@@ -46,10 +46,11 @@ The system operates according to a strict ownership hierarchy and state machine.
 To prevent deadlocks, locks must be acquired strictly in this order. Acquiring out-of-order is strictly forbidden:
 1. `BrowserEngine.management_lock` (Global orchestration)
 2. `ProviderSession.init_lock` (Session setup/recovery)
-3. `ProviderSession.registry_lock` (Synchronous registry mutations only)
-4. `PersistentTab._lock` (Individual tab operations)
+3. `ProviderSession._cleanup_lock` (Serialized session cleanup)
+4. `ProviderSession.registry_lock` (Synchronous registry mutations only)
+5. `PersistentTab._lock` (Individual tab operations)
 
-**Discipline**: `registry_lock` must NEVER be held across `await` points or long-running Playwright operations. Violating this scope discipline risks global request starvation.
+**Discipline**: `registry_lock` must NEVER be held across `await` points or long-running Playwright operations. `close_resources()` must not acquire `init_lock`; no production `init_lock` → `management_lock` path exists. Violating this scope discipline risks global request starvation.
 
 ### 3.2 Semaphore & Lease Semantics
 - **Exclusivity**: Active browser operations require a valid lease on a `PersistentTab`.
@@ -72,13 +73,14 @@ Providers must implement:
 - **Ordered Processing**: Bridge events for a single `request_id` must be processed in strict FIFO order.
 - **Failure Isolation**: Bounded queue overflow or request-level errors result in terminal request failure but must not poison the broader `ProviderSession`.
 - **Bridge Cleanup**: Request-scoped bridge state MUST be deterministically removed after stream termination.
+- **Post-Header Terminal Streams**: Expected `BrowserDisconnectedError` and `BrowserShuttingDownError` must be handled inside the stream iterator after SSE headers are sent; do not let them escape to ASGI or emit `[DONE]` for terminal truncation.
 
 ---
 
 ## 5. Failure & Recovery Boundaries
 
 - **Self-Healing (Recoverable)**: Transient transport or UI errors (timeouts, selector fails) trigger session-scoped recovery. Providers identify and escalate these conditions; `ProviderSession` executes the authoritative recovery.
-- **Terminal Shutdown (Non-Recoverable)**: Manual window closure or global disconnect triggers irreversible engine shutdown via `BrowserEngine`.
+- **Terminal Shutdown (Non-Recoverable)**: Manual window closure or global disconnect triggers irreversible engine shutdown via `BrowserEngine`; application shutdown intent suppresses duplicate crash orchestration while still terminating active browser operations.
 - **Window Liveness**: `browser.is_connected()` is NOT an authoritative signal for visible window liveness. Runtime components MUST verify `keepalive_page.is_closed()`.
 - **Poisoned Pages**: Crashed or corrupted tabs are permanently invalidated and never reused.
 

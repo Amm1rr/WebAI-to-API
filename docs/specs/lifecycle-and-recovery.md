@@ -6,8 +6,9 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 
 ### 1.1 Generation Rollover & Invalidation
 - **Generation ID**: The engine maintains a `browser_generation` counter.
-- **Trigger**: Every new browser process launch increments this counter.
-- **Initialization State**: A newly created session starts with `last_browser_generation = None` and is not associated with any browser generation until its first context initialization.- **Propagation**: Sessions track `last_browser_generation`. A generation rollover is detected only after the session has been initialized (`last_browser_generation is not None`) and the tracked generation differs from the engine generation. On rollover detection, the session MUST purge all registry tabs immediately.
+- **Trigger**: Every successful new Browser process launch increments this counter. A failed launch leaves it unchanged.
+- **Initialization State**: A newly created session starts with `last_browser_generation = None` and is not associated with any browser generation until its first context initialization.
+- **Propagation**: Sessions track `last_browser_generation`. A generation rollover is detected only after the session has been initialized (`last_browser_generation is not None`) and the tracked generation differs from the engine generation. On rollover detection, the session MUST purge all registry tabs immediately.
 - **Invalidation Invariant**: A generation rollover permanently invalidates all existing `PersistentTab` leases. Old tabs/pages from previous generations are stale and MUST NEVER be reused.
 
 
@@ -20,6 +21,18 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 - **Convergence**: Concurrent `ensure_healthy()` calls must converge into a single recovery path.
 - **Serialization**: Redundant context recreation races are suppressed via `ProviderSession.init_lock`. Only the first caller performs the setup; subsequent concurrent callers wait and verify the new state.
 
+### 1.4 Browser Replacement Order
+Unhealthy-browser replacement runs under `BrowserEngine.management_lock`:
+
+1. Clean ProviderSessions bound to old lifecycle/resources and wait for active cleanup.
+2. Close or skip old Browser.
+3. Stop old Playwright.
+4. Launch new Playwright and Browser.
+5. Publish the successful launch by incrementing `browser_generation`.
+6. Set up ProviderSession contexts.
+
+ProviderSessions observe/store `last_browser_generation`; they do not choose generations. A close callback from generation N cannot terminate generation N+1.
+
 ## 2. Window Liveness & Terminal Shutdown
 
 ### 2.1 The "Zombie" Chromium Problem
@@ -28,15 +41,31 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 - **Hardening**: `ProviderSession.is_alive` MUST check `keepalive_page.is_closed()`.
 
 ### 2.2 Deterministic Shutdown Ordering
-To ensure resource integrity, terminal shutdown MUST follow this exact sequence:
-1. **Halt**: Stop accepting new request work.
-2. **Flag**: Set `is_shutting_down = True`.
-3. **Drain**: Allow active requests a 15s grace period to complete.
-4. **Cancel**: Terminate all background loops (reaper, autosave, eviction).
-5. **Persist**: Atomically save context state to disk.
-6. **Release**: Physically close contexts and the Playwright browser process.
+Application shutdown follows:
 
-**Shutdown Invariant**: Once the shutdown sequence begins, all future recovery attempts MUST fail immediately.
+1. `ApplicationServer.handle_exit()` marks `shutdown_requested(source="application")`.
+2. Uvicorn drains active connections while new page/session admission is rejected.
+3. FastAPI lifespan calls `BrowserEngine.close(source="application")`.
+4. Existing requests receive up to 15 seconds to finish; remaining requests receive request-owned abort callbacks.
+5. ProviderSession lifecycle tasks are cancelled/drained and ProviderSession resources close.
+6. Browser closes or is skipped, then Playwright stops.
+
+ProviderSession resources always close before Browser, and Browser before Playwright. Runtime terminal cleanup uses `save_state=False`; bootstrap/manual auth cleanup may use `save_state=True`.
+
+**Shutdown Invariant**: Once shutdown intent exists, no new recovery or admission may begin. Workers recheck shutdown state after acquiring `init_lock` and before cleanup. Existing recovery may be cancelled and awaited during terminal cleanup.
+
+### 2.3 Context Close Classification
+- **Intentional close**: ProviderSession cleanup owns the context close and marks it so the callback cannot trigger terminal shutdown.
+- **Stale callback**: A callback for an old context or generation is ignored.
+- **Unexpected current-context close**: Without shutdown intent or an intentional marker, this triggers browser-disconnect terminal behavior.
+- **Application shutdown**: Current-context closure is expected activity and does not restart crash recovery or shutdown orchestration. Active requests still receive immediate terminal browser-disconnect signals when their browser resource disappears.
+
+### 2.4 Active Request Termination
+Browser/page/context loss signals the request terminal event immediately. Before SSE headers are sent, `BrowserRequestExecutor` maps terminal `BrowserDisconnectedError` through the existing HTTP 502 contract. After headers are sent, the stream boundary consumes the terminal state without waiting for queue, chunk, total, or request timeout. If a raw Playwright close error arrives later for the same closure, the recorded terminal browser-disconnect state takes precedence; raw Playwright errors without that state retain existing behavior.
+
+Request cleanup owns lease and semaphore release. BrowserEngine never decrements lease counters directly.
+
+During application shutdown, an active stream may already have sent headers when browser or shutdown termination occurs. The stream boundary consumes that terminal state, ends without `[DONE]`, and still completes request cleanup and lease release.
 
 ## 3. Recovery Boundaries
 
@@ -60,6 +89,8 @@ The system classifies failures into two categories with distinct response protoc
     - Manual window closure.
     - Explicit browser disconnect.
     - System-level shutdown signal (`SIGINT`).
+
+An application shutdown signal establishes shutdown intent before connection drain; it does not start a second crash-classification path.
 
 ### 3.3 Recovery Failure Escalation
 If recovery itself fails, the failure MUST be escalated:

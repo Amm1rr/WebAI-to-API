@@ -13,9 +13,11 @@ The `BrowserEngine` operates according to a strict state machine. Transitions in
 - **CLOSED**: All resources (browser, contexts, loops) have been released.
 
 ### State Rules:
-- **Terminal Shutdown / Decoupled Intent**: To prevent diagnostic race conditions and clean up cleanly, the engine decouples shutdown intention from execution:
-  - `is_shutting_down` (Public Boolean): Lifecycle intention flag. Declares the *intent* to terminate. Set immediately when any signal is captured or teardown begins to block concurrent work, prevent loop execution, and suppress connection warning logs during event loop closures. External signal handlers or parent process wrappers may choose to set `is_shutting_down = True` on the engine singleton. Such integrations must be validated against the application's shutdown lifecycle.
-  - `_shutdown_started` (Private Boolean): `close()` execution guard. Protects the physical teardown actions of closing browser processes and stopping Playwright. It must only be modified inside `close()` under the `management_lock`. Upstream or external systems must never mutate `_shutdown_started`.
+- **Terminal Shutdown / Decoupled Intent**: The engine decouples shutdown intention from execution:
+  - `shutdown_requested` records lifecycle admission closure and first-writer-owned shutdown source (`application`, `browser-disconnect`, or `manual/internal`).
+  - `is_shutting_down` indicates that BrowserEngine terminal teardown is active and blocks recovery while active.
+  - `_shutdown_started` is the internal idempotency guard for `close()` execution. It is managed by `close()` under `management_lock`.
+- **Application Shutdown**: `ApplicationServer.handle_exit()` marks application shutdown intent before delegating to Uvicorn. Uvicorn drains connections; FastAPI lifespan later calls `BrowserEngine.close(source="application")`.
 - **No Resurrection**: A `CLOSED` engine can never transition back to `HEALTHY`. A new process instance must be created.
 - **Enforcement**: Any call to `ensure_healthy()` during `SHUTTING_DOWN` or `CLOSED` must raise `RuntimeError("Browser engine is shutting down")`.
 
@@ -23,16 +25,18 @@ The `BrowserEngine` operates according to a strict state machine. Transitions in
 
 The runtime follows a strict ownership hierarchy. Resource cleanup must cascade down this chain.
 
-1. **BrowserEngine**: Global singleton. Owns the Playwright process and the `management_lock`.
-2. **ProviderSession**: Created per provider. Owns the `BrowserContext`, the `keepalive_page`, and background loops (`reaper`, `autosave`, `eviction`).
+1. **BrowserEngine**: Global singleton. Owns the Playwright instance, Browser process, browser generation, shutdown intent/source, provider-session registry, and terminal lifecycle orchestration.
+2. **ProviderSession**: Created per provider. Owns the `BrowserContext`, `keepalive_page`, `PersistentTab` pages, lifecycle tasks, and active-request abort/signal handles.
    - **Page Ownership**: `ProviderSession` is solely responsible for the creation, monitoring, and cleanup of its `keepalive_page`.
    - **Separation of Concerns**: `BrowserEngine` must not manipulate the `keepalive_page` directly outside of session teardown orchestration.
 3. **ManagedPage**: Request-scoped lease. Owns exactly one semaphore permit and potentially one `PersistentTab` lease.
 4. **PersistentTab**: Long-lived browser page. Owns its individual `_lock` and state.
+5. **BrowserRequestExecutor**: Owns one request lifecycle state, terminal event/error, request task, observer/queue tasks, and lease release through request cleanup.
 
 ### Authority Rules:
 - **Teardown Authority**: `BrowserEngine.close()` is the ONLY authoritative entry point for terminal shutdown. 
-- **Direct Closure Forbidden**: Contributors must never call `browser.close()` or `context.close()` directly without triggering the engine's shutdown sequence to ensure background loops are cancelled.
+- **Parent-Child Teardown**: ProviderSession resources close before the parent Browser, and the Browser closes before Playwright stops, during both replacement and terminal shutdown.
+- **Context Closure Authority**: Arbitrary callers and provider adapters must not close the context directly. ProviderSession lifecycle cleanup is the authorized BrowserContext owner.
 - **Cleanup Ownership**: `ManagedPage` is responsible for releasing its own permits and leases, even during request cancellation (must be wrapped in `asyncio.shield`).
 
 ## 3. Zombie Chromium & Window Liveness
@@ -55,9 +59,11 @@ The system distinguishes between recoverable transient failures and non-recovera
 
 ### Non-Recoverable (Triggers Terminal Shutdown):
 - Manual browser window closure.
-- Explicit `BrowserContext` closure.
+- Unexpected closure of the current `BrowserContext`.
 - Global `disconnected` lifecycle event from Playwright.
 - System-wide resource exhaustion or engine shutdown initiation.
+
+Intentional BrowserContext closure performed by ProviderSession lifecycle cleanup is not a terminal failure.
 
 **Philosophy**: The system prefers terminal shutdown over aggressive recreation when the user-visible interface is terminated.
 
@@ -67,16 +73,48 @@ The system distinguishes between recoverable transient failures and non-recovera
 To prevent deadlocks, locks must always be acquired in this order. Acquiring locks out-of-order is strictly **forbidden**, as violating this contract introduces deterministic deadlocks:
 1. `BrowserEngine.management_lock` (Global orchestration)
 2. `ProviderSession.init_lock` (Session setup/recovery)
-3. `ProviderSession.registry_lock` (Registry lookups/mutations)
-4. `PersistentTab._lock` (Individual tab operations)
+3. `ProviderSession._cleanup_lock` (Serialized session cleanup)
+4. `ProviderSession.registry_lock` (Registry lookups/mutations)
+5. `PersistentTab._lock` (Individual tab operations)
+
+`conversation_lock` is independent. Production code has no `init_lock` to `management_lock` acquisition path. `close_resources()` must not acquire `init_lock`; `_setup_locked()` assumes management and init locks are held, `_setup()` acquires them in order, and `_ensure_healthy_browser()` assumes management-lock ownership.
+
+### 5.2 Browser Replacement
+Unhealthy-browser replacement follows this order:
+
+1. Detect unhealthy Browser under `management_lock`.
+2. Clean ProviderSessions bound to old lifecycle/resources and wait for in-progress cleanup.
+3. Close or skip old Browser, then stop old Playwright.
+4. Launch new Playwright and Browser.
+5. Increment `browser_generation` only after successful Browser launch.
+6. Set up ProviderSession contexts against the new generation.
+
+Failed launch leaves the generation unchanged. ProviderSessions observe and store `last_browser_generation`; they do not choose generation values. Context callbacks from generation N cannot terminate generation N+1.
 
 
 ## 6. Async Safety Constraints
 
 - **Event Loop Teardown**: Callback scheduling in event listeners must use `asyncio.get_running_loop().create_task()` wrapped in `try/except RuntimeError` to avoid crashes during late-stage interpreter shutdown.
 - **Fire-and-Forget**: Shutdown handlers must be non-blocking. Schedule the teardown task and return immediately to allow Playwright's event loop to progress.
+- **Cleanup Serialization**: `ProviderSession._cleanup_lock` detaches the context before awaiting its close, makes repeated/concurrent cleanup safe, and treats already-disconnected contexts as benign. Unexpected close failures remain visible. Active cleanup counts as lifecycle-active for replacement decisions.
+- **Task Ownership**: ProviderSession tracks context-close callback, recovery, recovery-wrapper, and orphan-cleanup tasks. BrowserEngine tracks disconnect-triggered close tasks. Project-owned task exceptions are retrieved/logged; request observer and queue tasks remain request-owned and are awaited or cancelled.
+- **Terminal Request Drain**: Application shutdown rejects new admissions, allows existing requests up to the 15-second drain deadline, then triggers request-owned abort callbacks. Request cleanup releases leases and semaphores; BrowserEngine never mutates lease counters.
 
-## 7. AI Agent Rules
+## 7. Context Close Semantics
+
+- **Intentional close**: ProviderSession lifecycle cleanup must not trigger terminal browser shutdown.
+- **Stale callback**: A callback for an old context or generation is ignored when identity or generation is no longer current.
+- **Unexpected current close**: A current-generation/current-context close without shutdown intent or an intentional marker triggers browser-disconnect terminal behavior.
+- **Application shutdown**: Current-context closure is expected shutdown activity and must not start crash recovery or duplicate shutdown orchestration. Active requests still receive an immediate terminal browser-disconnect signal if their browser resource disappears.
+
+## 8. Terminal Browser Cleanup
+
+- If public Browser state confirms disconnection, explicit `browser.close()` is skipped.
+- A public Playwright close error is benign only when state confirms disconnection afterward.
+- If Browser remains connected, close failure remains a warning; generic non-Playwright close exceptions remain visible regardless of connection state.
+- Browser cleanup always precedes Playwright stop and uses no private Playwright exception or API.
+
+## 9. AI Agent Rules
 
 AI Agents working on this runtime must adhere to these strict constraints to prevent architectural drift:
 

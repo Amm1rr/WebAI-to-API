@@ -133,7 +133,7 @@ Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requ
 * `playwright/*` models are rejected with HTTP 400
 * `atlas/*` models and `provider=atlas` are rejected with HTTP 400
 * File parts are staged per request and cleaned up after completion
-* Streaming responses still emit OpenAI-compatible SSE chunks and `[DONE]`
+* Successful streaming responses emit OpenAI-compatible SSE chunks and `[DONE]`; terminally truncated streams may end without `[DONE]`
 ---
 
 ### GET `/v1/conversations`
