@@ -96,37 +96,68 @@ AI Agents working on lifecycle or recovery logic must adhere to these strict con
 
 Conversation recovery is provider/backend-dependent. Browser lifecycle recovery remains owned by `BrowserEngine` and `ProviderSession`; conversation continuity for a chat request is owned by the selected provider/backend.
 
-### 7.1 Gemini WebAPI SessionRegistry
+### 7.1 Gemini WebAPI Generation Authority
+
+Gemini lifecycle generation IDs are chosen only by `init_gemini_client()`.
+
+- The initial generation ID is selected by lifecycle initialization.
+- Replacement generation IDs are selected by lifecycle initialization.
+- `_register_generation(client, generation)` registers an explicit ID; it never chooses one.
+- Request, session, registry, restore, and streaming paths MUST NOT allocate, increment, or repair generation IDs.
+
+Candidate replacement follows this commit order:
+
+1. Initialize candidate client.
+2. Select and register candidate generation.
+3. Update the session registry with the explicit generation.
+4. Publish global client and current generation.
+5. Retire the old generation.
+
+If candidate initialization or registry commit fails, the candidate record is removed, the candidate is closed, and the old lifecycle state remains current.
+
+Current client, current generation, generation record, and reverse client mapping MUST remain coherent. Malformed state raises a lifecycle invariant `RuntimeError`; no implicit generation repair exists.
+
+Lifecycle error distinctions are:
+
+- `GeminiClientNotInitializedError`: initialization is unavailable.
+- `GeminiGenerationUnavailableError`: an expected stale or retired generation race.
+- `RuntimeError`: malformed lifecycle state or shutdown rejection of new lease acquisition.
+
+### 7.2 Gemini WebAPI SessionRegistry
 
 The Gemini WebAPI backend uses `SessionRegistry` as an in-memory container protected by asyncio synchronization primitives. It maps cryptographically secure opaque tokens (`conversation_id`) to `SessionManager` instances and coordinates SQLite-backed snapshot recovery through the conversation repository.
 
-### 7.2 Gemini WebAPI conversation_id Lifecycle
+The registry constructor requires a registered `(client, generation)` pair. `update_client()` and `reopen()` also require a registered generation. The registry MUST validate and propagate the supplied generation, but MUST NOT allocate, increment, or repair generation IDs. Every `SessionManager` receives the registry's exact `client_generation`; its separate `session_generation` tracks the generation of its current `ChatSession`.
+
+### 7.3 Gemini WebAPI conversation_id Lifecycle
 1. **Creation**: When a completions request is submitted without a `conversation_id`, the system generates a secure opaque token.
 2. **Registry Mapping**: The token maps to a dedicated `SessionManager` in memory, which lazily instantiates a `ChatSession`.
 3. **API Return**: The `conversation_id` token is returned as a top-level key in the standard OpenAI-compatible completions response body.
 4. **Client Preservation**: Subsequent requests by the same client present this token in the request body to continue the thread.
 
-### 7.3 Gemini WebAPI SessionManager Reuse Behavior
+### 7.4 Gemini WebAPI SessionManager Reuse Behavior
 If the registry finds an active `SessionManager` for the given token, it reuses the session if and only if the requested model and gem match. The manager acts as a long-lived state container, bypassing the initialization overhead of the client and retaining history natively.
 
-### 7.4 Gemini WebAPI Bootstrap and Persistent Recovery
+### 7.5 Gemini WebAPI Bootstrap and Persistent Recovery
 * **Bootstrapping**: On the first request of a new session, the provider concatenates the entire conversation history from `messages` to bootstrap the thread on Google's backend.
 * **Persistent Recovery**: The system utilizes a SQLite-backed repository to persist session snapshots. If a session is lost from memory (e.g., pruned due to TTL or after a server restart), the `SessionRegistry` can automatically restore the session state from the database using the supplied `conversation_id`.
 * **Durable Continuity**: For Gemini WebAPI, long-running threads can remain continuous across process restarts or container recycling, provided the `conversation_id` is preserved by the client and the corresponding SQLite snapshot exists.
 * **Missing Snapshot Behavior**: If an existing `conversation_id` is not present in memory and no valid snapshot exists, the request fails explicitly. The current implementation does not silently rebuild an existing WebAPI conversation from incoming message history.
 * **Deletion**: Gemini WebAPI deletion reserves the local `conversation_id` in `SessionRegistry` before remote deletion begins. This tombstone blocks concurrent reuse or SQLite restoration while the remote Gemini chat is being deleted and local state is being removed.
 
-### 7.5 Gemini WebAPI Restore Coordination and Generation Ownership
+### 7.6 Gemini WebAPI Restore Coordination and Generation Ownership
 Each restore captures client generation `N` and acquires a lease for that exact generation before snapshot recovery, validation, deserialization, and `ChatSession` construction. A replacement may retire `N`, but cannot close it while the restore lease remains active.
 
 Before publication, the restore rechecks registry shutdown state, the deletion tombstone, existing session, and current client/generation. A changed generation discards the candidate, releases lease `N`, and retries with the current generation. A concurrently created session may win; restore never overwrites it. Failed or cancelled restores clear in-flight coordination state. Restore preserves its existing pruning and capacity semantics.
 
-Registry shutdown closes restore admission, cancels and awaits pending restore producers, and releases their leases before Gemini client shutdown. Successful lifecycle initialization explicitly reopens the existing registry without clearing in-memory sessions; stale chat sessions retain current lazy generation rebuild behavior.
+Registry shutdown closes restore admission, cancels and awaits pending restore producers, and releases their leases before Gemini client shutdown. Successful lifecycle initialization explicitly reopens the existing registry without clearing in-memory sessions; stale chat sessions rebuild against the current explicit generation on next use.
 
-### 7.6 Gemini WebAPI Client Generation Retirement
+### 7.7 Gemini WebAPI Client Generation Retirement
 Each committed Gemini WebAPI client has a generation record. Request paths lease the generation for the duration of direct client use. Replacement marks the old generation retired; the old client closes immediately only when no leases remain, otherwise its final lease release closes it. Shutdown rejects new leases, closes zero-lease records, and preserves active-leased records until release.
 
-### 7.7 Gemini Playwright URL-Backed Continuity
+Shutdown never creates generation records. It retires all registered records, closes zero-lease records, and leaves active-leased generations alive until their final release. If the current client is malformed and is not represented by a record, shutdown defensively closes that client directly; it never creates a synthetic generation for cleanup.
+
+### 7.8 Gemini Playwright URL-Backed Continuity
 
 The Gemini Playwright backend does not use SQLite conversation snapshots. It uses two continuity mechanisms:
 
@@ -137,12 +168,12 @@ For new Playwright conversations, the provider-side `conversation_id` is discove
 
 `reused_conversation=true` in Playwright indicates live in-memory `PersistentTab` reuse. After a process restart or context recreation, Playwright may still resume the provider-side Gemini thread by URL navigation while reporting `reused_conversation=false` because no in-memory tab was reused.
 
-### 7.8 Model and Gem Switching
+### 7.9 Model and Gem Switching
 If a stateful request switches models (e.g. from `gemini-3-flash` to `gemini-3-pro`) or changes the gem ID:
 * **Gemini WebAPI**: `SessionManager._ensure_session()` detects the mismatch, replaces the `ChatSession`, and uses full prompt concatenation on the current request to bootstrap the new model/gem context.
 * **Gemini Playwright**: model/gem behavior is handled by the Playwright adapter and provider UI flow, not by SQLite snapshots.
 
-### 7.9 Session Pruning Policy
+### 7.10 Session Pruning Policy
 To protect server memory, the `SessionRegistry` passively prunes idle sessions when the cache capacity exceeds `MAX_SESSIONS = 500`.
 * **Prunability Invariant**: A session can ONLY be pruned if it is unlocked (`manager.lock` is not locked) and has `active_streams == 0` (no active progressive stream tasks).
 * **TTL Policy**: Stale sessions are evicted if their idle time exceeds `IDLE_TIMEOUT = 3600` (60 minutes).

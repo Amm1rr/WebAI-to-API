@@ -116,24 +116,35 @@ The passive pruning mechanism in `SessionRegistry` evaluates active streams to p
 ### 6.6 Multi-Tab / Multi-Agent Limitation
 The design enforces a strict 1-to-1 relationship between an active `conversation_id` and a single logical client. The system does not support a multi-tab or multi-agent paradigm where multiple independent actors concurrently interact with the exact same thread.
 
-### 6.7 Gemini Client Generation Leases
+### 6.7 Gemini Client Generation Authority and Leases
+Only Gemini lifecycle initialization chooses generation IDs. Request, restore, registry, and streaming paths use explicit generations and MUST NOT allocate, increment, register, or repair them.
+
+Generation selection, explicit registration, and publication occur under `_gemini_client_init_lock`. A replacement candidate remains private until the registry commit with its explicit generation succeeds. Request lease-counter mutations are synchronous; the registry lock protects registry state and publication checks, not generation allocation.
+
 Gemini WebAPI request paths acquire a lease for the client generation they use. A replacement retires the previous generation but does not close it while its lease count is nonzero. Buffered requests release after upstream generation and response construction; stateful streaming requests release from the generator `finally` after completion, cancellation, timeout, or failure. Retired clients close when their final lease releases. No background retirement task is used.
 
 New direct requests acquire the current client and generation atomically. Stateful requests acquire the manager's client-generation pair while holding `SessionManager.lock`; stale sessions remain subject to the existing lazy rebuild invariant.
 
-### 6.8 SessionRegistry Persistent Restore Coordination
+For stateful or temporary streams, `GeminiLeaseStreamingResponse` owns cleanup of a transferred lease around the ASGI response call. Its cleanup covers response-start failure, disconnect, cancellation, normal completion, and a body iterator that never starts. Direct `/gemini` and Google Generative streams acquire their leases inside their generators after body execution begins and release them in generator cleanup.
+
+### 6.8 SessionRegistry Generation Contract
+`SessionRegistry` construction, `update_client()`, and `reopen()` require an explicitly supplied registered generation. The registry validates and propagates that generation to each `SessionManager`; it never allocates, increments, or repairs generation IDs. `SessionManager` requires explicit `client_generation`, while `session_generation` remains separate session state.
+
+### 6.9 SessionRegistry Persistent Restore Coordination
 Persistent snapshot restoration uses one in-flight restore producer per `conversation_id`. Same-ID followers await the shared task, shielded so cancellation of one waiter does not cancel the producer. Unrelated conversation IDs continue through the registry independently.
 
 `SessionRegistry._lock` protects local registry checks, tombstones, pruning, and publication only. Snapshot I/O, validation, deserialization, and `client.start_chat()` run outside this lock. Before publication, the restore task rechecks deletion state, an existing session, the current client generation, and the capacity/pruning policy.
 
+Restore captures `(client, generation)`, acquires an exact-generation lease, performs recovery outside the registry lock, and rechecks publication state. If lifecycle advanced, it releases the stale lease and performs a typed generation retry with the current pair. Restore never registers or repairs generation state.
+
 Registry shutdown closes restore admission, cancels and awaits pending restore producers, and lets their generation leases release before Gemini client shutdown. A successfully initialized lifecycle explicitly reopens the existing registry; existing sessions remain preserved.
 
-### 6.9 Branching Conversation Corruption Risk
+### 6.10 Branching Conversation Corruption Risk
 If multiple clients concurrently reuse the same `conversation_id` and send differing messages:
 * Because they are serialized, their messages will interleave sequentially rather than branching.
 * There is a high risk of branching conversation corruption since there is no server-side history branching mechanism. The model will treat interleaving requests as one linear history, poisoning the context for all participating clients.
 
-### 6.10 Asyncio Execution Assumptions
+### 6.11 Asyncio Execution Assumptions
 The lock safety and event-loop-safe guarantees of this concurrency model depend on the cooperative multitasking model of `asyncio`.
 * Within the supported deployment model, SessionRegistry and SessionManager execute inside a single asyncio event loop per worker process.
 * The atomic update of `active_streams` and lock acquisition relies on the fact that context switches only occur at explicit `await` boundaries.
