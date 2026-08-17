@@ -201,6 +201,7 @@ async def test_intentional_provider_context_cleanup_does_not_shutdown_engine(tmp
 
     session = ProviderSession(mock_engine, "test_provider")
     context = MagicMock()
+    context.is_closed.return_value = False
     async def close_context():
         await session._on_context_closed(context)
     context.close = AsyncMock(side_effect=close_context)
@@ -833,4 +834,3 @@ async def test_www_authenticate_header_exists_on_401(monkeypatch):
     assert "Authentication expired." in excinfo.value.detail
     assert excinfo.value.headers is not None
     assert excinfo.value.headers.get("WWW-Authenticate") == "Bearer"
-

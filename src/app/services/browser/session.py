@@ -6,7 +6,7 @@ import time
 import weakref
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
-from playwright.async_api import Page, BrowserContext
+from playwright.async_api import Error as PlaywrightError, Page, BrowserContext
 
 from app.logger import logger
 from app.config import CONFIG, get_default_auth_state_dir
@@ -35,6 +35,7 @@ class ProviderSession:
         self.active_lease_count = 0
         
         self.init_lock = asyncio.Lock()   # For setup/re-init
+        self._cleanup_lock = asyncio.Lock()  # Serializes session resource cleanup.
         self.registry_lock = asyncio.Lock() # ONLY for trivial registry mutations
         self.conversation_lock = asyncio.Lock() # Protects ONLY active_conversations; MUST NOT be held simultaneously with registry_lock
         self.state_lock = asyncio.Lock()  # For disk I/O
@@ -797,6 +798,10 @@ class ProviderSession:
                     except OSError: pass
 
     async def close_resources(self, save_state: bool = True):
+        async with self._cleanup_lock:
+            await self._close_resources(save_state=save_state)
+
+    async def _close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
         try:
             logger.info(
@@ -877,18 +882,55 @@ class ProviderSession:
     
             if self.context:
                 context_to_close = self.context
+                self.context = None
                 self._mark_intentional_context_close(context_to_close)
                 try: 
-                    logger.info(f"ProviderSession({self.name}): Closing browser context...")
-                    await context_to_close.close()
+                    if context_to_close.is_closed():
+                        logger.debug(
+                            f"ProviderSession({self.name}): Browser context already closed.",
+                            extra={"generation": self.last_browser_generation},
+                        )
+                    else:
+                        logger.info(f"ProviderSession({self.name}): Closing browser context...")
+                        await context_to_close.close()
+                except PlaywrightError as close_error:
+                    try:
+                        context_closed = context_to_close.is_closed()
+                    except Exception as inspection_error:
+                        logger.warning(
+                            f"ProviderSession({self.name}): Failed to inspect browser context after close error "
+                            f"{close_error}: {inspection_error}",
+                            exc_info=(
+                                type(close_error),
+                                close_error,
+                                close_error.__traceback__,
+                            ),
+                            extra={"generation": self.last_browser_generation},
+                        )
+                    else:
+                        if context_closed:
+                            logger.debug(
+                                f"ProviderSession({self.name}): Browser context already closed during cleanup.",
+                                extra={"generation": self.last_browser_generation},
+                            )
+                        else:
+                            logger.warning(
+                                f"ProviderSession({self.name}): Failed to close browser context: {close_error}",
+                                exc_info=(
+                                    type(close_error),
+                                    close_error,
+                                    close_error.__traceback__,
+                                ),
+                                extra={"generation": self.last_browser_generation},
+                            )
                 except Exception as e:
-                    self._consume_intentional_context_close(context_to_close)
                     logger.warning(
                         f"ProviderSession({self.name}): Failed to close browser context: {e}",
                         exc_info=True,
                         extra={"generation": self.last_browser_generation}
                     )
-                self.context = None
+                finally:
+                    self._consume_intentional_context_close(context_to_close)
                 
             logger.info(
                 f"ProviderSession({self.name}): Session resources closed successfully.",
