@@ -140,7 +140,7 @@ async def test_chat_completions_endpoint_atlas(mocker):
 
 
 @pytest.mark.asyncio
-async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
+async def test_translate_endpoint_uses_temporary_gemini_requests(mocker, install_gemini_client):
     """Verify /translate forwards Gemini requests with temporary=True."""
     mock_response = SimpleNamespace(text="Translated response")
 
@@ -149,7 +149,11 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
 
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    generation = install_gemini_client(mock_client)
+    assert gemini_client_module._gemini_client is mock_client
+    assert gemini_client_module._current_gemini_generation == generation
+    assert gemini_client_module._gemini_generation_records[generation].client is mock_client
+    register = mocker.spy(gemini_client_module, "register_gemini_generation")
 
     payload = {
         "model": "gemini-3-flash",
@@ -163,6 +167,7 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
 
     assert response.status_code == 200
     assert response.json() == {"response": "Translated response"}
+    register.assert_not_called()
     mock_client.generate_content.assert_awaited_once_with(
         "Translate this text",
         "gemini-3-flash",
@@ -174,13 +179,13 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", ["unknown-model", "playwright/gemini-3.1-pro", "atlas/model"])
-async def test_translate_rejects_invalid_direct_webapi_models_before_generation(mocker, model):
+async def test_translate_rejects_invalid_direct_webapi_models_before_generation(mocker, install_gemini_client, model):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
     if "/" not in model:
         mock_client.resolve_model.side_effect = ValueError(f"Unknown model name: {model}")
     mock_client.generate_content = mocker.AsyncMock()
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"model": model, "message": "Translate this text"})
@@ -191,14 +196,14 @@ async def test_translate_rejects_invalid_direct_webapi_models_before_generation(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", ["gemini-3-flash", "flash"])
-async def test_translate_rejects_known_unavailable_model_before_generation(mocker, model):
+async def test_translate_rejects_known_unavailable_model_before_generation(mocker, install_gemini_client, model):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-3-flash", is_available=False
     )
     mock_client.generate_content = mocker.AsyncMock()
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"model": model, "message": "Translate this text"})
@@ -213,12 +218,12 @@ async def test_translate_rejects_known_unavailable_model_before_generation(mocke
     ("model", "resolved_model"),
     [("flash", "gemini-3-flash"), ("pro", "gemini-3-pro"), ("thinking", "gemini-3-flash-thinking")],
 )
-async def test_translate_validates_and_preserves_aliases(mocker, model, resolved_model):
+async def test_translate_validates_and_preserves_aliases(mocker, install_gemini_client, model, resolved_model):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name=resolved_model, is_available=True)
     mock_client.generate_content = mocker.AsyncMock(return_value=SimpleNamespace(text="translated"))
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"model": model, "message": "Translate this text"})
@@ -252,12 +257,12 @@ async def test_translate_client_unavailable_precedes_model_validation(mocker):
     ("status_name", "expected_status"),
     [("UNAUTHENTICATED", 401), ("BLOCKED", 503)],
 )
-async def test_translate_readiness_precedes_model_validation(mocker, status_name, expected_status):
+async def test_translate_readiness_precedes_model_validation(mocker, install_gemini_client, status_name, expected_status):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = status_name
     mock_client.resolve_model = mocker.Mock()
     mock_client.generate_content = mocker.AsyncMock()
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"model": "unknown-model", "message": "Translate this text"})
@@ -272,12 +277,12 @@ async def test_translate_readiness_precedes_model_validation(mocker, status_name
 
 
 @pytest.mark.asyncio
-async def test_translate_non_model_value_error_remains_500(mocker):
+async def test_translate_non_model_value_error_remains_500(mocker, install_gemini_client):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = mocker.AsyncMock(side_effect=ValueError("generation failed"))
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"message": "Translate this text"})
@@ -286,7 +291,7 @@ async def test_translate_non_model_value_error_remains_500(mocker):
 
 
 @pytest.mark.asyncio
-async def test_translate_requests_execute_concurrently_and_independently(mocker):
+async def test_translate_requests_execute_concurrently_and_independently(mocker, install_gemini_client):
     """Verify /translate uses independent direct Gemini requests."""
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -303,7 +308,7 @@ async def test_translate_requests_execute_concurrently_and_independently(mocker)
     mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = generate_content
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch(
         "app.services.providers.gemini.session_manager.SessionManager.get_response",
         side_effect=AssertionError("/translate must not use SessionManager"),
@@ -331,7 +336,7 @@ async def test_translate_requests_execute_concurrently_and_independently(mocker)
 
 
 @pytest.mark.asyncio
-async def test_translate_failure_does_not_block_other_request(mocker):
+async def test_translate_failure_does_not_block_other_request(mocker, install_gemini_client):
     """Verify one direct translation failure does not affect another request."""
     async def generate_content(message, model, *, files, gem, temporary):
         if message == "bad":
@@ -342,7 +347,7 @@ async def test_translate_failure_does_not_block_other_request(mocker):
     mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = generate_content
-    mocker.patch("app.endpoints.chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         bad, good = await asyncio.gather(
@@ -356,7 +361,7 @@ async def test_translate_failure_does_not_block_other_request(mocker):
 
 
 @pytest.mark.asyncio
-async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
+async def test_temporary_chat_completions_endpoint_non_streaming(mocker, install_gemini_client):
     """Verify /v1/temporary/chat/completions uses temporary Gemini WebAPI requests and preserves artifacts."""
     mock_response = SimpleNamespace(
         text="Temporary Gemini response",
@@ -376,7 +381,7 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
     mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
     mock_client.generate_content_stream = mocker.AsyncMock()
 
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch(
         "app.endpoints.chat.ProviderFactory.get_provider",
         side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
@@ -426,11 +431,11 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker):
 
 
 @pytest.mark.asyncio
-async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_generation(mocker):
+async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_generation(mocker, install_gemini_client):
     mock_client = mocker.Mock()
     mock_client.resolve_model.side_effect = ValueError("Unknown model name: gemini-3")
     mock_client.generate_content = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     payload = {
         "model": "gemini-3",
@@ -446,13 +451,13 @@ async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_
 
 
 @pytest.mark.asyncio
-async def test_temporary_chat_completions_rejects_known_unavailable_model_before_generation(mocker):
+async def test_temporary_chat_completions_rejects_known_unavailable_model_before_generation(mocker, install_gemini_client):
     mock_client = mocker.Mock()
     mock_client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-3-flash", is_available=False
     )
     mock_client.generate_content = mocker.AsyncMock()
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
 
     payload = {
         "model": "gemini-3-flash",
@@ -465,7 +470,7 @@ async def test_temporary_chat_completions_rejects_known_unavailable_model_before
     assert response.status_code == 400
     mock_client.generate_content.assert_not_awaited()
 @pytest.mark.asyncio
-async def test_temporary_chat_completions_endpoint_streaming(mocker):
+async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gemini_client):
     """Verify /v1/temporary/chat/completions streams SSE chunks and forwards temporary=True."""
     async def mock_stream():
         yield SimpleNamespace(
@@ -492,7 +497,8 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker):
     mock_client.generate_content = mocker.AsyncMock()
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=mock_stream())
 
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
+    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch(
         "app.endpoints.chat.ProviderFactory.get_provider",
         side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
@@ -526,6 +532,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker):
     assert "Temporary delta" in body_text
     assert "artifacts" in body_text
     assert "data: [DONE]" in body_text
+    register.assert_not_called()
     mock_client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
         "gemini-3-flash",

@@ -858,7 +858,7 @@ async def test_delete_conversations_unauthenticated_returns_same_status_as_singl
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_stateful_buffered(mocker, provider):
+async def test_chat_completions_stateful_buffered(mocker, provider, install_gemini_client):
     """Verify chat_completions retrieves SessionManager and executes stateful buffered response."""
     from app.schemas.request import OpenAIChatRequest
     from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
@@ -878,7 +878,7 @@ async def test_chat_completions_stateful_buffered(mocker, provider):
     mock_registry.save_session_snapshot = mocker.AsyncMock()
     
     # Mock global client and session registry resolution
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     
     request = OpenAIChatRequest(

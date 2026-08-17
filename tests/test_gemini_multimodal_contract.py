@@ -525,7 +525,7 @@ async def test_cleanup_staged_files_removes_temp_dir():
 
 
 @pytest.mark.asyncio
-async def test_gemini_webapi_adapter_passes_files_to_buffered_session(mocker):
+async def test_gemini_webapi_adapter_passes_files_to_buffered_session(mocker, install_gemini_client):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -550,7 +550,7 @@ async def test_gemini_webapi_adapter_passes_files_to_buffered_session(mocker):
         cleanup_dir=Path("/tmp/staged"),
     )
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     cleanup = mocker.patch(
         "app.services.providers.gemini.webapi_adapter.cleanup_staged_files",
@@ -578,7 +578,7 @@ async def test_gemini_webapi_adapter_passes_files_to_buffered_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_gemini_webapi_adapter_passes_files_to_streaming_session(mocker):
+async def test_gemini_webapi_adapter_passes_files_to_streaming_session(mocker, install_gemini_client):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -606,7 +606,7 @@ async def test_gemini_webapi_adapter_passes_files_to_streaming_session(mocker):
         cleanup_dir=Path("/tmp/staged"),
     )
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     cleanup = mocker.patch(
         "app.services.providers.gemini.webapi_adapter.cleanup_staged_files",
@@ -644,7 +644,7 @@ async def test_gemini_webapi_adapter_passes_files_to_streaming_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_gemini_webapi_adapter_cleans_up_on_provider_error(mocker):
+async def test_gemini_webapi_adapter_cleans_up_on_provider_error(mocker, install_gemini_client):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -667,7 +667,7 @@ async def test_gemini_webapi_adapter_cleans_up_on_provider_error(mocker):
         cleanup_dir=Path("/tmp/staged"),
     )
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=mock_client)
+    install_gemini_client(mock_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     cleanup = mocker.patch(
         "app.services.providers.gemini.webapi_adapter.cleanup_staged_files",

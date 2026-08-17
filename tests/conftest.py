@@ -46,6 +46,7 @@ def reset_gemini_lifecycle_state():
         gemini_client._gemini_shutdown_started = False
     except Exception:
         pass
+
     yield
     try:
         gemini_client._gemini_client = None
@@ -55,3 +56,22 @@ def reset_gemini_lifecycle_state():
         gemini_client._gemini_shutdown_started = False
     except Exception:
         pass
+
+
+@pytest.fixture
+def install_gemini_client():
+    """Install mock client as current registered Gemini lifecycle generation."""
+    def install(client, generation=0, auth_source=None):
+        import app.services.providers.gemini.client as gemini_client
+
+        if gemini_client._gemini_generation_records:
+            raise AssertionError("Test Gemini lifecycle state is already installed.")
+        gemini_client.register_gemini_generation(client, generation=generation)
+        gemini_client._gemini_client = client
+        gemini_client._current_gemini_generation = generation
+        gemini_client._gemini_shutdown_started = False
+        gemini_client._initialization_error = None
+        gemini_client._gemini_client_auth_source = auth_source
+        return generation
+
+    return install
