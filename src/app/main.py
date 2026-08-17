@@ -9,7 +9,10 @@ from app.services.providers.gemini.client import (
     close_gemini_client,
     init_gemini_client,
 )
-from app.services.providers.gemini.session_manager import init_session_managers
+from app.services.providers.gemini.session_manager import (
+    init_session_managers,
+    shutdown_session_managers,
+)
 from app.services.browser.auth_manager import get_auth_manager
 from app.logger import logger
 
@@ -78,6 +81,12 @@ async def lifespan(app: FastAPI):
             )
     except Exception as e:
         logger.error(f"[SHUTDOWN-DEBUG] Error during task inspection: {e}", exc_info=True)
+
+    try:
+        await shutdown_session_managers()
+        logger.info("Gemini session registry closed gracefully.")
+    except Exception as e:
+        logger.error(f"Error closing Gemini session registry: {e}", exc_info=True)
 
     try:
         await close_gemini_client()

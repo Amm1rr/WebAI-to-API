@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.providers.gemini.session_manager import SessionRegistry, SessionManager
+import app.services.providers.gemini.session_manager as session_manager_module
 import app.services.providers.gemini.client as gemini_client_module
 from app.utils.tokens import generate_opaque_token
 
@@ -358,6 +359,83 @@ async def test_registry_same_client_update_preserves_generation_and_session(mock
     assert manager.session_generation == session_generation
     assert manager.session is session
     client.start_chat.assert_called_once_with(model="model", gem=None)
+
+
+@pytest.mark.asyncio
+async def test_registry_reopen_same_client_same_generation(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    generation = registry.client_generation
+    register = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    await registry.shutdown()
+    await registry.reopen(client, generation=generation)
+
+    assert registry._closed is False
+    assert registry.client is client
+    assert registry.client_generation == generation
+    register.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_registry_reopen_same_client_updates_valid_generation(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    old_generation = registry.client_generation
+    new_generation = old_generation + 1
+    mocker.patch.object(
+        session_manager_module,
+        "is_gemini_generation_registered",
+        return_value=True,
+    )
+
+    await registry.shutdown()
+    await registry.reopen(client, generation=new_generation)
+
+    assert registry.client is client
+    assert registry.client_generation == new_generation
+    assert manager.client is client
+    assert manager.client_generation == new_generation
+    assert manager.session_generation is None
+
+
+@pytest.mark.asyncio
+async def test_registry_reopen_same_client_rejects_invalid_generation(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    old_generation = registry.client_generation
+    registry_state = (registry.client, registry.client_generation, manager.client_generation)
+
+    await registry.shutdown()
+    with pytest.raises(RuntimeError, match="generation is not registered"):
+        await registry.reopen(client, generation=old_generation + 1)
+
+    assert registry._closed is True
+    assert (registry.client, registry.client_generation, manager.client_generation) == registry_state
+
+
+@pytest.mark.asyncio
+async def test_registry_reopen_requires_generation_without_implicit_registration(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    register = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    await registry.shutdown()
+    with pytest.raises(RuntimeError, match="requires a registered generation"):
+        await registry.reopen(client)
+
+    assert registry._closed is True
+    register.assert_not_called()
 
 
 @pytest.mark.asyncio

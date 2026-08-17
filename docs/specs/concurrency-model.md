@@ -126,6 +126,8 @@ Persistent snapshot restoration uses one in-flight restore producer per `convers
 
 `SessionRegistry._lock` protects local registry checks, tombstones, pruning, and publication only. Snapshot I/O, validation, deserialization, and `client.start_chat()` run outside this lock. Before publication, the restore task rechecks deletion state, an existing session, the current client generation, and the capacity/pruning policy.
 
+Registry shutdown closes restore admission, cancels and awaits pending restore producers, and lets their generation leases release before Gemini client shutdown. A successfully initialized lifecycle explicitly reopens the existing registry; existing sessions remain preserved.
+
 ### 6.9 Branching Conversation Corruption Risk
 If multiple clients concurrently reuse the same `conversation_id` and send differing messages:
 * Because they are serialized, their messages will interleave sequentially rather than branching.

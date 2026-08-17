@@ -119,7 +119,9 @@ If the registry finds an active `SessionManager` for the given token, it reuses 
 ### 7.5 Gemini WebAPI Restore Coordination and Generation Ownership
 Each restore captures client generation `N` and acquires a lease for that exact generation before snapshot recovery, validation, deserialization, and `ChatSession` construction. A replacement may retire `N`, but cannot close it while the restore lease remains active.
 
-Before publication, the restore rechecks the deletion tombstone, existing session, and current client/generation. A changed generation discards the candidate, releases lease `N`, and retries with the current generation. A concurrently created session may win; restore never overwrites it. Failed or cancelled restores clear in-flight coordination state. Restore preserves its existing pruning and capacity semantics.
+Before publication, the restore rechecks registry shutdown state, the deletion tombstone, existing session, and current client/generation. A changed generation discards the candidate, releases lease `N`, and retries with the current generation. A concurrently created session may win; restore never overwrites it. Failed or cancelled restores clear in-flight coordination state. Restore preserves its existing pruning and capacity semantics.
+
+Registry shutdown closes restore admission, cancels and awaits pending restore producers, and releases their leases before Gemini client shutdown. Successful lifecycle initialization explicitly reopens the existing registry without clearing in-memory sessions; stale chat sessions retain current lazy generation rebuild behavior.
 
 ### 7.6 Gemini WebAPI Client Generation Retirement
 Each committed Gemini WebAPI client has a generation record. Request paths lease the generation for the duration of direct client use. Replacement marks the old generation retired; the old client closes immediately only when no leases remain, otherwise its final lease release closes it. Shutdown rejects new leases, closes zero-lease records, and preserves active-leased records until release.

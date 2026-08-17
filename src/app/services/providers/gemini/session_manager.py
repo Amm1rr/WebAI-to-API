@@ -326,6 +326,7 @@ class SessionRegistry:
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
         self._restore_tasks: Dict[str, asyncio.Task] = {}
+        self._closed = False
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
     async def update_client(self, client, *, generation: Optional[int] = None):
@@ -336,34 +337,62 @@ class SessionRegistry:
         but does not represent low-level hardware or CPU-level atomicity.
         """
         async with self._lock:
-            if client is self.client:
+            self._update_client_locked(client, generation=generation)
+
+    async def reopen(self, client, *, generation: Optional[int] = None) -> None:
+        """Reopen registry for a committed Gemini lifecycle generation."""
+        async with self._lock:
+            if self._closed and self._restore_tasks:
+                raise RuntimeError("Cannot reopen SessionRegistry with pending restore tasks.")
+            if generation is None:
+                raise RuntimeError("SessionRegistry reopen requires a registered generation.")
+            self._update_client_locked(client, generation=generation)
+            self._closed = False
+
+    def _update_client_locked(self, client, *, generation: Optional[int] = None) -> None:
+        if client is self.client and generation is None:
+            return
+        if generation is not None:
+            if not is_gemini_generation_registered(client=client, generation=generation):
+                raise RuntimeError("Gemini client generation is not registered.")
+            next_generation = generation
+        elif self._register_generation:
+            next_generation = register_gemini_generation(client)
+        else:
+            next_generation = self.client_generation + 1
+        if client is self.client and next_generation == self.client_generation:
+            return
+        previous_client = self.client
+        previous_generation = self.client_generation
+        previous_manager_generations = {
+            manager: manager.client_generation for manager in self._sessions.values()
+        }
+        try:
+            self.client_generation = next_generation
+            self.client = client
+            for manager in self._sessions.values():
+                manager.client = client
+                manager.client_generation = self.client_generation
+        except Exception:
+            self.client = previous_client
+            self.client_generation = previous_generation
+            for manager, generation in previous_manager_generations.items():
+                manager.client = previous_client
+                manager.client_generation = generation
+            raise
+
+    async def shutdown(self) -> None:
+        """Close restore admission and await cancellation of pending restores."""
+        async with self._lock:
+            if self._closed:
                 return
-            if generation is not None:
-                if not is_gemini_generation_registered(client=client, generation=generation):
-                    raise RuntimeError("Gemini client generation is not registered.")
-                next_generation = generation
-            elif self._register_generation:
-                next_generation = register_gemini_generation(client)
-            else:
-                next_generation = self.client_generation + 1
-            previous_client = self.client
-            previous_generation = self.client_generation
-            previous_manager_generations = {
-                manager: manager.client_generation for manager in self._sessions.values()
-            }
-            try:
-                self.client_generation = next_generation
-                self.client = client
-                for manager in self._sessions.values():
-                    manager.client = client
-                    manager.client_generation = self.client_generation
-            except Exception:
-                self.client = previous_client
-                self.client_generation = previous_generation
-                for manager, generation in previous_manager_generations.items():
-                    manager.client = previous_client
-                    manager.client_generation = generation
-                raise
+            self._closed = True
+            restore_tasks = list(self._restore_tasks.values())
+
+        for task in restore_tasks:
+            task.cancel()
+        if restore_tasks:
+            await asyncio.gather(*restore_tasks, return_exceptions=True)
 
     async def get_session(
         self,
@@ -377,6 +406,8 @@ class SessionRegistry:
         """Retrieve, restore, or create a session manager. Triggers passive cleanup."""
         restore_task = None
         async with self._lock:
+            if self._closed:
+                raise RuntimeError("Session registry is closed.")
             if conversation_id in self._deleting:
                 raise ConversationInUseError(f"Conversation is currently being deleted: {conversation_id}")
 
@@ -467,6 +498,8 @@ class SessionRegistry:
                         )
 
                         async with self._lock:
+                            if self._closed:
+                                raise RuntimeError("Session registry is closed.")
                             if conversation_id in self._deleting:
                                 raise ConversationInUseError(
                                     f"Conversation is currently being deleted: {conversation_id}"
@@ -670,7 +703,7 @@ async def init_session_managers(client, generation: int):
 
     # If already initialized, safely update client references to preserve runtime state.
     if _gemini_chat_registry is not None:
-        await _gemini_chat_registry.update_client(client, generation=generation)
+        await _gemini_chat_registry.reopen(client, generation=generation)
         logger.info("Session managers safely updated with new client reference.")
         return
 
@@ -686,6 +719,11 @@ async def init_session_managers(client, generation: int):
         register_generation=False,
         generation=generation,
     )
+
+
+async def shutdown_session_managers() -> None:
+    if _gemini_chat_registry is not None:
+        await _gemini_chat_registry.shutdown()
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry

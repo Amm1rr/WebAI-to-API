@@ -139,6 +139,14 @@ async def test_lifespan_shutdown_uses_browser_engine_not_provider_factory(mocker
     mock_auth_manager.refresh_status = mocker.Mock()
     mock_engine = mocker.Mock()
     mock_engine.close = mocker.AsyncMock()
+    shutdown_registry = mocker.patch(
+        "app.main.shutdown_session_managers",
+        new_callable=AsyncMock,
+    )
+    close_client = mocker.patch(
+        "app.main.close_gemini_client",
+        new_callable=AsyncMock,
+    )
 
     mocker.patch("app.main.init_gemini_client", new_callable=AsyncMock, return_value=True)
     mocker.patch("app.main.init_session_managers", new_callable=AsyncMock)
@@ -155,6 +163,8 @@ async def test_lifespan_shutdown_uses_browser_engine_not_provider_factory(mocker
 
     mock_engine.close.assert_awaited_once()
     close_all.assert_not_called()
+    shutdown_registry.assert_awaited_once()
+    close_client.assert_awaited_once()
 
 
 @pytest.mark.asyncio
