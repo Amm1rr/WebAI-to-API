@@ -30,11 +30,48 @@ class _FakeChatSession:
         self.calls.append((prompt, files, temporary))
         return SimpleNamespace(text="ok")
 
+
+def test_registry_constructor_uses_explicit_registered_generation(mocker, install_registry_generation):
+    client = mocker.Mock()
+    generation = install_registry_generation(client)
+    register = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    registry = SessionRegistry(
+        client,
+        register_generation=False,
+        generation=generation,
+    )
+
+    assert registry.client_generation == generation
+    register.assert_not_called()
+
+
+def test_registry_constructor_rejects_unregistered_explicit_generation(mocker, install_registry_generation):
+    client = mocker.Mock()
+    generation = install_registry_generation(client)
+
+    with pytest.raises(RuntimeError, match="generation is not registered"):
+        SessionRegistry(
+            client,
+            register_generation=False,
+            generation=generation + 1,
+        )
+
+
 @pytest.mark.asyncio
-async def test_registry_rejects_unregistered_explicit_generation(mocker):
+async def test_registry_rejects_unregistered_explicit_generation(mocker, install_registry_generation):
     old_client = mocker.Mock()
     candidate = mocker.Mock()
-    registry = SessionRegistry(old_client)
+    generation = install_registry_generation(old_client)
+    registry = SessionRegistry(
+        old_client,
+        register_generation=False,
+        generation=generation,
+    )
 
     with pytest.raises(RuntimeError, match="not registered"):
         await registry.update_client(
@@ -47,7 +84,7 @@ async def test_registry_rejects_unregistered_explicit_generation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_independent_streams(mocker):
+async def test_concurrent_independent_streams(mocker, install_registry_generation):
     """Verify independent conversations can stream simultaneously."""
     mock_client = mocker.Mock()
     mock_session = mocker.Mock()
@@ -63,7 +100,8 @@ async def test_concurrent_independent_streams(mocker):
     mock_session.send_message_stream = mock_stream
     mock_client.start_chat.return_value = mock_session
     
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     
     # Patch registry into the app if necessary, or test logic directly
     # Testing logic directly is faster and more precise for concurrency
@@ -94,7 +132,7 @@ async def test_concurrent_independent_streams(mocker):
 
 
 @pytest.mark.asyncio
-async def test_stateful_buffered_request_holds_retired_client_until_release(mocker):
+async def test_stateful_buffered_request_holds_retired_client_until_release(mocker, install_registry_generation):
     client = mocker.Mock()
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -107,7 +145,8 @@ async def test_stateful_buffered_request_holds_retired_client_until_release(mock
 
     session.send_message = send_message
     client.start_chat.return_value = session
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("lease-buffered")
     record = gemini_client_module._gemini_generation_records[manager.client_generation]
 
@@ -126,7 +165,7 @@ async def test_stateful_buffered_request_holds_retired_client_until_release(mock
 
 
 @pytest.mark.asyncio
-async def test_stateful_stream_cancellation_releases_retired_client(mocker):
+async def test_stateful_stream_cancellation_releases_retired_client(mocker, install_registry_generation):
     client = mocker.Mock()
     entered = asyncio.Event()
     session = mocker.Mock()
@@ -138,7 +177,8 @@ async def test_stateful_stream_cancellation_releases_retired_client(mocker):
 
     session.send_message_stream = send_message_stream
     client.start_chat.return_value = session
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("lease-stream")
     record = gemini_client_module._gemini_generation_records[manager.client_generation]
 
@@ -159,7 +199,7 @@ async def test_stateful_stream_cancellation_releases_retired_client(mocker):
     client.close.assert_called_once_with()
 
 @pytest.mark.asyncio
-async def test_same_session_serialization(mocker):
+async def test_same_session_serialization(mocker, install_registry_generation):
     """Verify same-conversation requests are serialized via lock."""
     mock_client = mocker.Mock()
     mock_session = mocker.Mock()
@@ -176,7 +216,8 @@ async def test_same_session_serialization(mocker):
     mock_session.send_message_stream = mock_stream
     mock_client.start_chat.return_value = mock_session
     
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     cid = "shared_conv"
     manager = await registry.get_session(cid)
     
@@ -192,7 +233,7 @@ async def test_same_session_serialization(mocker):
     assert execution_order == ["start", "end", "start", "end"]
 
 @pytest.mark.asyncio
-async def test_registry_capacity_exhaustion(mocker):
+async def test_registry_capacity_exhaustion(mocker, install_registry_generation):
     """Verify HTTP 429 when all sessions are locked."""
     from app.services.providers.gemini import session_manager
     mocker.patch(
@@ -201,7 +242,8 @@ async def test_registry_capacity_exhaustion(mocker):
     )
     
     mock_client = mocker.Mock()
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     
     # Create and lock 2 sessions
     cid1 = "c1"
@@ -216,7 +258,7 @@ async def test_registry_capacity_exhaustion(mocker):
         assert excinfo.value.status_code == 429
 
 @pytest.mark.asyncio
-async def test_pruning_protects_active_streams(mocker):
+async def test_pruning_protects_active_streams(mocker, install_registry_generation):
     """Verify that sessions with active streams are NOT pruned."""
     from app.services.providers.gemini import session_manager
     mocker.patch(
@@ -225,7 +267,8 @@ async def test_pruning_protects_active_streams(mocker):
     )
     
     mock_client = mocker.Mock()
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     
     cid1 = "active"
     m1 = await registry.get_session(cid1)
@@ -239,7 +282,7 @@ async def test_pruning_protects_active_streams(mocker):
     assert cid1 in registry._sessions # Should still exist
 
 @pytest.mark.asyncio
-async def test_sse_payload_schema_consistency(mocker):
+async def test_sse_payload_schema_consistency(mocker, install_registry_generation):
     """Verify consistent schema for both chunks and interrupts."""
     mock_client = mocker.Mock()
     mock_session = mocker.Mock()
@@ -253,7 +296,8 @@ async def test_sse_payload_schema_consistency(mocker):
     mock_session.send_message_stream = mock_stream_timeout
     mock_client.start_chat.return_value = mock_session
     
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     manager = await registry.get_session("test")
     
     results = []
@@ -267,7 +311,7 @@ async def test_sse_payload_schema_consistency(mocker):
     assert "timeout" in results[0]["reason"].lower()
 
 @pytest.mark.asyncio
-async def test_interrupted_exactly_once_on_cancel(mocker):
+async def test_interrupted_exactly_once_on_cancel(mocker, install_registry_generation):
     """Verify exactly-once interruption signal during cancellation."""
     mock_client = mocker.Mock()
     mock_session = mocker.Mock()
@@ -281,7 +325,8 @@ async def test_interrupted_exactly_once_on_cancel(mocker):
     mock_session.send_message_stream = mock_stream_cancel
     mock_client.start_chat.return_value = mock_session
     
-    registry = SessionRegistry(mock_client)
+    generation = install_registry_generation(mock_client)
+    registry = SessionRegistry(mock_client, register_generation=False, generation=generation)
     manager = await registry.get_session("test")
     
     with pytest.raises(asyncio.CancelledError):
@@ -289,12 +334,13 @@ async def test_interrupted_exactly_once_on_cancel(mocker):
             pass
 
 @pytest.mark.asyncio
-async def test_registry_update_client_updates_all(mocker):
+async def test_registry_update_client_updates_all(mocker, install_registry_generation):
     """Verify registry.update_client updates both registry and session managers."""
     mock_client1 = mocker.Mock()
     mock_client2 = mocker.Mock()
     
-    registry = SessionRegistry(mock_client1)
+    generation = install_registry_generation(mock_client1)
+    registry = SessionRegistry(mock_client1, register_generation=False, generation=generation)
     manager1 = await registry.get_session("conv_1")
     manager2 = await registry.get_session("conv_2")
     
@@ -310,12 +356,13 @@ async def test_registry_update_client_updates_all(mocker):
     assert manager2.client == mock_client2
 
 @pytest.mark.asyncio
-async def test_registry_update_client_is_lock_protected(mocker):
+async def test_registry_update_client_is_lock_protected(mocker, install_registry_generation):
     """Verify registry.update_client is strictly serialized and lock-protected."""
     mock_client1 = mocker.Mock()
     mock_client2 = mocker.Mock()
     
-    registry = SessionRegistry(mock_client1)
+    generation = install_registry_generation(mock_client1)
+    registry = SessionRegistry(mock_client1, register_generation=False, generation=generation)
     
     # Forcefully acquire the registry lock
     await registry._lock.acquire()
@@ -340,12 +387,13 @@ async def test_registry_update_client_is_lock_protected(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_same_client_update_preserves_generation_and_session(mocker):
+async def test_registry_same_client_update_preserves_generation_and_session(mocker, install_registry_generation):
     client = mocker.Mock()
     session = _FakeChatSession(client, "model", None)
     client.start_chat.return_value = session
 
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     await manager.get_response_stateful("model", [{"content": "first"}], "")
     generation = registry.client_generation
@@ -362,10 +410,11 @@ async def test_registry_same_client_update_preserves_generation_and_session(mock
 
 
 @pytest.mark.asyncio
-async def test_session_generation_mismatch_uses_typed_error(mocker):
+async def test_session_generation_mismatch_uses_typed_error(mocker, install_registry_generation):
     client1 = mocker.Mock()
     client2 = mocker.Mock()
-    registry = SessionRegistry(client1)
+    generation = install_registry_generation(client1)
+    registry = SessionRegistry(client1, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     lease = gemini_client_module.acquire_gemini_lease(
         client=client1,
@@ -382,9 +431,10 @@ async def test_session_generation_mismatch_uses_typed_error(mocker):
 
 
 @pytest.mark.asyncio
-async def test_session_manager_retries_only_typed_generation_error(mocker):
+async def test_session_manager_retries_only_typed_generation_error(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     original_acquire = session_manager_module.acquire_gemini_lease
     calls = 0
@@ -408,9 +458,10 @@ async def test_session_manager_retries_only_typed_generation_error(mocker):
 
 
 @pytest.mark.asyncio
-async def test_session_manager_does_not_retry_unrelated_runtime_error(mocker):
+async def test_session_manager_does_not_retry_unrelated_runtime_error(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     acquire = mocker.patch.object(
         session_manager_module,
@@ -424,9 +475,10 @@ async def test_session_manager_does_not_retry_unrelated_runtime_error(mocker):
 
 
 @pytest.mark.asyncio
-async def test_session_manager_does_not_retry_shutdown_error(mocker):
+async def test_session_manager_does_not_retry_shutdown_error(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     acquire = mocker.patch.object(
         session_manager_module,
@@ -440,9 +492,10 @@ async def test_session_manager_does_not_retry_shutdown_error(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_same_client_same_generation(mocker):
+async def test_registry_reopen_same_client_same_generation(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     generation = registry.client_generation
     register = mocker.patch.object(
         session_manager_module,
@@ -460,9 +513,10 @@ async def test_registry_reopen_same_client_same_generation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_same_client_updates_valid_generation(mocker):
+async def test_registry_reopen_same_client_updates_valid_generation(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     old_generation = registry.client_generation
     new_generation = old_generation + 1
@@ -483,9 +537,10 @@ async def test_registry_reopen_same_client_updates_valid_generation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_same_client_rejects_invalid_generation(mocker):
+async def test_registry_reopen_same_client_rejects_invalid_generation(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     old_generation = registry.client_generation
     registry_state = (registry.client, registry.client_generation, manager.client_generation)
@@ -499,9 +554,10 @@ async def test_registry_reopen_same_client_rejects_invalid_generation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_requires_generation_without_implicit_registration(mocker):
+async def test_registry_reopen_requires_generation_without_implicit_registration(mocker, install_registry_generation):
     client = mocker.Mock()
-    registry = SessionRegistry(client)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, register_generation=False, generation=generation)
     register = mocker.patch.object(
         session_manager_module,
         "register_gemini_generation",
@@ -517,7 +573,7 @@ async def test_registry_reopen_requires_generation_without_implicit_registration
 
 
 @pytest.mark.asyncio
-async def test_client_replacement_lazily_rebuilds_stale_session_with_metadata(mocker):
+async def test_client_replacement_lazily_rebuilds_stale_session_with_metadata(mocker, install_registry_generation):
     client1 = mocker.Mock()
     client2 = mocker.Mock()
     old_session = _FakeChatSession(client1, "model", "gem")
@@ -525,11 +581,13 @@ async def test_client_replacement_lazily_rebuilds_stale_session_with_metadata(mo
     client1.start_chat.return_value = old_session
     client2.start_chat.return_value = new_session
 
-    registry = SessionRegistry(client1)
+    generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
+    registry = SessionRegistry(client1, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
     await manager.get_response_stateful("model", [{"content": "first"}], "", gem="gem")
 
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=new_generation)
     assert manager.session is old_session
     assert manager.session_generation != manager.client_generation
 
@@ -544,7 +602,7 @@ async def test_client_replacement_lazily_rebuilds_stale_session_with_metadata(mo
 
 
 @pytest.mark.asyncio
-async def test_same_generation_reuses_session_and_replacements_are_independent(mocker):
+async def test_same_generation_reuses_session_and_replacements_are_independent(mocker, install_registry_generation):
     client1 = mocker.Mock()
     client2 = mocker.Mock()
     client3 = mocker.Mock()
@@ -557,7 +615,10 @@ async def test_same_generation_reuses_session_and_replacements_are_independent(m
     client1.start_chat.side_effect = [old1, old2]
     client2.start_chat.side_effect = [new1, new2]
     client3.start_chat.side_effect = [newest1, newest2]
-    registry = SessionRegistry(client1)
+    generation = install_registry_generation(client1)
+    client2_generation = install_registry_generation(client2, generation=generation + 1)
+    client3_generation = install_registry_generation(client3, generation=generation + 2)
+    registry = SessionRegistry(client1, register_generation=False, generation=generation)
     manager1 = await registry.get_session("one")
     manager2 = await registry.get_session("two")
 
@@ -566,7 +627,7 @@ async def test_same_generation_reuses_session_and_replacements_are_independent(m
     await manager1.get_response_stateful("model", [{"content": "same"}], "")
     assert manager1.session is first_session
 
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=client2_generation)
     await manager1.get_response_stateful("model", [{"content": "one-new"}], "")
     await manager2.get_response_stateful("model", [{"content": "two-new"}], "")
 
@@ -575,7 +636,7 @@ async def test_same_generation_reuses_session_and_replacements_are_independent(m
     assert manager2.session.geminiclient is client2
     assert manager1.session_generation == manager2.session_generation == registry.client_generation
 
-    await registry.update_client(client3)
+    await registry.update_client(client3, generation=client3_generation)
     await manager1.get_response_stateful("model", [{"content": "one-newest"}], "")
     await manager2.get_response_stateful("model", [{"content": "two-newest"}], "")
     assert manager1.session.geminiclient is client3
@@ -584,7 +645,7 @@ async def test_same_generation_reuses_session_and_replacements_are_independent(m
 
 
 @pytest.mark.asyncio
-async def test_stale_rebuild_failure_does_not_affect_other_manager(mocker):
+async def test_stale_rebuild_failure_does_not_affect_other_manager(mocker, install_registry_generation):
     client1 = mocker.Mock()
     client2 = mocker.Mock()
     old1 = _FakeChatSession(client1, "model", None)
@@ -593,12 +654,14 @@ async def test_stale_rebuild_failure_does_not_affect_other_manager(mocker):
     client1.start_chat.side_effect = [old1, old2]
     client2.start_chat.side_effect = [RuntimeError("rebuild failed"), new2]
 
-    registry = SessionRegistry(client1)
+    generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
+    registry = SessionRegistry(client1, register_generation=False, generation=generation)
     manager1 = await registry.get_session("one")
     manager2 = await registry.get_session("two")
     await manager1.get_response_stateful("model", [{"content": "one"}], "")
     await manager2.get_response_stateful("model", [{"content": "two"}], "")
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=new_generation)
 
     with pytest.raises(RuntimeError):
         await manager1.get_response_stateful("model", [{"content": "retry"}], "")
@@ -610,12 +673,13 @@ async def test_stale_rebuild_failure_does_not_affect_other_manager(mocker):
 
 
 @pytest.mark.asyncio
-async def test_client_replacement_and_session_request_do_not_deadlock(mocker):
+async def test_client_replacement_and_session_request_do_not_deadlock(mocker, install_registry_generation):
     client1 = mocker.Mock()
     client2 = mocker.Mock()
     client1.start_chat.return_value = _FakeChatSession(client1, "model", None)
     client2.start_chat.return_value = _FakeChatSession(client2, "model", None)
-    registry = SessionRegistry(client1)
+    generation = install_registry_generation(client1)
+    registry = SessionRegistry(client1, register_generation=False, generation=generation)
     manager = await registry.get_session("conversation")
 
     await asyncio.wait_for(

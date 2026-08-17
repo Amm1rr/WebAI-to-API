@@ -59,6 +59,17 @@ def reset_gemini_lifecycle_state():
 
 
 @pytest.fixture
+def install_registry_generation():
+    """Register test client generation without publishing a current client."""
+    def install(client, generation=None):
+        import app.services.providers.gemini.client as gemini_client
+
+        return gemini_client.register_gemini_generation(client, generation=generation)
+
+    return install
+
+
+@pytest.fixture
 def install_gemini_client():
     """Install mock client as current registered Gemini lifecycle generation."""
     def install(client, generation=0, auth_source=None):

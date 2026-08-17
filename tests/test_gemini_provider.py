@@ -487,10 +487,15 @@ async def test_delete_conversation_repository_failure_returns_500_and_clears_tom
     repository = mocker.Mock()
     repository.get_snapshot = mocker.AsyncMock(return_value=snapshot)
     repository.delete_snapshot = mocker.AsyncMock(side_effect=RuntimeError("sqlite unavailable"))
-    registry = SessionRegistry(gemini_client, repository=repository)
+    generation = install_gemini_client(gemini_client)
+    registry = SessionRegistry(
+        gemini_client,
+        repository=repository,
+        register_generation=False,
+        generation=generation,
+    )
     manager = await registry.get_session("conv-delete")
 
-    install_gemini_client(gemini_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -792,9 +797,14 @@ async def test_delete_conversations_local_cleanup_failure_records_failed_and_cle
     repository = mocker.Mock()
     repository.list_snapshots = mocker.AsyncMock(return_value=[snapshot])
     repository.delete_snapshot = mocker.AsyncMock(side_effect=RuntimeError("sqlite unavailable"))
-    registry = SessionRegistry(gemini_client, repository=repository)
+    generation = install_gemini_client(gemini_client)
+    registry = SessionRegistry(
+        gemini_client,
+        repository=repository,
+        register_generation=False,
+        generation=generation,
+    )
 
-    install_gemini_client(gemini_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     result = await provider.delete_conversations()
@@ -816,9 +826,14 @@ async def test_delete_conversations_tombstone_cleared_after_remote_failure(mocke
     repository = mocker.Mock()
     repository.list_snapshots = mocker.AsyncMock(return_value=[snapshot])
     repository.delete_snapshot = mocker.AsyncMock()
-    registry = SessionRegistry(gemini_client, repository=repository)
+    generation = install_gemini_client(gemini_client)
+    registry = SessionRegistry(
+        gemini_client,
+        repository=repository,
+        register_generation=False,
+        generation=generation,
+    )
 
-    install_gemini_client(gemini_client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     result = await provider.delete_conversations()

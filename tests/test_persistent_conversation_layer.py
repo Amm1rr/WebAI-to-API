@@ -111,7 +111,7 @@ async def test_session_manager_get_response_passes_temporary_flag(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(mocker, install_gemini_client):
+async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(mocker, install_gemini_client, install_registry_generation):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -121,9 +121,13 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    first_registry = SessionRegistry(client, repository=first_repo)
-
-    install_gemini_client(client)
+    generation = install_gemini_client(client)
+    first_registry = SessionRegistry(
+        client,
+        repository=first_repo,
+        register_generation=False,
+        generation=generation,
+    )
     register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart")
@@ -145,7 +149,12 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    second_registry = SessionRegistry(client, repository=second_repo)
+    second_registry = SessionRegistry(
+        client,
+        repository=second_repo,
+        register_generation=False,
+        generation=generation,
+    )
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=second_registry)
 
     second_response = await provider.chat_completions(
@@ -166,7 +175,7 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
 
 
 @pytest.mark.asyncio
-async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(mocker, install_gemini_client):
+async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(mocker, install_gemini_client, install_registry_generation):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -176,9 +185,13 @@ async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    first_registry = SessionRegistry(client, repository=first_repo)
-
-    install_gemini_client(client)
+    generation = install_gemini_client(client)
+    first_registry = SessionRegistry(
+        client,
+        repository=first_repo,
+        register_generation=False,
+        generation=generation,
+    )
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart-file")
 
@@ -199,7 +212,12 @@ async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    second_registry = SessionRegistry(client, repository=second_repo)
+    second_registry = SessionRegistry(
+        client,
+        repository=second_repo,
+        register_generation=False,
+        generation=generation,
+    )
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=second_registry)
 
     second_response = await provider.chat_completions(
@@ -226,14 +244,16 @@ async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(
 
 
 @pytest.mark.asyncio
-async def test_registry_fails_closed_when_requested_snapshot_is_missing(mocker):
+async def test_registry_fails_closed_when_requested_snapshot_is_missing(mocker, install_registry_generation):
     repo = SimpleNamespace(
         save_snapshot=mocker.AsyncMock(),
         get_snapshot=mocker.AsyncMock(return_value=None),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
 
     with pytest.raises(SnapshotNotFoundError):
         await registry.get_session(
@@ -245,7 +265,7 @@ async def test_registry_fails_closed_when_requested_snapshot_is_missing(mocker):
 
 
 @pytest.mark.asyncio
-async def test_provider_returns_recovery_error_for_missing_snapshot(mocker, install_gemini_client):
+async def test_provider_returns_recovery_error_for_missing_snapshot(mocker, install_gemini_client, install_registry_generation):
     provider = GeminiProvider()
     client = MockGeminiClient()
     repo = SimpleNamespace(
@@ -254,9 +274,8 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(mocker, inst
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
-
-    install_gemini_client(client)
+    generation = install_gemini_client(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -273,14 +292,16 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(mocker, inst
 
 
 @pytest.mark.asyncio
-async def test_registry_tombstone_blocks_concurrent_get_session(mocker):
+async def test_registry_tombstone_blocks_concurrent_get_session(mocker, install_registry_generation):
     repo = SimpleNamespace(
         save_snapshot=mocker.AsyncMock(),
         get_snapshot=mocker.AsyncMock(return_value=None),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     await registry.begin_delete_session("conv-deleting")
 
     with pytest.raises(ConversationInUseError):
@@ -296,7 +317,7 @@ async def test_registry_tombstone_blocks_concurrent_get_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_slow_restore_does_not_block_unrelated_lookup_or_create(mocker):
+async def test_slow_restore_does_not_block_unrelated_lookup_or_create(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("restore-a")
@@ -312,7 +333,9 @@ async def test_slow_restore_does_not_block_unrelated_lookup_or_create(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     existing = await registry.get_session("existing-b")
 
     restore_task = asyncio.create_task(
@@ -340,7 +363,7 @@ async def test_slow_restore_does_not_block_unrelated_lookup_or_create(mocker):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_same_id_restores_share_one_published_manager(mocker):
+async def test_concurrent_same_id_restores_share_one_published_manager(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("shared")
@@ -356,7 +379,9 @@ async def test_concurrent_same_id_restores_share_one_published_manager(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     provider = GeminiProvider()
 
     first = asyncio.create_task(
@@ -375,7 +400,7 @@ async def test_concurrent_same_id_restores_share_one_published_manager(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restore_vs_delete_does_not_resurrect_conversation(mocker):
+async def test_restore_vs_delete_does_not_resurrect_conversation(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("deleted")
@@ -391,7 +416,9 @@ async def test_restore_vs_delete_does_not_resurrect_conversation(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     restore_task = asyncio.create_task(
         registry.get_session("deleted", GeminiProvider(), allow_create=False)
     )
@@ -407,7 +434,7 @@ async def test_restore_vs_delete_does_not_resurrect_conversation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restore_does_not_overwrite_concurrent_new_session(mocker):
+async def test_restore_does_not_overwrite_concurrent_new_session(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("race")
@@ -423,7 +450,9 @@ async def test_restore_does_not_overwrite_concurrent_new_session(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     provider = GeminiProvider()
     restore_task = asyncio.create_task(
         registry.get_session("race", provider, allow_create=False)
@@ -439,7 +468,7 @@ async def test_restore_does_not_overwrite_concurrent_new_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restore_retries_after_client_generation_replacement(mocker):
+async def test_restore_retries_after_client_generation_replacement(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("generation")
@@ -461,13 +490,15 @@ async def test_restore_retries_after_client_generation_replacement(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client1, repository=repo)
+    generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
+    registry = SessionRegistry(client1, repository=repo, register_generation=False, generation=generation)
     restore_task = asyncio.create_task(
         registry.get_session("generation", GeminiProvider(), allow_create=False)
     )
     await started.wait()
 
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=new_generation)
     release.set()
     manager = await restore_task
 
@@ -478,7 +509,7 @@ async def test_restore_retries_after_client_generation_replacement(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restore_lease_defers_retired_client_close_until_retry_finishes(mocker):
+async def test_restore_lease_defers_retired_client_close_until_retry_finishes(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("leased-generation")
@@ -498,7 +529,9 @@ async def test_restore_lease_defers_retired_client_close_until_retry_finishes(mo
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client1, repository=repo)
+    generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
+    registry = SessionRegistry(client1, repository=repo, register_generation=False, generation=generation)
     restore_task = asyncio.create_task(
         registry.get_session("leased-generation", GeminiProvider(), allow_create=False)
     )
@@ -510,7 +543,7 @@ async def test_restore_lease_defers_retired_client_close_until_retry_finishes(mo
     await gemini_client_module._close_generation_record(old_record)
     client1.close.assert_not_awaited()
 
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=new_generation)
     release.set()
     manager = await restore_task
 
@@ -521,18 +554,18 @@ async def test_restore_lease_defers_retired_client_close_until_retry_finishes(mo
 
 
 @pytest.mark.asyncio
-async def test_restore_retries_when_captured_generation_retires_before_lease(mocker, monkeypatch):
+async def test_restore_retries_when_captured_generation_retires_before_lease(mocker, monkeypatch, install_registry_generation):
     snapshot = _conversation_snapshot("lease-race")
     client1 = MockGeminiClient()
     client2 = MockGeminiClient()
+    old_generation = install_registry_generation(client1)
     registry = SessionRegistry(client1, repository=SimpleNamespace(
         get_snapshot=mocker.AsyncMock(return_value=snapshot),
         save_snapshot=mocker.AsyncMock(),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
-    ))
+    ), register_generation=False, generation=old_generation)
     provider = GeminiProvider()
-    old_generation = registry.client_generation
     old_record = gemini_client_module._gemini_generation_records[old_generation]
     calls = 0
     original_acquire = session_manager_module.acquire_gemini_lease
@@ -542,7 +575,7 @@ async def test_restore_retries_when_captured_generation_retires_before_lease(moc
         calls += 1
         if calls == 1:
             gemini_client_module._retire_generation(old_record)
-            new_generation = gemini_client_module.register_gemini_generation(client2)
+            new_generation = install_registry_generation(client2, generation=old_generation + 1)
             registry.client = client2
             registry.client_generation = new_generation
             raise gemini_client_module.GeminiGenerationUnavailableError(
@@ -561,7 +594,7 @@ async def test_restore_retries_when_captured_generation_retires_before_lease(moc
 
 
 @pytest.mark.asyncio
-async def test_restore_failure_releases_attempt_lease(mocker):
+async def test_restore_failure_releases_attempt_lease(mocker, install_registry_generation):
     client = MockGeminiClient()
     repo = SimpleNamespace(
         get_snapshot=mocker.AsyncMock(side_effect=RuntimeError("restore failed")),
@@ -569,7 +602,8 @@ async def test_restore_failure_releases_attempt_lease(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
 
     with pytest.raises(RuntimeError, match="restore failed"):
         await registry.get_session("restore-failure", GeminiProvider(), allow_create=False)
@@ -580,7 +614,7 @@ async def test_restore_failure_releases_attempt_lease(mocker):
 
 
 @pytest.mark.asyncio
-async def test_failed_restore_clears_inflight_state_and_allows_retry(mocker):
+async def test_failed_restore_clears_inflight_state_and_allows_retry(mocker, install_registry_generation):
     snapshot = _conversation_snapshot("retry")
     repo = SimpleNamespace(
         get_snapshot=mocker.AsyncMock(
@@ -590,7 +624,9 @@ async def test_failed_restore_clears_inflight_state_and_allows_retry(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     provider = GeminiProvider()
 
     with pytest.raises(RuntimeError, match="repository unavailable"):
@@ -603,7 +639,7 @@ async def test_failed_restore_clears_inflight_state_and_allows_retry(mocker):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_restore_waiter_does_not_cancel_shared_restore(mocker):
+async def test_cancelled_restore_waiter_does_not_cancel_shared_restore(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     snapshot = _conversation_snapshot("cancel")
@@ -619,7 +655,9 @@ async def test_cancelled_restore_waiter_does_not_cancel_shared_restore(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     provider = GeminiProvider()
     owner = asyncio.create_task(
         registry.get_session("cancel", provider, allow_create=False)
@@ -640,7 +678,7 @@ async def test_cancelled_restore_waiter_does_not_cancel_shared_restore(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_shutdown_cancels_restore_and_releases_lease(mocker):
+async def test_registry_shutdown_cancels_restore_and_releases_lease(mocker, install_registry_generation):
     started = asyncio.Event()
     release = asyncio.Event()
     client = MockGeminiClient()
@@ -657,7 +695,8 @@ async def test_registry_shutdown_cancels_restore_and_releases_lease(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     owner = asyncio.create_task(
         registry.get_session("shutdown", GeminiProvider(), allow_create=False)
     )
@@ -679,14 +718,16 @@ async def test_registry_shutdown_cancels_restore_and_releases_lease(mocker):
 
 
 @pytest.mark.asyncio
-async def test_closed_registry_rejects_new_and_existing_session_access(mocker):
+async def test_closed_registry_rejects_new_and_existing_session_access(mocker, install_registry_generation):
     repo = SimpleNamespace(
         get_snapshot=mocker.AsyncMock(),
         save_snapshot=mocker.AsyncMock(),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     await registry.get_session("existing")
     await registry.shutdown()
 
@@ -698,17 +739,21 @@ async def test_closed_registry_rejects_new_and_existing_session_access(mocker):
 
 
 @pytest.mark.asyncio
-async def test_closed_restore_candidate_cannot_publish(mocker):
+async def test_closed_restore_candidate_cannot_publish(mocker, install_registry_generation):
     ready = asyncio.Event()
     release = asyncio.Event()
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
     registry = SessionRegistry(
-        MockGeminiClient(),
+        client,
         repository=SimpleNamespace(
             get_snapshot=mocker.AsyncMock(return_value=_conversation_snapshot("guard")),
             save_snapshot=mocker.AsyncMock(),
             delete_snapshot=mocker.AsyncMock(),
             list_snapshots=mocker.AsyncMock(return_value=[]),
         ),
+        register_generation=False,
+        generation=generation,
     )
     original_restore = registry._restore_session
 
@@ -734,7 +779,7 @@ async def test_closed_restore_candidate_cannot_publish(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_preserves_sessions_and_allows_new_restore(mocker):
+async def test_registry_reopen_preserves_sessions_and_allows_new_restore(mocker, install_registry_generation):
     old_client = MockGeminiClient()
     new_client = MockGeminiClient()
     snapshot = _conversation_snapshot("after-reopen")
@@ -753,9 +798,15 @@ async def test_registry_reopen_preserves_sessions_and_allows_new_restore(mocker)
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(old_client, repository=repo)
+    old_generation = install_registry_generation(old_client)
+    registry = SessionRegistry(
+        old_client,
+        repository=repo,
+        register_generation=False,
+        generation=old_generation,
+    )
     existing = await registry.get_session("existing")
-    new_generation = gemini_client_module.register_gemini_generation(new_client)
+    new_generation = install_registry_generation(new_client, generation=old_generation + 1)
     old_owner = asyncio.create_task(
         registry.get_session("old-restore", GeminiProvider(), allow_create=False)
     )
@@ -784,7 +835,7 @@ async def test_registry_reopen_preserves_sessions_and_allows_new_restore(mocker)
 
 
 @pytest.mark.asyncio
-async def test_restore_at_capacity_preserves_prune_then_publish_behavior(mocker, monkeypatch):
+async def test_restore_at_capacity_preserves_prune_then_publish_behavior(mocker, monkeypatch, install_registry_generation):
     import app.services.providers.gemini.session_manager as session_manager_module
 
     monkeypatch.setattr(session_manager_module, "MAX_SESSIONS", 1)
@@ -794,7 +845,9 @@ async def test_restore_at_capacity_preserves_prune_then_publish_behavior(mocker,
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     await registry.get_session("old")
 
     restored = await registry.get_session(
@@ -806,14 +859,16 @@ async def test_restore_at_capacity_preserves_prune_then_publish_behavior(mocker,
 
 
 @pytest.mark.asyncio
-async def test_registry_begin_delete_rejects_active_locked_session(mocker):
+async def test_registry_begin_delete_rejects_active_locked_session(mocker, install_registry_generation):
     repo = SimpleNamespace(
         save_snapshot=mocker.AsyncMock(),
         get_snapshot=mocker.AsyncMock(return_value=None),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     manager = await registry.get_session("conv-active")
     await manager.lock.acquire()
     try:
@@ -824,14 +879,16 @@ async def test_registry_begin_delete_rejects_active_locked_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_registry_begin_delete_rejects_active_stream_session(mocker):
+async def test_registry_begin_delete_rejects_active_stream_session(mocker, install_registry_generation):
     repo = SimpleNamespace(
         save_snapshot=mocker.AsyncMock(),
         get_snapshot=mocker.AsyncMock(return_value=None),
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(MockGeminiClient(), repository=repo)
+    client = MockGeminiClient()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
     manager = await registry.get_session("conv-streaming")
     manager.active_streams = 1
 
@@ -840,7 +897,7 @@ async def test_registry_begin_delete_rejects_active_stream_session(mocker):
 
 
 @pytest.mark.asyncio
-async def test_model_mismatch_does_not_block_recovery(mocker):
+async def test_model_mismatch_does_not_block_recovery(mocker, install_registry_generation):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -850,7 +907,8 @@ async def test_model_mismatch_does_not_block_recovery(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
 
     manager = await registry.get_session(
         "conv-model-switch",
@@ -871,7 +929,12 @@ async def test_model_mismatch_does_not_block_recovery(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    restored_registry = SessionRegistry(client, repository=restored_repo)
+    restored_registry = SessionRegistry(
+        client,
+        repository=restored_repo,
+        register_generation=False,
+        generation=generation,
+    )
     restored = await restored_registry.get_session(
         "conv-model-switch",
         provider,
@@ -888,9 +951,13 @@ async def test_file_parts_are_passed_on_current_turn_without_persisting_payload(
     provider = GeminiProvider()
     client = MockGeminiClient()
     mock_repository = SimpleNamespace(save_snapshot=mocker.AsyncMock())
-    registry = SessionRegistry(client, repository=mock_repository)
-
-    install_gemini_client(client)
+    generation = install_gemini_client(client)
+    registry = SessionRegistry(
+        client,
+        repository=mock_repository,
+        register_generation=False,
+        generation=generation,
+    )
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-file")
 
@@ -921,7 +988,7 @@ async def test_file_parts_are_passed_on_current_turn_without_persisting_payload(
 
 
 @pytest.mark.asyncio
-async def test_registry_uses_provider_adapter_name_for_snapshot_identity(mocker):
+async def test_registry_uses_provider_adapter_name_for_snapshot_identity(mocker, install_registry_generation):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -931,7 +998,8 @@ async def test_registry_uses_provider_adapter_name_for_snapshot_identity(mocker)
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
 
     manager = await registry.get_session(
         "conv-provider-name",
@@ -948,7 +1016,7 @@ async def test_registry_uses_provider_adapter_name_for_snapshot_identity(mocker)
 
 
 @pytest.mark.asyncio
-async def test_restored_metadata_is_isolated_from_default_metadata(mocker):
+async def test_restored_metadata_is_isolated_from_default_metadata(mocker, install_registry_generation):
     from gemini_webapi.constants import DEFAULT_METADATA
 
     original_default = list(DEFAULT_METADATA)
@@ -961,7 +1029,8 @@ async def test_restored_metadata_is_isolated_from_default_metadata(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(client, repository=repo)
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, repository=repo, register_generation=False, generation=generation)
 
     manager = await registry.get_session(
         "conv-metadata",
@@ -981,7 +1050,12 @@ async def test_restored_metadata_is_isolated_from_default_metadata(mocker):
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    restored_registry = SessionRegistry(client, repository=restored_repo)
+    restored_registry = SessionRegistry(
+        client,
+        repository=restored_repo,
+        register_generation=False,
+        generation=generation,
+    )
     restored = await restored_registry.get_session(
         "conv-metadata",
         provider,

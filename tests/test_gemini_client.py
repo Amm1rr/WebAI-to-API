@@ -200,7 +200,7 @@ async def test_registry_callback_receives_private_candidate_until_commit(mocker,
 
 
 @pytest.mark.asyncio
-async def test_restore_can_lease_generation_during_registry_commit(mocker, install_gemini_client):
+async def test_restore_can_lease_generation_during_registry_commit(mocker, install_gemini_client, install_registry_generation):
     old_client = make_mock_client("AVAILABLE")
     new_client = make_mock_client("AVAILABLE")
     snapshot = ConversationSnapshot(
@@ -216,8 +216,14 @@ async def test_restore_can_lease_generation_during_registry_commit(mocker, insta
         delete_snapshot=mocker.AsyncMock(),
         list_snapshots=mocker.AsyncMock(return_value=[]),
     )
-    registry = SessionRegistry(old_client, repository=repository)
-    install_gemini_client(old_client)
+    generation = install_registry_generation(old_client)
+    registry = SessionRegistry(
+        old_client,
+        repository=repository,
+        register_generation=False,
+        generation=generation,
+    )
+    install_gemini_client(old_client, generation=generation)
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -404,8 +410,12 @@ async def test_successful_replacement_updates_registry_and_retains_old_client(mo
 
     old_client = make_mock_client("AVAILABLE")
     new_client = make_mock_client("AVAILABLE")
-    registry = SessionRegistry(old_client)
-    install_gemini_client(old_client)
+    generation = install_gemini_client(old_client)
+    registry = SessionRegistry(
+        old_client,
+        register_generation=False,
+        generation=generation,
+    )
     gemini_client_module._gemini_client_auth_source = "[Gemini] config"
     old_lease = gemini_client_module.acquire_current_gemini_lease()
 
@@ -769,10 +779,14 @@ async def test_session_manager_rejects_released_external_lease(install_gemini_cl
     from app.services.providers.gemini.session_manager import SessionRegistry
 
     client = make_mock_client("AVAILABLE")
-    install_gemini_client(client)
+    generation = install_gemini_client(client)
     lease = gemini_client_module.acquire_current_gemini_lease()
     await lease.release()
-    manager = await SessionRegistry(client).get_session("released-lease")
+    manager = await SessionRegistry(
+        client,
+        register_generation=False,
+        generation=generation,
+    ).get_session("released-lease")
 
     with pytest.raises(RuntimeError, match="no longer active"):
         await manager.get_response_stateful("model", [{"content": "hi"}], "", lease=lease)
@@ -1048,8 +1062,12 @@ async def test_registry_update_failure_rolls_back_replacement(mocker, install_ge
 
     old_client = make_mock_client("AVAILABLE")
     new_client = make_mock_client("AVAILABLE")
-    registry = SessionRegistry(old_client)
-    install_gemini_client(old_client)
+    generation = install_gemini_client(old_client)
+    registry = SessionRegistry(
+        old_client,
+        register_generation=False,
+        generation=generation,
+    )
     gemini_client_module._gemini_client_auth_source = "[Gemini] config"
 
     config = configparser.ConfigParser()
