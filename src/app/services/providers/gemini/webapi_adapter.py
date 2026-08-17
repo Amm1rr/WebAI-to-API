@@ -6,8 +6,7 @@ from fastapi.responses import StreamingResponse
 from gemini_webapi.exceptions import APIError, AuthError, TimeoutError as GeminiTimeoutError
 
 from app.services.providers.gemini.client import (
-    acquire_gemini_lease_for_request,
-    get_gemini_client,
+    acquire_current_gemini_lease,
     GeminiClientNotInitializedError,
     GeminiGenerationUnavailableError,
 )
@@ -54,7 +53,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
 
     async def _acquire_available_gemini_lease(self):
         try:
-            lease = acquire_gemini_lease_for_request(get_gemini_client)
+            lease = acquire_current_gemini_lease()
         except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
 
@@ -319,7 +318,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
 
     async def chat_completions(self, request: OpenAIChatRequest, cid: str, is_new_conversation: bool, tools_prompt: str) -> Any:
         try:
-            lease = acquire_gemini_lease_for_request(get_gemini_client)
+            lease = acquire_current_gemini_lease()
         except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
 
@@ -452,7 +451,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                 )
             except GeminiGenerationUnavailableError:
                 await lease.release()
-                lease = acquire_gemini_lease_for_request(get_gemini_client)
+                lease = acquire_current_gemini_lease()
                 gemini_client = lease.client
                 ensure_gemini_client_ready(
                     gemini_client,

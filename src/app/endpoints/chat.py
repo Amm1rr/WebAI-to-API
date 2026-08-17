@@ -9,9 +9,8 @@ from app.openapi.chat_completions import (
 )
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
 from app.services.gemini_client import (
-    acquire_gemini_lease_for_request,
+    acquire_current_gemini_lease,
     GeminiClientNotInitializedError,
-    get_gemini_client,
 )
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
@@ -32,7 +31,7 @@ router = APIRouter()
 )
 async def list_gems():
     try:
-        lease = acquire_gemini_lease_for_request(get_gemini_client)
+        lease = acquire_current_gemini_lease()
     except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -63,7 +62,7 @@ async def list_gems():
 )
 async def translate_chat(request: GeminiRequest):
     try:
-        lease = acquire_gemini_lease_for_request(get_gemini_client)
+        lease = acquire_current_gemini_lease()
     except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 

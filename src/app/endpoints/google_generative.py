@@ -6,9 +6,8 @@ from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GoogleGenerativeRequest
 from app.services.gemini_client import (
-    acquire_gemini_lease_for_request,
+    acquire_current_gemini_lease,
     GeminiClientNotInitializedError,
-    get_gemini_client,
 )
 
 router = APIRouter()
@@ -145,7 +144,7 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
             async def sse_generator():
                 lease = None
                 try:
-                    lease = acquire_gemini_lease_for_request(get_gemini_client)
+                    lease = acquire_current_gemini_lease()
                     gemini_client = lease.client
                     async for chunk in await gemini_client.generate_content_stream(prompt, model_name):
                         if chunk.text_delta:
@@ -179,7 +178,7 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
             )
 
         try:
-            lease = acquire_gemini_lease_for_request(get_gemini_client)
+            lease = acquire_current_gemini_lease()
         except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
         async with lease:

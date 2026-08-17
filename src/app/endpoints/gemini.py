@@ -6,9 +6,8 @@ from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest
 from app.services.gemini_client import (
-    acquire_gemini_lease_for_request,
+    acquire_current_gemini_lease,
     GeminiClientNotInitializedError,
-    get_gemini_client,
 )
 from app.services.providers.gemini.session_manager import get_gemini_chat_registry
 from app.utils.tokens import generate_opaque_token
@@ -33,7 +32,7 @@ async def gemini_generate(request: GeminiRequest):
             async def sse_generator():
                 lease = None
                 try:
-                    lease = acquire_gemini_lease_for_request(get_gemini_client)
+                    lease = acquire_current_gemini_lease()
                     gemini_client = lease.client
                     async for chunk in await gemini_client.generate_content_stream(request.message, request.model, files=files, gem=request.gem):
                         if chunk.text_delta:
@@ -60,7 +59,7 @@ async def gemini_generate(request: GeminiRequest):
 
         # Non-streaming path
         try:
-            lease = acquire_gemini_lease_for_request(get_gemini_client)
+            lease = acquire_current_gemini_lease()
         except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
         async with lease:

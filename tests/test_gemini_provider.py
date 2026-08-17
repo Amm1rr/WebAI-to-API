@@ -523,10 +523,6 @@ async def test_list_conversations_returns_persisted_conversation_fields(mocker, 
     mock_registry.list_conversation_snapshots = mocker.AsyncMock(return_value=[snapshot])
 
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
-    get_client = mocker.patch(
-        "app.services.providers.gemini.webapi_adapter.get_gemini_client",
-        side_effect=AssertionError("list_conversations must not call Gemini remote client"),
-    )
     deserialize = mocker.patch.object(
         provider,
         "deserialize_session_state",
@@ -556,7 +552,6 @@ async def test_list_conversations_returns_persisted_conversation_fields(mocker, 
     assert "metadata" not in result["data"][0]
     assert "remote-cid-secret" not in json.dumps(result)
     mock_registry.list_conversation_snapshots.assert_called_once_with("gemini")
-    get_client.assert_not_called()
     deserialize.assert_not_called()
 
 

@@ -11,8 +11,7 @@ from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 from app.services.gemini_client import (
     GeminiClientNotInitializedError,
-    acquire_gemini_lease_for_request,
-    get_gemini_client,
+    acquire_current_gemini_lease,
 )
 from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.multimodal import (
@@ -218,7 +217,7 @@ async def _build_incremental_streaming_response(
 async def handle_temporary_chat_completions(request: OpenAIChatRequest):
     cleanup_once = None
     try:
-        preparation_lease = acquire_gemini_lease_for_request(get_gemini_client)
+        preparation_lease = acquire_current_gemini_lease()
     except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
