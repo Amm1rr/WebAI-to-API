@@ -1,11 +1,12 @@
 import pytest
 import json
+import asyncio
 import configparser
 from unittest.mock import AsyncMock, MagicMock
 from app.services.providers.gemini.client import close_gemini_client, init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
 from app.services.browser.auth_loader import GeminiAuthStateLoader
-from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
+from app.services.providers.gemini.auth_selector import GeminiAuthCandidate, GeminiAuthSelector
 
 
 @pytest.fixture(autouse=True)
@@ -13,10 +14,12 @@ def reset_gemini_client_state():
     gemini_client_module._gemini_client = None
     gemini_client_module._initialization_error = None
     gemini_client_module._gemini_client_auth_source = None
+    gemini_client_module._retired_gemini_clients.clear()
     yield
     gemini_client_module._gemini_client = None
     gemini_client_module._initialization_error = None
     gemini_client_module._gemini_client_auth_source = None
+    gemini_client_module._retired_gemini_clients.clear()
 
 
 class Status:
@@ -48,6 +51,11 @@ def auth_candidate(source_name, source_type, psid, is_legacy=False):
         supports_playwright_storage=True,
         migration_needed=is_legacy,
     )
+
+
+async def _block_until_release(entered, release):
+    entered.set()
+    await release.wait()
 
 
 def patch_auth_sources(mocker, gemini=None, legacy=None, json_source=None):
@@ -105,9 +113,121 @@ async def test_failed_init_clears_previous_auth_source(mocker):
     mocker.patch("app.services.providers.gemini.client.get_cookie_from_browser", return_value=None)
 
     assert await init_gemini_client() is False
-    assert gemini_client_module._gemini_client is None
-    assert gemini_client_module._gemini_client_auth_source is None
-    assert gemini_client_module._initialization_error
+    assert gemini_client_module._gemini_client is old_client
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
+    assert gemini_client_module._initialization_error is None
+
+
+@pytest.mark.asyncio
+async def test_replacement_keeps_old_client_published_during_candidate_init(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    new_client = make_mock_client("AVAILABLE")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    async def block_init(**kwargs):
+        await _block_until_release(entered, release)
+
+    new_client.init.side_effect = block_init
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("replacement", "config", "new_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
+
+    task = asyncio.create_task(init_gemini_client())
+    await entered.wait()
+    assert gemini_client_module._gemini_client is old_client
+    assert gemini_client_module.get_gemini_client_auth_source() == "[Gemini] config"
+    release.set()
+    assert await task is True
+
+
+@pytest.mark.asyncio
+async def test_failed_candidate_closes_candidate_and_preserves_old_client(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    new_client = make_mock_client("AVAILABLE")
+    new_client.init.side_effect = RuntimeError("candidate failed")
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("replacement", "config", "new_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
+
+    assert await init_gemini_client() is False
+    assert gemini_client_module._gemini_client is old_client
+    assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
+    new_client.close.assert_awaited_once_with()
+    assert new_client not in gemini_client_module._retired_gemini_clients
+
+
+@pytest.mark.asyncio
+async def test_successful_replacement_updates_registry_and_retains_old_client(mocker):
+    from app.services.providers.gemini.session_manager import SessionRegistry
+
+    old_client = make_mock_client("AVAILABLE")
+    new_client = make_mock_client("AVAILABLE")
+    registry = SessionRegistry(old_client)
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("replacement", "config", "new_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
+
+    assert await init_gemini_client(registry_updater=lambda: registry.update_client(new_client)) is True
+    assert gemini_client_module._gemini_client is new_client
+    assert gemini_client_module.get_gemini_client_auth_source() == "replacement"
+    assert registry.client is new_client
+    assert registry.client_generation == 1
+    old_client.close.assert_not_awaited()
+    assert old_client in gemini_client_module._retired_gemini_clients
+
+
+@pytest.mark.asyncio
+async def test_registry_update_failure_rolls_back_replacement(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    new_client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = old_client
+    gemini_client_module._gemini_client_auth_source = "[Gemini] config"
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("replacement", "config", "new_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
+
+    async def fail_registry_update():
+        raise RuntimeError("registry failed")
+
+    assert await init_gemini_client(registry_updater=fail_registry_update) is False
+    assert gemini_client_module._gemini_client is old_client
+    assert gemini_client_module.get_gemini_client_auth_source() == "[Gemini] config"
+    new_client.close.assert_awaited_once_with()
+    old_client.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -123,6 +243,51 @@ async def test_close_gemini_client_closes_and_resets_state(mocker):
     assert gemini_client_module._gemini_client is None
     assert gemini_client_module._gemini_client_auth_source is None
     assert gemini_client_module._initialization_error is None
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_closes_retired_clients_and_clears_list():
+    current = make_mock_client("AVAILABLE")
+    retired = [make_mock_client("AVAILABLE"), make_mock_client("AVAILABLE")]
+    gemini_client_module._gemini_client = current
+    gemini_client_module._retired_gemini_clients.extend(retired)
+
+    await close_gemini_client()
+
+    current.close.assert_awaited_once_with()
+    for client in retired:
+        client.close.assert_awaited_once_with()
+    assert gemini_client_module._retired_gemini_clients == []
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_deduplicates_clients_by_identity():
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = client
+    gemini_client_module._retired_gemini_clients.extend([client, client])
+
+    await close_gemini_client()
+
+    client.close.assert_awaited_once_with()
+    assert gemini_client_module._retired_gemini_clients == []
+
+
+@pytest.mark.asyncio
+async def test_close_gemini_client_continues_after_retired_close_failure():
+    current = make_mock_client("AVAILABLE")
+    failed = make_mock_client("AVAILABLE")
+    remaining = make_mock_client("AVAILABLE")
+    failed.close.side_effect = RuntimeError("close failed")
+    gemini_client_module._gemini_client = current
+    gemini_client_module._retired_gemini_clients.extend([failed, remaining])
+
+    await close_gemini_client()
+
+    current.close.assert_awaited_once_with()
+    failed.close.assert_awaited_once_with()
+    remaining.close.assert_awaited_once_with()
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._retired_gemini_clients == []
 
 
 @pytest.mark.asyncio

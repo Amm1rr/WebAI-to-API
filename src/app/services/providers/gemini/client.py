@@ -3,6 +3,7 @@ import os
 import tempfile
 import asyncio
 import inspect
+from typing import Awaitable, Callable, Optional
 from .webapi_client import MyGeminiClient
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.config import CONFIG, get_default_auth_state_dir
@@ -24,6 +25,7 @@ _gemini_client = None
 _initialization_error = None
 _gemini_client_auth_source = None
 _gemini_client_init_lock = asyncio.Lock()
+_retired_gemini_clients = []
 
 
 def get_gemini_client_auth_source():
@@ -33,7 +35,10 @@ def get_gemini_client_auth_source():
     return _gemini_client_auth_source
 
 
-async def init_gemini_client() -> bool:
+async def init_gemini_client(
+    *,
+    registry_updater: Optional[Callable[[], Awaitable[None]]] = None,
+) -> bool:
     """
     Initialize and set up the Gemini client based on the configuration and canonical storage.
     Returns True on success, False on failure.
@@ -41,20 +46,35 @@ async def init_gemini_client() -> bool:
     global _gemini_client, _initialization_error, _gemini_client_auth_source
     
     async with _gemini_client_init_lock:
-        _initialization_error = None
-        _gemini_client_auth_source = None
-
         old_client = _gemini_client
-        _gemini_client = None
-        if old_client is not None:
-            logger.info("Closing existing Gemini client before re-initialization...")
-            try:
-                if hasattr(old_client, "close"):
-                    res = old_client.close()
-                    if inspect.isawaitable(res):
-                        await res
-            except Exception as e:
-                logger.warning(f"Error closing existing Gemini client: {e}")
+        old_auth_source = _gemini_client_auth_source
+        _initialization_error = None
+        if old_client is None:
+            _gemini_client_auth_source = None
+
+        async def publish_candidate(candidate, auth_source: str) -> bool:
+            global _gemini_client, _gemini_client_auth_source, _initialization_error
+
+            _gemini_client = candidate
+            _gemini_client_auth_source = auth_source
+
+            if registry_updater is not None:
+                try:
+                    await registry_updater()
+                except Exception as e:
+                    logger.error(f"Gemini client replacement registry update failed: {e}", exc_info=True)
+                    _gemini_client = old_client
+                    _gemini_client_auth_source = old_auth_source
+                    _initialization_error = None if old_client is not None else str(e)
+                    try:
+                        await candidate.close()
+                    except Exception as close_error:
+                        logger.warning(f"Error closing failed Gemini replacement: {close_error}")
+                    return False
+
+            if old_client is not None:
+                _retired_gemini_clients.append(old_client)
+            return True
 
         if not CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
             error_msg = "Gemini client is disabled in config."
@@ -62,6 +82,11 @@ async def init_gemini_client() -> bool:
             _gemini_client = None
             _gemini_client_auth_source = None
             _initialization_error = error_msg
+            if old_client is not None:
+                try:
+                    await old_client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing disabled Gemini client: {e}")
             return False
 
         gemini_proxy = CONFIG["Proxy"].get("http_proxy")
@@ -95,9 +120,7 @@ async def init_gemini_client() -> bool:
                                     await best_client.close()
                                     best_client = None
                                     best_client_source_name = None
-                                _gemini_client = client
-                                _gemini_client_auth_source = candidate.source_name
-                                return True
+                                return await publish_candidate(client, candidate.source_name)
                             elif status_name == "UNAUTHENTICATED":
                                 if best_client is None:
                                     logger.info(f"Cookies from {candidate.source_name} are unauthenticated. Holding as fallback, continuing to next source...")
@@ -137,9 +160,7 @@ async def init_gemini_client() -> bool:
                                 await best_client.close()
                                 best_client = None
                                 best_client_source_name = None
-                            _gemini_client = client
-                            _gemini_client_auth_source = "browser cookie fallback"
-                            return True
+                            return await publish_candidate(client, "browser cookie fallback")
                         elif status_name == "UNAUTHENTICATED":
                             if best_client is None:
                                 logger.info("Browser cookies are unauthenticated. Holding browser client as fallback candidate.")
@@ -161,24 +182,29 @@ async def init_gemini_client() -> bool:
                         client = None
 
             # Step 3: Final Candidate Resolution
-            if _gemini_client is None and best_client is not None:
+            if old_client is None and best_client is not None:
                 logger.info("No fully authenticated AVAILABLE session found. Retaining the guest-mode client fallback candidate.")
-                _gemini_client = best_client
-                _gemini_client_auth_source = best_client_source_name
-                return True
+                return await publish_candidate(best_client, best_client_source_name)
+
+            if old_client is not None and best_client is not None:
+                logger.warning("No improved authenticated Gemini client found; preserving existing client.")
+                await best_client.close()
+                return False
 
             # If we got here, all attempts failed
             error_msg = "Gemini cookies not found or completely invalid in canonical store, legacy config, or browser."
             logger.error(error_msg)
-            _initialization_error = error_msg
-            _gemini_client_auth_source = None
+            if old_client is None:
+                _initialization_error = error_msg
+                _gemini_client_auth_source = None
             return False
 
         except Exception as e:
             error_msg = f"Unexpected error initializing Gemini client waterfall: {e}"
             logger.error(error_msg, exc_info=True)
-            _initialization_error = error_msg
-            _gemini_client_auth_source = None
+            if old_client is None:
+                _initialization_error = error_msg
+                _gemini_client_auth_source = None
             
             # Clean up any leftover active clients in case of a waterfall exception
             if client:
@@ -192,7 +218,8 @@ async def init_gemini_client() -> bool:
                 except Exception:
                     pass
             
-            _gemini_client = None
+            if old_client is None:
+                _gemini_client = None
             return False
 
 
@@ -211,21 +238,25 @@ def get_gemini_client():
 
 
 async def close_gemini_client() -> None:
-    """Close and clear the process-global Gemini client state."""
+    """Close all process-global Gemini clients and clear their state."""
     global _gemini_client, _initialization_error, _gemini_client_auth_source
 
     async with _gemini_client_init_lock:
-        client = _gemini_client
+        clients = [_gemini_client, *_retired_gemini_clients]
         _gemini_client = None
         _gemini_client_auth_source = None
         _initialization_error = None
+        _retired_gemini_clients.clear()
 
-        if client is None:
-            return
+        closed_ids = set()
+        for client in clients:
+            if client is None or id(client) in closed_ids:
+                continue
+            closed_ids.add(id(client))
 
-        try:
-            result = client.close()
-            if inspect.isawaitable(result):
-                await result
-        except Exception as e:
-            logger.warning(f"Error closing Gemini client during shutdown: {e}")
+            try:
+                result = client.close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as e:
+                logger.warning(f"Error closing Gemini client during shutdown: {e}")

@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI application lifespan startup executing.")
 
     # Initialize Gemini client in server process
-    init_result = await init_gemini_client()
+    init_result = await init_gemini_client(registry_updater=init_session_managers)
     if init_result:
         logger.info("Gemini client successfully initialized in server process.")
     else:

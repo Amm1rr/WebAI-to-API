@@ -265,11 +265,24 @@ class SessionRegistry:
         async with self._lock:
             if client is self.client:
                 return
-            self.client_generation += 1
-            self.client = client
-            for manager in self._sessions.values():
-                manager.client = client
-                manager.client_generation = self.client_generation
+            previous_client = self.client
+            previous_generation = self.client_generation
+            previous_manager_generations = {
+                manager: manager.client_generation for manager in self._sessions.values()
+            }
+            try:
+                self.client_generation += 1
+                self.client = client
+                for manager in self._sessions.values():
+                    manager.client = client
+                    manager.client_generation = self.client_generation
+            except Exception:
+                self.client = previous_client
+                self.client_generation = previous_generation
+                for manager, generation in previous_manager_generations.items():
+                    manager.client = previous_client
+                    manager.client_generation = generation
+                raise
 
     async def get_session(
         self,
