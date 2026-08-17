@@ -3,6 +3,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
+from playwright.async_api import Error as PlaywrightError
 
 from app.services.browser.engine import BrowserEngine
 from app.services.browser.errors import BrowserShuttingDownError
@@ -68,6 +69,90 @@ async def test_application_shutdown_close_preserves_application_source():
 
     assert engine.shutdown_source == "application"
     assert engine._shutdown_started is True
+
+
+@pytest.mark.asyncio
+async def test_terminal_close_skips_disconnected_browser_and_stops_playwright():
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.return_value = False
+    playwright = MagicMock()
+    playwright.stop = AsyncMock()
+    engine.browser = browser
+    engine.playwright = playwright
+
+    await engine.close()
+
+    browser.close.assert_not_awaited()
+    playwright.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_browser_close_transport_race_is_benign_after_disconnect(caplog):
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.side_effect = [True, False]
+    browser.close.side_effect = PlaywrightError("transport closed")
+    engine.browser = browser
+
+    await engine.close()
+
+    browser.close.assert_awaited_once()
+    assert not any("Error closing browser" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_browser_close_error_while_connected_remains_warning(caplog):
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.return_value = True
+    browser.close.side_effect = PlaywrightError("close failed")
+    engine.browser = browser
+
+    await engine.close()
+
+    assert any("Error closing browser" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_generic_browser_close_error_warns_after_disconnect(caplog):
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.side_effect = [True, False]
+    browser.close.side_effect = RuntimeError("programming failure")
+    engine.browser = browser
+
+    await engine.close()
+
+    assert any("Error closing browser" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_generic_browser_close_error_warns_while_connected(caplog):
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.return_value = True
+    browser.close.side_effect = RuntimeError("programming failure")
+    engine.browser = browser
+
+    await engine.close()
+
+    assert any("Error closing browser" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_playwright_close_inspection_failure_preserves_original_error(caplog):
+    engine = BrowserEngine(headless=True)
+    browser = make_browser()
+    browser.is_connected.side_effect = [True, RuntimeError("inspection failed")]
+    browser.close.side_effect = PlaywrightError("close transport failure")
+    engine.browser = browser
+
+    await engine.close()
+
+    messages = [record.message for record in caplog.records]
+    assert any("close transport failure" in message for message in messages)
+    assert any("inspection failed" in message for message in messages)
 
 
 @pytest.mark.asyncio
@@ -181,6 +266,26 @@ async def test_browser_disconnect_during_shutdown_signals_without_rescheduling(m
 
 
 @pytest.mark.asyncio
+async def test_disconnect_close_task_is_tracked_and_exception_retrieved(caplog):
+    engine = BrowserEngine(headless=True)
+
+    async def fail_close(*_args, **_kwargs):
+        raise RuntimeError("disconnect close failed")
+
+    engine.close = fail_close
+    engine._on_browser_disconnected()
+    task = engine._disconnect_close_task
+
+    assert task is not None
+    with pytest.raises(RuntimeError, match="disconnect close failed"):
+        await task
+    await asyncio.sleep(0)
+
+    assert engine._disconnect_close_task is None
+    assert any("Disconnect shutdown task failed" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_engine_close_is_idempotent():
     engine = BrowserEngine(headless=True)
     browser = make_browser()
@@ -270,7 +375,7 @@ async def test_browser_replacement_closes_provider_context_before_old_browser(mo
     async with engine.management_lock:
         await engine._ensure_healthy_browser()
 
-    assert order == ["session", "browser", "playwright"]
+    assert order == ["session", "playwright"]
     assert session.context is None
     assert engine.browser is new_browser
     assert engine.browser_generation == 5
@@ -543,7 +648,7 @@ async def test_recovery_cleanup_completes_before_browser_replacement(mocker):
     await asyncio.gather(recovery, replacement)
     await session.close_resources(save_state=False)
 
-    assert order.index("recovery") < order.index("browser") < order.index("context")
+    assert order == ["recovery", "context"]
     assert session.last_browser_generation == 2
 
 

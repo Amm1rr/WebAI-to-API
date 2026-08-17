@@ -57,6 +57,7 @@ class ProviderSession:
         self.active_orphans = weakref.WeakSet()
         self._intentional_context_closes = weakref.WeakValueDictionary()
         self._active_request_handles: Dict[str, tuple[Callable[[BaseException], None], Callable[[], None]]] = {}
+        self._lifecycle_tasks: set[asyncio.Task] = set()
         
         # Persistent state
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -101,6 +102,66 @@ class ProviderSession:
     def abort_active_requests(self) -> None:
         for _, abort in tuple(self._active_request_handles.values()):
             abort()
+
+    def _track_lifecycle_task(self, task: asyncio.Task, source: str) -> None:
+        if not isinstance(task, asyncio.Future):
+            return
+        self._lifecycle_tasks.add(task)
+
+        def consume_result(done_task: asyncio.Task) -> None:
+            self._lifecycle_tasks.discard(done_task)
+            if done_task.cancelled():
+                return
+            try:
+                error = done_task.exception()
+            except Exception as inspection_error:
+                logger.error(
+                    "ProviderSession(%s): Failed to inspect %s task: %s",
+                    self.name,
+                    source,
+                    inspection_error,
+                    exc_info=True,
+                )
+                return
+            if error is not None:
+                logger.error(
+                    "ProviderSession(%s): %s task failed: %s",
+                    self.name,
+                    source,
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                    extra={"generation": self.last_browser_generation},
+                )
+
+        task.add_done_callback(consume_result)
+
+    async def _drain_lifecycle_tasks(self) -> None:
+        current = asyncio.current_task()
+        tasks = [task for task in self._lifecycle_tasks if task is not current and not task.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _drain_orphan_cleanup_tasks(self) -> None:
+        tasks = list(self._orphan_cleanup_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._orphan_cleanup_tasks.difference_update(tasks)
+            for tab in list(self.active_orphans):
+                if getattr(tab, "_cleanup_task", None) in tasks:
+                    tab._cleanup_task = None
+                    self.active_orphans.discard(tab)
+
+    async def _cancel_pending_recovery(self) -> None:
+        task = self._recovery_task
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self._recovery_task = None
 
     @property
     def metrics(self) -> dict:
@@ -455,6 +516,7 @@ class ProviderSession:
 
         # Synchronously create the recovery task (100% atomic in single-threaded event loop)
         self._recovery_task = asyncio.create_task(self._do_session_recovery())
+        self._track_lifecycle_task(self._recovery_task, "recovery")
 
     async def _do_session_recovery(self):
         recovery_start = time.monotonic()
@@ -543,9 +605,11 @@ class ProviderSession:
             
             def safe_on_context_close(c):
                 try:
-                    asyncio.get_running_loop().create_task(
+                    task = asyncio.get_running_loop().create_task(
                         self._on_context_closed(c, context_generation)
                     )
+                    if task is not None:
+                        self._track_lifecycle_task(task, "context-close")
                 except RuntimeError as e:
                     logger.debug(
                         "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
@@ -604,7 +668,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -681,7 +746,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -787,7 +853,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -893,6 +960,9 @@ class ProviderSession:
     async def _close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
         try:
+            if getattr(self.engine, "is_shutting_down", False) is True:
+                await self._cancel_pending_recovery()
+
             logger.info(
                 f"ProviderSession({self.name}): Closing session resources...",
                 extra={"generation": self.last_browser_generation}
@@ -945,16 +1015,9 @@ class ProviderSession:
                     )
                 self.reaper_task = None
     
-            # Drain orphan cleanup tasks
-            if hasattr(self, "_orphan_cleanup_tasks"):
-                orphan_tasks = list(self._orphan_cleanup_tasks)
-                for task in orphan_tasks:
-                    if not task.done():
-                        task.cancel()
-                if orphan_tasks:
-                    await asyncio.gather(*orphan_tasks, return_exceptions=True)
-    
+            await self._drain_orphan_cleanup_tasks()
             await self._purge_all_tabs()
+            await self._drain_orphan_cleanup_tasks()
     
             if self.keepalive_page:
                 try:
@@ -1022,6 +1085,9 @@ class ProviderSession:
                         extra={"generation": self.last_browser_generation}
                     )
 
+            await asyncio.sleep(0)
+            await self._drain_lifecycle_tasks()
+
             logger.info(
                 f"ProviderSession({self.name}): Session resources closed successfully.",
                 extra={"generation": self.last_browser_generation}
@@ -1086,6 +1152,7 @@ class ProviderSession:
         task = asyncio.create_task(_delayed_close())
         tab._cleanup_task = task
         self._orphan_cleanup_tasks.add(task)
+        self._track_lifecycle_task(task, "orphan-cleanup")
 
     async def _setup_page_bridge(
         self,

@@ -6,6 +6,7 @@ from playwright.async_api import Error as PlaywrightError
 
 from app.services.browser.errors import BrowserDisconnectedError
 from app.services.browser.session import ProviderSession
+from app.services.browser.tab import TabStatus
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
 
 
@@ -248,6 +249,59 @@ def test_active_request_handles_signal_and_abort_once():
     assert [type(value) for value in signals] == [BrowserDisconnectedError, BrowserDisconnectedError]
     assert [str(value) for value in signals] == [str(error), str(error)]
     assert aborts == ["request-1", "request-2", "request-2"]
+
+
+@pytest.mark.asyncio
+async def test_terminal_cleanup_drains_orphan_tasks_created_by_purge():
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "test_provider")
+    tab = MagicMock()
+    tab.status = TabStatus.LEASED
+    tab.lease_token = "token"
+    tab.invalidate.side_effect = lambda: setattr(tab, "status", TabStatus.INVALIDATING)
+    session.conversation_registry["conversation"] = tab
+
+    await session.close_resources(save_state=False)
+
+    assert not session._orphan_cleanup_tasks
+    assert tab._cleanup_task is None
+
+
+@pytest.mark.asyncio
+async def test_terminal_cleanup_cancels_pending_recovery_task():
+    engine, _ = make_engine()
+    engine.is_shutting_down = True
+    session = ProviderSession(engine, "test_provider")
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def pending_recovery():
+        started.set()
+        await release.wait()
+
+    session._recovery_task = asyncio.create_task(pending_recovery())
+    await started.wait()
+    await session.close_resources(save_state=False)
+
+    assert session._recovery_task is None
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_task_exception_is_retrieved(caplog):
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "test_provider")
+
+    async def fail_task():
+        raise RuntimeError("lifecycle task failed")
+
+    task = asyncio.create_task(fail_task())
+    session._track_lifecycle_task(task, "context-close")
+
+    with pytest.raises(RuntimeError, match="lifecycle task failed"):
+        await task
+
+    assert not session._lifecycle_tasks
+    assert any("context-close task failed" in record.message for record in caplog.records)
 
 
 @pytest.mark.asyncio

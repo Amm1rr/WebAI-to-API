@@ -46,6 +46,7 @@ class BrowserEngine:
         self.shutdown_source: Optional[str] = None
         self._shutdown_started = False
         self._disconnect_handled = False
+        self._disconnect_close_task: Optional[asyncio.Task] = None
 
     def request_shutdown(self, source: str) -> bool:
         """Record first shutdown intent without starting resource teardown."""
@@ -101,6 +102,91 @@ class BrowserEngine:
             )
             await session.close_resources(save_state=False)
 
+    async def _close_browser_best_effort(self, phase: str) -> None:
+        if not self.browser:
+            return
+
+        browser = self.browser
+        try:
+            connected = browser.is_connected()
+        except Exception as inspection_error:
+            logger.warning(
+                "BrowserEngine: Failed to inspect browser connection before close: %s",
+                inspection_error,
+                exc_info=True,
+                extra={"phase": phase, "generation": self.browser_generation},
+            )
+            connected = True
+
+        if not connected:
+            logger.debug(
+                "BrowserEngine: Skipping browser close; transport already disconnected.",
+                extra={"phase": phase, "generation": self.browser_generation},
+            )
+            return
+
+        try:
+            await browser.close()
+        except PlaywrightError as close_error:
+            try:
+                connected_after_error = browser.is_connected()
+            except Exception as inspection_error:
+                logger.warning(
+                    "BrowserEngine: Browser close failed (%s); post-close connection inspection failed: %s",
+                    close_error,
+                    inspection_error,
+                    exc_info=(type(close_error), close_error, close_error.__traceback__),
+                    extra={"phase": phase, "generation": self.browser_generation},
+                )
+                return
+
+            if connected_after_error:
+                logger.warning(
+                    "BrowserEngine: Error closing browser: %s",
+                    close_error,
+                    exc_info=True,
+                    extra={"phase": phase, "generation": self.browser_generation},
+                )
+            else:
+                logger.debug(
+                    "BrowserEngine: Browser transport disconnected during close.",
+                    extra={"phase": phase, "generation": self.browser_generation},
+                )
+        except Exception as close_error:
+            logger.warning(
+                "BrowserEngine: Error closing browser: %s",
+                close_error,
+                exc_info=(type(close_error), close_error, close_error.__traceback__),
+                extra={"phase": phase, "generation": self.browser_generation},
+            )
+
+    def _track_disconnect_close_task(self, task: asyncio.Task) -> None:
+        self._disconnect_close_task = task
+
+        def consume_result(done_task: asyncio.Task) -> None:
+            if self._disconnect_close_task is done_task:
+                self._disconnect_close_task = None
+            if done_task.cancelled():
+                return
+            try:
+                error = done_task.exception()
+            except Exception as inspection_error:
+                logger.error(
+                    "BrowserEngine: Failed to inspect disconnect shutdown task: %s",
+                    inspection_error,
+                    exc_info=True,
+                )
+                return
+            if error is not None:
+                logger.error(
+                    "BrowserEngine: Disconnect shutdown task failed: %s",
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                    extra={"generation": self.browser_generation},
+                )
+
+        task.add_done_callback(consume_result)
+
     async def _ensure_healthy_browser(self):
         if self.is_shutting_down:
             logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.", extra={"generation": self.browser_generation})
@@ -112,10 +198,7 @@ class BrowserEngine:
             await self._close_sessions_before_browser_replacement()
             
             if self.browser:
-                try: 
-                    await self.browser.close()
-                except Exception as e:
-                    logger.debug(f"BrowserEngine: Best-effort browser close failed: {e}", extra={"generation": self.browser_generation})
+                await self._close_browser_best_effort("replacement")
             if self.playwright:
                 try: 
                     await self.playwright.stop()
@@ -165,7 +248,9 @@ class BrowserEngine:
         logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).", extra={"generation": self.browser_generation})
         # Fire-and-forget terminal shutdown to kill all background loops and prevent recreation
         try:
-            asyncio.get_running_loop().create_task(self.close())
+            task = asyncio.get_running_loop().create_task(self.close())
+            if task is not None:
+                self._track_disconnect_close_task(task)
         except RuntimeError as e:
             logger.debug("BrowserEngine: Shutdown task scheduling skipped - event loop already closed.", exc_info=True, extra={"generation": self.browser_generation})
 
@@ -313,12 +398,8 @@ class BrowserEngine:
                         raise
                 
                 if self.browser:
-                    try: 
-                        logger.info("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
-                        await self.browser.close()
-                        logger.info("BrowserEngine: Browser process closed successfully.", extra={"generation": self.browser_generation})
-                    except Exception as e:
-                        logger.warning(f"BrowserEngine: Error closing browser: {e}", exc_info=True, extra={"generation": self.browser_generation})
+                    logger.info("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
+                    await self._close_browser_best_effort("terminal")
                 else:
                     logger.info("BrowserEngine: No browser process to close.", extra={"generation": self.browser_generation})
                 
