@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from app.services.providers.gemini.client import close_gemini_client, init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
+import app.services.providers.gemini.session_manager as session_manager_module
 from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate, GeminiAuthSelector
@@ -62,6 +63,156 @@ def auth_candidate(source_name, source_type, psid, is_legacy=False):
         supports_playwright_storage=True,
         migration_needed=is_legacy,
     )
+
+
+def _patch_session_repository(mocker):
+    repository = mocker.Mock()
+    repository.initialize_sync = mocker.Mock()
+    repository.save_snapshot = AsyncMock()
+    repository.get_snapshot = AsyncMock(return_value=None)
+    repository.delete_snapshot = AsyncMock()
+    repository.list_snapshots = AsyncMock(return_value=[])
+    mocker.patch(
+        "app.services.providers.sqlite_repository.SQLiteConversationRepository",
+        return_value=repository,
+    )
+    return repository
+
+
+@pytest.mark.asyncio
+async def test_init_session_managers_uses_registered_generation_without_allocating(
+    mocker,
+    install_registry_generation,
+):
+    client = make_mock_client("AVAILABLE")
+    generation = install_registry_generation(client, generation=7)
+    _patch_session_repository(mocker)
+    mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
+    allocator = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    await session_manager_module.init_session_managers(client, generation)
+
+    registry = session_manager_module.get_gemini_chat_registry()
+    assert registry.client is client
+    assert registry.client_generation == generation
+    allocator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_init_session_managers_reopens_existing_registry_with_exact_generation(
+    mocker,
+    install_registry_generation,
+):
+    client1 = make_mock_client("AVAILABLE")
+    client2 = make_mock_client("AVAILABLE")
+    generation1 = install_registry_generation(client1, generation=4)
+    generation2 = install_registry_generation(client2, generation=5)
+    _patch_session_repository(mocker)
+    mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
+    allocator = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    await session_manager_module.init_session_managers(client1, generation1)
+    registry = session_manager_module.get_gemini_chat_registry()
+    manager = await registry.get_session("preserve-me")
+
+    await session_manager_module.init_session_managers(client2, generation2)
+
+    assert registry.client is client2
+    assert registry.client_generation == generation2
+    assert registry._sessions["preserve-me"] is manager
+    assert manager.client is client2
+    assert manager.client_generation == generation2
+    assert manager.session_generation is None
+    allocator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_init_session_managers_rejects_unregistered_initial_generation(mocker):
+    client = make_mock_client("AVAILABLE")
+    _patch_session_repository(mocker)
+    mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
+    allocator = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    with pytest.raises(RuntimeError, match="generation is not registered"):
+        await session_manager_module.init_session_managers(client, 7)
+
+    assert session_manager_module.get_gemini_chat_registry() is None
+    allocator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_init_session_managers_rejects_unregistered_reopen_without_mutation(
+    mocker,
+    install_registry_generation,
+):
+    client1 = make_mock_client("AVAILABLE")
+    client2 = make_mock_client("AVAILABLE")
+    generation = install_registry_generation(client1, generation=4)
+    _patch_session_repository(mocker)
+    mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
+    allocator = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+
+    await session_manager_module.init_session_managers(client1, generation)
+    registry = session_manager_module.get_gemini_chat_registry()
+    manager = await registry.get_session("preserve-me")
+    state = (registry.client, registry.client_generation, manager.client, manager.client_generation)
+
+    with pytest.raises(RuntimeError, match="generation is not registered"):
+        await session_manager_module.init_session_managers(client2, 99)
+
+    assert (registry.client, registry.client_generation, manager.client, manager.client_generation) == state
+    allocator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_gemini_lifecycle_passes_registered_generation_to_session_managers(mocker):
+    candidate = make_mock_client("AVAILABLE")
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("startup", "config", "startup_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=candidate)
+    _patch_session_repository(mocker)
+    mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
+    allocator = mocker.patch.object(
+        session_manager_module,
+        "register_gemini_generation",
+        wraps=session_manager_module.register_gemini_generation,
+    )
+    updater = mocker.patch.object(
+        session_manager_module,
+        "init_session_managers",
+        wraps=session_manager_module.init_session_managers,
+    )
+
+    assert await init_gemini_client(registry_updater=updater) is True
+
+    updater.assert_awaited_once_with(candidate, 0)
+    registry = session_manager_module.get_gemini_chat_registry()
+    assert gemini_client_module._current_gemini_generation == 0
+    assert registry.client is candidate
+    assert registry.client_generation == 0
+    allocator.assert_not_called()
 
 
 async def _block_until_release(entered, release):
