@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from playwright.async_api import Error as PlaywrightError
 
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.auth_types import AuthStatus
@@ -213,6 +214,41 @@ async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch, cap
         record.message == "Page close detected" and record.levelname == "WARNING"
         for record in caplog.records
     )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_terminal_browser_error_precedes_later_playwright_close_error(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    operation_started = asyncio.Event()
+    release_operation = asyncio.Event()
+
+    async def submit_prompt(_page, _prompt, _state):
+        operation_started.set()
+        await release_operation.wait()
+        raise PlaywrightError("Target page, context or browser has been closed")
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await operation_started.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+    close_handler(page)
+    release_operation.set()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert "timed out" not in str(exc_info.value.detail).lower()
     lease.close.assert_awaited_once()
 
 

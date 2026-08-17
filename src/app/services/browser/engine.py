@@ -391,7 +391,7 @@ class BrowserEngine:
                 for session in list(self.sessions.values()):
                     try:
                         logger.info(f"BrowserEngine: Closing session resources for {session.name}", extra={"generation": self.browser_generation})
-                        await session.close_resources(save_state=True)
+                        await session.close_resources(save_state=self.is_bootstrap)
                         logger.info(f"BrowserEngine: Session resources for {session.name} closed successfully.", extra={"generation": self.browser_generation})
                     except Exception as e:
                         logger.error(f"BrowserEngine: Exception closing session resources for {session.name}: {e}", exc_info=True)

@@ -35,7 +35,7 @@ async def test_engine_close_sets_terminal_shutdown_and_closes_owned_resources():
 
     assert engine.is_shutting_down is True
     assert engine._shutdown_started is True
-    session.close_resources.assert_awaited_once_with(save_state=True)
+    session.close_resources.assert_awaited_once_with(save_state=False)
     browser.close.assert_awaited_once()
     playwright.stop.assert_awaited_once()
     assert engine.sessions == {}
@@ -69,6 +69,20 @@ async def test_application_shutdown_close_preserves_application_source():
 
     assert engine.shutdown_source == "application"
     assert engine._shutdown_started is True
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_engine_close_preserves_persistence_save():
+    engine = BrowserEngine(headless=True, is_bootstrap=True)
+    session = MagicMock()
+    session.name = "gemini"
+    session.active_lease_count = 0
+    session.close_resources = AsyncMock()
+    engine.sessions = {"gemini": session}
+
+    await engine.close()
+
+    session.close_resources.assert_awaited_once_with(save_state=True)
 
 
 @pytest.mark.asyncio
@@ -205,7 +219,7 @@ async def test_shutdown_aborts_active_requests_after_drain_deadline(mocker):
     await engine.close()
 
     session.abort_active_requests.assert_called_once_with()
-    session.close_resources.assert_awaited_once_with(save_state=True)
+    session.close_resources.assert_awaited_once_with(save_state=False)
 
 
 @pytest.mark.asyncio
@@ -303,7 +317,7 @@ async def test_engine_close_is_idempotent():
     await engine.close()
     await engine.close()
 
-    session.close_resources.assert_awaited_once_with(save_state=True)
+    session.close_resources.assert_awaited_once_with(save_state=False)
     browser.close.assert_awaited_once()
     playwright.stop.assert_awaited_once()
 

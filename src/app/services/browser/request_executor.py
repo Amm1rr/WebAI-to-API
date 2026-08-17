@@ -341,6 +341,13 @@ class BrowserRequestExecutor:
             raise
 
         except Exception as e:
+            if (
+                isinstance(e, PlaywrightError)
+                and state
+                and isinstance(state.terminal_error, BrowserDisconnectedError)
+            ):
+                e = state.terminal_error
+
             poison_session_errors = (
                 SessionNotAliveError,
                 BrowserDisconnectedError,
