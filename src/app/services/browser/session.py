@@ -84,6 +84,13 @@ class ProviderSession:
     def application_shutdown_requested(self) -> bool:
         return getattr(self.engine, "shutdown_requested", False) is True
 
+    @property
+    def shutdown_in_progress(self) -> bool:
+        return (
+            self.application_shutdown_requested
+            or getattr(self.engine, "is_shutting_down", False) is True
+        )
+
     def register_request_abort(
         self,
         request_id: str,
@@ -510,6 +517,13 @@ class ProviderSession:
 
     async def handle_session_failure(self):
         """Authoritative recovery execution for session failures."""
+        if self.shutdown_in_progress:
+            logger.debug(
+                "ProviderSession(%s): Recovery skipped during shutdown.",
+                self.name,
+                extra={"generation": self.last_browser_generation},
+            )
+            return
         if self._recovery_task and not self._recovery_task.done():
             logger.debug(f"ProviderSession({self.name}): Recovery task already in progress, skipping duplicate request.")
             return
@@ -521,6 +535,13 @@ class ProviderSession:
     async def _do_session_recovery(self):
         recovery_start = time.monotonic()
         async with self.init_lock:
+            if self.shutdown_in_progress:
+                logger.debug(
+                    "ProviderSession(%s): Recovery worker exited during shutdown.",
+                    self.name,
+                    extra={"generation": self.last_browser_generation},
+                )
+                return
             logger.warning(
                 "ProviderSession(%s): Session recovery started",
                 self.name,
@@ -539,6 +560,13 @@ class ProviderSession:
 
             # 2. Invalidate context to force re-setup on next ensure_healthy()
             try:
+                if self.shutdown_in_progress:
+                    logger.debug(
+                        "ProviderSession(%s): Recovery cleanup skipped during shutdown.",
+                        self.name,
+                        extra={"generation": self.last_browser_generation},
+                    )
+                    return
                 await self.close_resources(save_state=False)
                 recovery_duration = time.monotonic() - recovery_start
                 logger.info(

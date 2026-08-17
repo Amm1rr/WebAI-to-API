@@ -67,6 +67,65 @@ async def test_recovery_orchestration_atomic_non_blocking(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_shutdown_requested_skips_recovery_task(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine.shutdown_requested = True
+    session = ProviderSession(mock_engine, "test_provider")
+    session._do_session_recovery = AsyncMock()
+
+    await session.handle_session_failure()
+
+    assert session._recovery_task is None
+    session._do_session_recovery.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_engine_shutdown_skips_recovery_task(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = True
+    mock_engine.shutdown_requested = False
+    session = ProviderSession(mock_engine, "test_provider")
+    session._do_session_recovery = AsyncMock()
+
+    await session.handle_session_failure()
+
+    assert session._recovery_task is None
+    session._do_session_recovery.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_requested_between_recovery_schedule_and_worker_exit(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine.shutdown_requested = False
+    session = ProviderSession(mock_engine, "test_provider")
+    session.close_resources = AsyncMock()
+
+    await session.init_lock.acquire()
+    try:
+        await session.handle_session_failure()
+        recovery_task = session._recovery_task
+        mock_engine.shutdown_requested = True
+    finally:
+        session.init_lock.release()
+
+    await recovery_task
+
+    session.close_resources.assert_not_awaited()
+    assert session._recovery_task is recovery_task
+
+
+@pytest.mark.asyncio
 async def test_transient_auth_failure_retry_and_lease_release(monkeypatch):
     """Verify that a transient auth failure during pre-submission triggers retry,
 
