@@ -515,10 +515,13 @@ class ProviderSession:
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
+            context_generation = self.engine.browser_generation
             
             def safe_on_context_close(c):
                 try:
-                    asyncio.get_running_loop().create_task(self._on_context_closed(c))
+                    asyncio.get_running_loop().create_task(
+                        self._on_context_closed(c, context_generation)
+                    )
                 except RuntimeError as e:
                     logger.debug(
                         "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
@@ -775,7 +778,7 @@ class ProviderSession:
     def _consume_intentional_context_close(self, context: BrowserContext) -> bool:
         return self._intentional_context_closes.pop(id(context), None) is context
 
-    async def _on_context_closed(self, context: BrowserContext):
+    async def _on_context_closed(self, context: BrowserContext, generation: int):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
             return
@@ -785,6 +788,18 @@ class ProviderSession:
                 "ProviderSession(%s): Ignoring intentional browser context close.",
                 self.name,
                 extra={"generation": self.last_browser_generation}
+            )
+            return
+
+        if generation != self.engine.browser_generation or self.context is not context:
+            logger.debug(
+                "ProviderSession(%s): Ignoring stale browser context close.",
+                self.name,
+                extra={
+                    "context_generation": generation,
+                    "current_generation": self.engine.browser_generation,
+                    "provider": self.name,
+                },
             )
             return
         
@@ -918,6 +933,7 @@ class ProviderSession:
                     try:
                         context_closed = context_to_close.is_closed()
                     except Exception as inspection_error:
+                        self._consume_intentional_context_close(context_to_close)
                         logger.warning(
                             f"ProviderSession({self.name}): Failed to inspect browser context after close error "
                             f"{close_error}: {inspection_error}",
@@ -935,6 +951,7 @@ class ProviderSession:
                                 extra={"generation": self.last_browser_generation},
                             )
                         else:
+                            self._consume_intentional_context_close(context_to_close)
                             logger.warning(
                                 f"ProviderSession({self.name}): Failed to close browser context: {close_error}",
                                 exc_info=(
@@ -945,14 +962,13 @@ class ProviderSession:
                                 extra={"generation": self.last_browser_generation},
                             )
                 except Exception as e:
+                    self._consume_intentional_context_close(context_to_close)
                     logger.warning(
                         f"ProviderSession({self.name}): Failed to close browser context: {e}",
                         exc_info=True,
                         extra={"generation": self.last_browser_generation}
                     )
-                finally:
-                    self._consume_intentional_context_close(context_to_close)
-                
+
             logger.info(
                 f"ProviderSession({self.name}): Session resources closed successfully.",
                 extra={"generation": self.last_browser_generation}

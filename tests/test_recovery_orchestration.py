@@ -203,7 +203,7 @@ async def test_intentional_provider_context_cleanup_does_not_shutdown_engine(tmp
     context = MagicMock()
     context.is_closed.return_value = False
     async def close_context():
-        await session._on_context_closed(context)
+        await session._on_context_closed(context, session.engine.browser_generation)
     context.close = AsyncMock(side_effect=close_context)
     session.context = context
 
@@ -224,10 +224,58 @@ async def test_unexpected_provider_context_close_triggers_engine_shutdown(tmp_pa
 
     session = ProviderSession(mock_engine, "test_provider")
     context = MagicMock()
+    session.context = context
 
-    await session._on_context_closed(context)
+    await session._on_context_closed(context, session.engine.browser_generation)
 
     mock_engine._on_browser_disconnected.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delayed_intentional_context_callback_cannot_shutdown_new_generation(tmp_path, mocker):
+    old_context = MagicMock()
+    old_context.is_closed.return_value = False
+    old_context.close = AsyncMock()
+    old_context.new_page = AsyncMock(return_value=MagicMock())
+
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine.is_bootstrap = True
+    mock_engine.browser.new_context = AsyncMock(return_value=old_context)
+    mock_engine._on_browser_disconnected = Mock()
+
+    session = ProviderSession(mock_engine, "test_provider", enable_persistence=True)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+    mocker.patch.object(session, "_eviction_loop", AsyncMock())
+    mocker.patch.object(session, "_reaper_loop", AsyncMock())
+
+    await session._setup()
+    delayed_callback = old_context.on.call_args.args[1]
+
+    await session.close_resources(save_state=False)
+
+    new_context = MagicMock()
+    mock_engine.browser_generation = 2
+    session.context = new_context
+    session.last_browser_generation = 2
+
+    scheduled = []
+    loop = MagicMock()
+    loop.create_task.side_effect = lambda coroutine: scheduled.append(coroutine)
+    mocker.patch("app.services.browser.session.asyncio.get_running_loop", return_value=loop)
+
+    delayed_callback(old_context)
+    assert len(scheduled) == 1
+    await scheduled.pop()
+
+    mock_engine._on_browser_disconnected.assert_not_called()
+    assert session.context is new_context
 
 
 @pytest.mark.asyncio
