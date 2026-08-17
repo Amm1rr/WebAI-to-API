@@ -220,11 +220,6 @@ def is_gemini_generation_registered(*, client, generation: int) -> bool:
     return record is not None and record.client is client
 
 
-def acquire_gemini_lease_for_request(getter=None) -> GeminiClientLease:
-    """Compatibility wrapper; request leasing is lifecycle-current only."""
-    return acquire_current_gemini_lease()
-
-
 def get_gemini_client_auth_source():
     """
     Return the currently selected WebAPI auth source label, if known.
