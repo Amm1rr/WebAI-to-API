@@ -9,6 +9,7 @@ from app.services.providers.gemini.client import (
     acquire_gemini_lease_for_request,
     get_gemini_client,
     GeminiClientNotInitializedError,
+    GeminiGenerationUnavailableError,
 )
 from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.providers.gemini.session_manager import (
@@ -449,9 +450,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                     gem=request.gem,
                     lease=lease,
                 )
-            except RuntimeError as e:
-                if str(e) != "Gemini session generation changed before execution.":
-                    raise
+            except GeminiGenerationUnavailableError:
                 await lease.release()
                 lease = acquire_gemini_lease_for_request(get_gemini_client)
                 gemini_client = lease.client

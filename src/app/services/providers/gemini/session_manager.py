@@ -16,6 +16,7 @@ from app.services.providers.exceptions import (
 )
 from app.services.providers.gemini.client import (
     acquire_gemini_lease,
+    GeminiGenerationUnavailableError,
     is_gemini_generation_registered,
     register_gemini_generation,
 )
@@ -141,7 +142,9 @@ class SessionManager:
                     lease.client is not self.client
                     or lease.generation != self.client_generation
                 ):
-                    raise RuntimeError("Gemini session generation changed before execution.")
+                    raise GeminiGenerationUnavailableError(
+                        "Gemini session generation changed before execution."
+                    )
                 is_reused = (self.session is not None and self.model == model and self.gem == gem)
                 
                 self._ensure_session(model, gem)
@@ -191,7 +194,9 @@ class SessionManager:
                     lease.client is not self.client
                     or lease.generation != self.client_generation
                 ):
-                    raise RuntimeError("Gemini session generation changed before execution.")
+                    raise GeminiGenerationUnavailableError(
+                        "Gemini session generation changed before execution."
+                    )
                 is_reused = (self.session is not None and self.model == model and self.gem == gem)
                 
                 self._ensure_session(model, gem)
@@ -290,13 +295,15 @@ class SessionManager:
         generation = self.client_generation
         try:
             return acquire_gemini_lease(client=client, generation=generation)
-        except RuntimeError as first_error:
+        except GeminiGenerationUnavailableError:
             client = self.client
             generation = self.client_generation
             try:
                 return acquire_gemini_lease(client=client, generation=generation)
-            except RuntimeError as second_error:
-                raise RuntimeError("Gemini session generation is no longer available.") from second_error
+            except GeminiGenerationUnavailableError as second_error:
+                raise GeminiGenerationUnavailableError(
+                    "Gemini session generation is no longer available."
+                ) from second_error
 
 
 class SessionRegistry:
@@ -477,7 +484,7 @@ class SessionRegistry:
                             client=client,
                             generation=client_generation,
                         )
-                    except RuntimeError:
+                    except GeminiGenerationUnavailableError:
                         async with self._lock:
                             if (
                                 self.client is client

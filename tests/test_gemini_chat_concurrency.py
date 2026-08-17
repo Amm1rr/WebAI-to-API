@@ -362,6 +362,84 @@ async def test_registry_same_client_update_preserves_generation_and_session(mock
 
 
 @pytest.mark.asyncio
+async def test_session_generation_mismatch_uses_typed_error(mocker):
+    client1 = mocker.Mock()
+    client2 = mocker.Mock()
+    registry = SessionRegistry(client1)
+    manager = await registry.get_session("conversation")
+    lease = gemini_client_module.acquire_gemini_lease(
+        client=client1,
+        generation=registry.client_generation,
+    )
+    await registry.update_client(client2)
+
+    with pytest.raises(
+        gemini_client_module.GeminiGenerationUnavailableError,
+        match="Gemini session generation changed before execution",
+    ):
+        await manager.get_response_stateful("model", [{"content": "first"}], "", lease=lease)
+    await lease.release()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_retries_only_typed_generation_error(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    original_acquire = session_manager_module.acquire_gemini_lease
+    calls = 0
+
+    def acquire_with_one_stale_attempt(*, client, generation):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise gemini_client_module.GeminiGenerationUnavailableError("stale")
+        return original_acquire(client=client, generation=generation)
+
+    mocker.patch.object(
+        session_manager_module,
+        "acquire_gemini_lease",
+        side_effect=acquire_with_one_stale_attempt,
+    )
+    lease = manager._acquire_client_lease()
+
+    assert calls == 2
+    await lease.release()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_does_not_retry_unrelated_runtime_error(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    acquire = mocker.patch.object(
+        session_manager_module,
+        "acquire_gemini_lease",
+        side_effect=RuntimeError("invariant failure"),
+    )
+
+    with pytest.raises(RuntimeError, match="invariant failure"):
+        manager._acquire_client_lease()
+    acquire.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_does_not_retry_shutdown_error(mocker):
+    client = mocker.Mock()
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    acquire = mocker.patch.object(
+        session_manager_module,
+        "acquire_gemini_lease",
+        side_effect=RuntimeError("Gemini client lifecycle is shutting down."),
+    )
+
+    with pytest.raises(RuntimeError, match="shutting down"):
+        manager._acquire_client_lease()
+    acquire.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_registry_reopen_same_client_same_generation(mocker):
     client = mocker.Mock()
     registry = SessionRegistry(client)

@@ -535,7 +535,7 @@ async def test_retired_generation_rejects_new_lease_but_existing_lease_releases(
     record = gemini_client_module._gemini_generation_records[0]
     gemini_client_module._retire_generation(record)
 
-    with pytest.raises(RuntimeError, match="retired"):
+    with pytest.raises(gemini_client_module.GeminiGenerationUnavailableError, match="retired"):
         gemini_client_module.acquire_gemini_lease(client=client, generation=0)
 
     await active_lease.release()
@@ -548,7 +548,7 @@ def test_invalid_client_generation_pair_rejected():
     gemini_client_module._gemini_client = client
     lease = gemini_client_module.acquire_current_gemini_lease()
 
-    with pytest.raises(RuntimeError, match="do not match"):
+    with pytest.raises(gemini_client_module.GeminiGenerationUnavailableError, match="do not match"):
         gemini_client_module.acquire_gemini_lease(client=other, generation=lease.generation)
 
 

@@ -18,6 +18,11 @@ class GeminiClientNotInitializedError(Exception):
     pass
 
 
+class GeminiGenerationUnavailableError(RuntimeError):
+    """Raised when a requested Gemini generation is stale or unavailable."""
+    pass
+
+
 # Global variables to store the Gemini client instance and state
 _gemini_client = None
 _initialization_error = None
@@ -178,7 +183,7 @@ def acquire_current_gemini_lease() -> GeminiClientLease:
     if record is None:
         raise GeminiClientNotInitializedError("Gemini client was not initialized.")
     if record.retired:
-        raise RuntimeError("Current Gemini client generation is retired.")
+        raise GeminiGenerationUnavailableError("Current Gemini client generation is retired.")
     record.lease_count += 1
     return GeminiClientLease(record)
 
@@ -188,9 +193,9 @@ def acquire_gemini_lease(*, client, generation: int) -> GeminiClientLease:
         raise RuntimeError("Gemini client lifecycle is shutting down.")
     record = _gemini_generation_records.get(generation)
     if record is None or record.client is not client:
-        raise RuntimeError("Gemini client and generation do not match.")
+        raise GeminiGenerationUnavailableError("Gemini client and generation do not match.")
     if record.retired:
-        raise RuntimeError("Gemini client generation is retired.")
+        raise GeminiGenerationUnavailableError("Gemini client generation is retired.")
     record.lease_count += 1
     return GeminiClientLease(record)
 

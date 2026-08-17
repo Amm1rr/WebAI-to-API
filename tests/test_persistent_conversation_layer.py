@@ -543,7 +543,9 @@ async def test_restore_retries_when_captured_generation_retires_before_lease(moc
             new_generation = gemini_client_module.register_gemini_generation(client2)
             registry.client = client2
             registry.client_generation = new_generation
-            raise RuntimeError("Gemini client generation is retired.")
+            raise gemini_client_module.GeminiGenerationUnavailableError(
+                "Gemini client generation is retired."
+            )
         return original_acquire(client=client, generation=generation)
 
     monkeypatch.setattr(session_manager_module, "acquire_gemini_lease", acquire_with_retirement)
