@@ -153,7 +153,12 @@ class BrowserRequestExecutor:
                 def on_close(_page):
                     if state.cleanup_started:
                         return
-                    logger.warning("Page close detected", extra={"request_id": state.request_id})
+                    shutting_down = (
+                        getattr(getattr(session, "engine", None), "shutdown_requested", False) is True
+                        or getattr(getattr(session, "engine", None), "is_shutting_down", False) is True
+                    )
+                    log_method = logger.info if shutting_down else logger.warning
+                    log_method("Page close detected", extra={"request_id": state.request_id})
                     state.page_poisoned = True
                     if state.active_tab:
                         state.active_tab.invalidate()

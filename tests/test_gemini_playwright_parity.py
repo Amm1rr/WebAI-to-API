@@ -103,6 +103,7 @@ async def configure_playwright_success(
     mock_engine = MagicMock()
     mock_engine.browser_generation = 1
     mock_engine.get_session = AsyncMock(return_value=session)
+    session.engine = mock_engine
 
     async def mock_get_browser_engine():
         return mock_engine
@@ -177,7 +178,7 @@ async def test_stream_started_confirms_submission_without_emitting_content(monke
 
 
 @pytest.mark.asyncio
-async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch):
+async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch, caplog):
     page = make_mock_page()
     lease = make_mock_lease(page)
     session = make_mock_session(lease)
@@ -208,6 +209,57 @@ async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch):
 
     assert exc_info.value.status_code == 502
     assert "timed out" not in str(exc_info.value.detail).lower()
+    assert any(
+        record.message == "Page close detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_page_close_during_application_shutdown_is_not_warning(monkeypatch, caplog):
+    page = make_mock_page()
+    persistent_tab = MagicMock(browser_generation=1)
+    lease = make_mock_lease(page, persistent_tab=persistent_tab)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    engine = await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+    engine.shutdown_requested = True
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+
+    close_handler(page)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert not any(
+        record.message == "Page close detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
+    assert any(
+        record.message == "Page close detected" and record.levelname in {"INFO", "DEBUG"}
+        for record in caplog.records
+    )
+    assert state_ref["state"].page_poisoned is True
+    persistent_tab.invalidate.assert_called()
+    assert state_ref["state"].terminal_event.is_set()
     lease.close.assert_awaited_once()
 
 
@@ -243,7 +295,7 @@ async def test_buffered_request_abort_cancels_task_and_releases_lease(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_stream_fails_promptly_when_page_crashes(monkeypatch):
+async def test_stream_fails_promptly_when_page_crashes(monkeypatch, caplog):
     page = make_mock_page()
     lease = make_mock_lease(page)
     session = make_mock_session(lease)
@@ -281,6 +333,10 @@ async def test_stream_fails_promptly_when_page_crashes(monkeypatch):
     with pytest.raises(BrowserDisconnectedError):
         await stream_task
 
+    assert any(
+        record.message == "Page crash detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
     lease.close.assert_awaited_once()
 
 
