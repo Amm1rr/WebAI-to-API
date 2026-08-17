@@ -14,7 +14,11 @@ from app.services.providers.exceptions import (
     SnapshotNotFoundError,
     StateIntegrityError,
 )
-from app.services.providers.gemini.client import acquire_gemini_lease, register_gemini_generation
+from app.services.providers.gemini.client import (
+    acquire_gemini_lease,
+    is_gemini_generation_registered,
+    register_gemini_generation,
+)
 from app.services.providers.gemini.persistence import deserialize_session_state, serialize_session_state
 from app.utils.tokens import generate_opaque_token
 
@@ -306,19 +310,25 @@ class SessionRegistry:
         repository: Optional[IConversationRepository] = None,
         *,
         register_generation: bool = True,
+        generation: Optional[int] = None,
     ):
         self.client = client
         self._register_generation = register_generation
-        self.client_generation = (
-            register_gemini_generation(client) if register_generation else 0
-        )
+        if generation is not None:
+            if not is_gemini_generation_registered(client=client, generation=generation):
+                raise RuntimeError("Gemini client generation is not registered.")
+            self.client_generation = generation
+        else:
+            self.client_generation = (
+                register_gemini_generation(client) if register_generation else 0
+            )
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
         self._restore_tasks: Dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
-    async def update_client(self, client):
+    async def update_client(self, client, *, generation: Optional[int] = None):
         """
         Safely update the direct client reference in all active session managers
         under the registry-level management lock. This guarantees coroutine-level
@@ -328,7 +338,11 @@ class SessionRegistry:
         async with self._lock:
             if client is self.client:
                 return
-            if self._register_generation:
+            if generation is not None:
+                if not is_gemini_generation_registered(client=client, generation=generation):
+                    raise RuntimeError("Gemini client generation is not registered.")
+                next_generation = generation
+            elif self._register_generation:
                 next_generation = register_gemini_generation(client)
             else:
                 next_generation = self.client_generation + 1
@@ -646,7 +660,7 @@ class SessionRegistry:
 # Global persistent-chat registry.
 _gemini_chat_registry = None
 
-async def init_session_managers(client):
+async def init_session_managers(client, generation: int):
     """
     Initialize persistent chat session managers.
     If already initialized, safely updates client references in all active 
@@ -656,9 +670,9 @@ async def init_session_managers(client):
 
     # If already initialized, safely update client references to preserve runtime state.
     if _gemini_chat_registry is not None:
-        await _gemini_chat_registry.update_client(client)
+        await _gemini_chat_registry.update_client(client, generation=generation)
         logger.info("Session managers safely updated with new client reference.")
-        return _gemini_chat_registry.client_generation
+        return
 
     from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
@@ -670,8 +684,8 @@ async def init_session_managers(client):
         client,
         repository=repository,
         register_generation=False,
+        generation=generation,
     )
-    return _gemini_chat_registry.client_generation
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry

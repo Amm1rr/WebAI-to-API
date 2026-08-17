@@ -136,6 +136,18 @@ def _register_generation(client, generation):
     return record
 
 
+def _unregister_generation(record: GeminiGenerationRecord) -> None:
+    if record.lease_count:
+        raise RuntimeError("Cannot unregister a generation with active leases.")
+    if _gemini_generation_records.get(record.generation) is not record:
+        return
+    if _current_gemini_generation == record.generation:
+        raise RuntimeError("Cannot unregister the current Gemini generation.")
+    _gemini_generation_records.pop(record.generation, None)
+    if _gemini_client_generations.get(id(record.client)) == record.generation:
+        _gemini_client_generations.pop(id(record.client), None)
+
+
 def _retire_generation(record):
     record.retired = True
     if not any(client is record.client for client in _retired_gemini_clients):
@@ -204,6 +216,11 @@ def register_gemini_generation(client, generation: Optional[int] = None) -> int:
     return generation
 
 
+def is_gemini_generation_registered(*, client, generation: int) -> bool:
+    record = _gemini_generation_records.get(generation)
+    return record is not None and record.client is client
+
+
 def acquire_gemini_lease_for_request(getter) -> GeminiClientLease:
     try:
         return acquire_current_gemini_lease()
@@ -223,7 +240,7 @@ def get_gemini_client_auth_source():
 
 async def init_gemini_client(
     *,
-    registry_updater: Optional[Callable[[MyGeminiClient], Awaitable[Optional[int]]]] = None,
+    registry_updater: Optional[Callable[[MyGeminiClient, int], Awaitable[None]]] = None,
 ) -> bool:
     """
     Initialize and set up the Gemini client based on the configuration and canonical storage.
@@ -247,27 +264,44 @@ async def init_gemini_client(
         async def publish_candidate(candidate, auth_source: str) -> bool:
             global _gemini_client, _gemini_client_auth_source, _initialization_error
             global _current_gemini_generation, _gemini_shutdown_started
-            committed_generation = next_generation
+            same_client = old_record is not None and candidate is old_record.client
+            committed_generation = old_record.generation if same_client else next_generation
+            candidate_record = None
 
-            if registry_updater is not None:
+            if not same_client:
                 try:
-                    registry_generation = await registry_updater(candidate)
-                    if isinstance(registry_generation, int):
-                        committed_generation = registry_generation
+                    candidate_record = _register_generation(candidate, committed_generation)
                 except Exception as e:
-                    logger.error(f"Gemini client replacement registry update failed: {e}", exc_info=True)
-                    _initialization_error = None if old_client is not None else str(e)
+                    logger.error(f"Gemini client generation registration failed: {e}", exc_info=True)
+                    if old_client is None:
+                        _initialization_error = str(e)
+                        _gemini_client_auth_source = None
                     try:
                         await candidate.close()
                     except Exception as close_error:
                         logger.warning(f"Error closing failed Gemini replacement: {close_error}")
                     return False
 
-            if old_record is not None and candidate is old_record.client:
+            if registry_updater is not None:
+                try:
+                    await registry_updater(candidate, committed_generation)
+                except Exception as e:
+                    logger.error(f"Gemini client replacement registry update failed: {e}", exc_info=True)
+                    if candidate_record is not None:
+                        _unregister_generation(candidate_record)
+                    _initialization_error = None if old_client is not None else str(e)
+                    if not same_client:
+                        try:
+                            await candidate.close()
+                        except Exception as close_error:
+                            logger.warning(f"Error closing failed Gemini replacement: {close_error}")
+                    return False
+
+            if same_client:
                 _gemini_client_auth_source = auth_source
                 return True
 
-            record = _register_generation(candidate, committed_generation)
+            record = candidate_record
             _gemini_client = candidate
             _gemini_client_auth_source = auth_source
             _current_gemini_generation = record.generation

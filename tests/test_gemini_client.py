@@ -2,12 +2,16 @@ import pytest
 import json
 import asyncio
 import configparser
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from app.services.providers.gemini.client import close_gemini_client, init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
 from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate, GeminiAuthSelector
+from app.services.providers.base_repository import ConversationSnapshot, ProviderCapability
+from app.services.providers.gemini.session_manager import SessionRegistry, SNAPSHOT_SCHEMA_VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -177,8 +181,12 @@ async def test_registry_callback_receives_private_candidate_until_commit(mocker)
     )
     mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
 
-    async def update_registry(candidate):
+    async def update_registry(candidate, generation):
         assert candidate is new_client
+        assert gemini_client_module.is_gemini_generation_registered(
+            client=candidate,
+            generation=generation,
+        )
         assert gemini_client_module.get_gemini_client() is old_client
         entered.set()
         await release.wait()
@@ -196,6 +204,77 @@ async def test_registry_callback_receives_private_candidate_until_commit(mocker)
 
 
 @pytest.mark.asyncio
+async def test_restore_can_lease_generation_during_registry_commit(mocker):
+    old_client = make_mock_client("AVAILABLE")
+    new_client = make_mock_client("AVAILABLE")
+    snapshot = ConversationSnapshot(
+        conversation_id="restore-during-commit",
+        provider_name="gemini",
+        session_state={"state": "saved"},
+        schema_version=SNAPSHOT_SCHEMA_VERSION,
+        updated_at=datetime.now(timezone.utc),
+    )
+    repository = SimpleNamespace(
+        get_snapshot=mocker.AsyncMock(return_value=snapshot),
+        save_snapshot=mocker.AsyncMock(),
+        delete_snapshot=mocker.AsyncMock(),
+        list_snapshots=mocker.AsyncMock(return_value=[]),
+    )
+    registry = SessionRegistry(old_client, repository=repository)
+    gemini_client_module._gemini_client = old_client
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "true"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("replacement", "config", "new_psid")]),
+    )
+    mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
+
+    async def update_registry(candidate, generation):
+        await registry.update_client(candidate, generation=generation)
+        entered.set()
+        await release.wait()
+
+    task = asyncio.create_task(init_gemini_client(registry_updater=update_registry))
+    await entered.wait()
+
+    assert gemini_client_module.get_gemini_client() is old_client
+    assert registry.client is new_client
+    assert registry.client_generation == 1
+    assert gemini_client_module.is_gemini_generation_registered(
+        client=new_client,
+        generation=1,
+    )
+
+    adapter = SimpleNamespace(
+        capabilities={ProviderCapability.PERSISTENT_RECOVERY},
+        provider_name="gemini",
+        validate_session_recovery=lambda state, context: state,
+        deserialize_session_state=lambda state, client, **kwargs: SimpleNamespace(
+            model=kwargs.get("model"),
+            gem=kwargs.get("gem"),
+            client=client,
+        ),
+    )
+    manager = await registry.get_session(
+        "restore-during-commit",
+        adapter,
+        allow_create=False,
+    )
+    assert manager.client is new_client
+    assert manager.client_generation == 1
+
+    release.set()
+    assert await task is True
+    assert gemini_client_module.get_gemini_client() is new_client
+
+
+@pytest.mark.asyncio
 async def test_startup_registry_failure_keeps_candidate_private(mocker):
     candidate = make_mock_client("AVAILABLE")
     config = configparser.ConfigParser()
@@ -208,15 +287,21 @@ async def test_startup_registry_failure_keeps_candidate_private(mocker):
     )
     mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=candidate)
 
-    async def fail_registry_update(client):
+    async def fail_registry_update(client, generation):
         assert client is candidate
         assert gemini_client_module._gemini_client is None
+        assert gemini_client_module.is_gemini_generation_registered(
+            client=client,
+            generation=generation,
+        )
         raise RuntimeError("registry setup failed")
 
     assert await init_gemini_client(registry_updater=fail_registry_update) is False
     assert gemini_client_module._gemini_client is None
     assert gemini_client_module._gemini_client_auth_source is None
     candidate.close.assert_awaited_once_with()
+    assert gemini_client_module._gemini_generation_records == {}
+    assert gemini_client_module._gemini_client_generations == {}
     assert gemini_client_module._retired_gemini_clients == []
 
 
@@ -235,9 +320,14 @@ async def test_startup_candidate_publishes_after_registry_setup(mocker):
     )
     mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=candidate)
 
-    async def setup_registry(client):
+    async def setup_registry(client, generation):
         assert client is candidate
         assert gemini_client_module._gemini_client is None
+        assert generation == 0
+        assert gemini_client_module.is_gemini_generation_registered(
+            client=client,
+            generation=generation,
+        )
         entered.set()
         await release.wait()
 
@@ -272,7 +362,7 @@ async def test_replacements_remain_serialized_while_registry_commit_blocks(mocke
         side_effect=[first, second],
     )
 
-    async def update_registry(client):
+    async def update_registry(client, generation):
         if client is first:
             entered.set()
             await release.wait()
@@ -335,7 +425,12 @@ async def test_successful_replacement_updates_registry_and_retains_old_client(mo
     )
     mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
 
-    assert await init_gemini_client(registry_updater=lambda candidate: registry.update_client(candidate)) is True
+    assert await init_gemini_client(
+        registry_updater=lambda candidate, generation: registry.update_client(
+            candidate,
+            generation=generation,
+        )
+    ) is True
     assert gemini_client_module._gemini_client is new_client
     assert gemini_client_module.get_gemini_client_auth_source() == "replacement"
     assert registry.client is new_client
@@ -541,8 +636,8 @@ async def test_successful_restart_reactivates_lease_acquisition(mocker):
         side_effect=[first, second],
     )
 
-    async def registry_update(client):
-        return 0 if client is first else 1
+    async def registry_update(client, generation):
+        assert generation == 0
 
     assert await init_gemini_client(registry_updater=registry_update) is True
     first_lease = gemini_client_module.acquire_current_gemini_lease()
@@ -554,8 +649,8 @@ async def test_successful_restart_reactivates_lease_acquisition(mocker):
     assert await init_gemini_client(registry_updater=registry_update) is True
     second_lease = gemini_client_module.acquire_current_gemini_lease()
     assert second_lease.client is second
-    assert second_lease.generation == 1
-    assert gemini_client_module._current_gemini_generation == 1
+    assert second_lease.generation == 0
+    assert gemini_client_module._current_gemini_generation == 0
     await second_lease.release()
     first.close.assert_awaited_once_with()
     second.close.assert_not_awaited()
@@ -611,8 +706,8 @@ async def test_restart_preserves_active_old_lease_and_new_generation(mocker):
         side_effect=[first, second],
     )
 
-    async def registry_update(client):
-        return 0 if client is first else 1
+    async def registry_update(client, generation):
+        assert generation == (0 if client is first else 1)
 
     assert await init_gemini_client(registry_updater=registry_update) is True
     old_lease = gemini_client_module.acquire_current_gemini_lease()
@@ -668,7 +763,7 @@ async def test_registry_update_failure_rolls_back_replacement(mocker):
     )
     mocker.patch("app.services.providers.gemini.client.MyGeminiClient", return_value=new_client)
 
-    async def fail_registry_update(candidate):
+    async def fail_registry_update(candidate, generation):
         assert candidate is new_client
         raise RuntimeError("registry failed")
 

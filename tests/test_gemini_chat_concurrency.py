@@ -30,6 +30,22 @@ class _FakeChatSession:
         return SimpleNamespace(text="ok")
 
 @pytest.mark.asyncio
+async def test_registry_rejects_unregistered_explicit_generation(mocker):
+    old_client = mocker.Mock()
+    candidate = mocker.Mock()
+    registry = SessionRegistry(old_client)
+
+    with pytest.raises(RuntimeError, match="not registered"):
+        await registry.update_client(
+            candidate,
+            generation=registry.client_generation + 1,
+        )
+
+    assert registry.client is old_client
+    assert registry.client_generation == 0
+
+
+@pytest.mark.asyncio
 async def test_concurrent_independent_streams(mocker):
     """Verify independent conversations can stream simultaneously."""
     mock_client = mocker.Mock()
