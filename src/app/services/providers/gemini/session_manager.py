@@ -14,6 +14,7 @@ from app.services.providers.exceptions import (
     SnapshotNotFoundError,
     StateIntegrityError,
 )
+from app.services.providers.gemini.client import acquire_gemini_lease, register_gemini_generation
 from app.services.providers.gemini.persistence import deserialize_session_state, serialize_session_state
 from app.utils.tokens import generate_opaque_token
 
@@ -111,14 +112,32 @@ class SessionManager:
                 self.active_streams -= 1
                 self.last_accessed = time.time()
 
-    async def get_response_stateful(self, model, messages, tools_prompt, files=None, gem=None):
+    async def get_response_stateful(
+        self,
+        model,
+        messages,
+        tools_prompt,
+        files=None,
+        gem=None,
+        lease=None,
+    ):
         """
         Thread-safe stateful response execution.
         Resolves whether to reuse or bootstrap the session within the lock.
         """
         async with self.lock:
+            owns_lease = lease is None
             try:
                 self.last_accessed = time.time()
+                if owns_lease:
+                    lease = self._acquire_client_lease()
+                else:
+                    lease.assert_active()
+                if not owns_lease and (
+                    lease.client is not self.client
+                    or lease.generation != self.client_generation
+                ):
+                    raise RuntimeError("Gemini session generation changed before execution.")
                 is_reused = (self.session is not None and self.model == model and self.gem == gem)
                 
                 self._ensure_session(model, gem)
@@ -135,9 +154,19 @@ class SessionManager:
                 logger.error(f"Error in stateful session get_response: {e}", exc_info=True)
                 raise
             finally:
+                if owns_lease and lease is not None:
+                    await asyncio.shield(lease.release())
                 self.last_accessed = time.time()
 
-    async def get_streaming_response_stateful(self, model, messages, tools_prompt, files=None, gem=None) -> AsyncGenerator[Any, None]:
+    async def get_streaming_response_stateful(
+        self,
+        model,
+        messages,
+        tools_prompt,
+        files=None,
+        gem=None,
+        lease=None,
+    ) -> AsyncGenerator[Any, None]:
         """
         Thread-safe stateful progressive streaming response execution.
         Safely increments active streams and yields chunks with locked timeout protection.
@@ -147,8 +176,18 @@ class SessionManager:
         final_response = None
         
         async with self.lock:
+            owns_lease = lease is None
             try:
                 self.last_accessed = time.time()
+                if owns_lease:
+                    lease = self._acquire_client_lease()
+                else:
+                    lease.assert_active()
+                if not owns_lease and (
+                    lease.client is not self.client
+                    or lease.generation != self.client_generation
+                ):
+                    raise RuntimeError("Gemini session generation changed before execution.")
                 is_reused = (self.session is not None and self.model == model and self.gem == gem)
                 
                 self._ensure_session(model, gem)
@@ -196,6 +235,8 @@ class SessionManager:
                         "is_reused": is_reused
                     }
             finally:
+                if owns_lease and lease is not None:
+                    await asyncio.shield(lease.release())
                 self.active_streams -= 1
                 self.last_accessed = time.time()
 
@@ -240,15 +281,37 @@ class SessionManager:
         self.gem = gem
         self.session_generation = self.client_generation
 
+    def _acquire_client_lease(self):
+        client = self.client
+        generation = self.client_generation
+        try:
+            return acquire_gemini_lease(client=client, generation=generation)
+        except RuntimeError as first_error:
+            client = self.client
+            generation = self.client_generation
+            try:
+                return acquire_gemini_lease(client=client, generation=generation)
+            except RuntimeError as second_error:
+                raise RuntimeError("Gemini session generation is no longer available.") from second_error
+
 
 class SessionRegistry:
     """
     Manages a collection of SessionManager instances keyed by conversation_id.
     Implements atomic creation and active-stream aware pruning.
     """
-    def __init__(self, client, repository: Optional[IConversationRepository] = None):
+    def __init__(
+        self,
+        client,
+        repository: Optional[IConversationRepository] = None,
+        *,
+        register_generation: bool = True,
+    ):
         self.client = client
-        self.client_generation = 0
+        self._register_generation = register_generation
+        self.client_generation = (
+            register_gemini_generation(client) if register_generation else 0
+        )
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
@@ -264,13 +327,17 @@ class SessionRegistry:
         async with self._lock:
             if client is self.client:
                 return
+            if self._register_generation:
+                next_generation = register_gemini_generation(client)
+            else:
+                next_generation = self.client_generation + 1
             previous_client = self.client
             previous_generation = self.client_generation
             previous_manager_generations = {
                 manager: manager.client_generation for manager in self._sessions.values()
             }
             try:
-                self.client_generation += 1
+                self.client_generation = next_generation
                 self.client = client
                 for manager in self._sessions.values():
                     manager.client = client
@@ -489,9 +556,9 @@ async def init_session_managers(client):
 
     # If already initialized, safely update client references to preserve runtime state.
     if _gemini_chat_registry is not None:
-            await _gemini_chat_registry.update_client(client)
-            logger.info("Session managers safely updated with new client reference.")
-            return _gemini_chat_registry.client_generation
+        await _gemini_chat_registry.update_client(client)
+        logger.info("Session managers safely updated with new client reference.")
+        return _gemini_chat_registry.client_generation
 
     from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
@@ -499,7 +566,11 @@ async def init_session_managers(client):
         db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", get_default_conversation_snapshot_db())
     )
     repository.initialize_sync()
-    _gemini_chat_registry = SessionRegistry(client, repository=repository)
+    _gemini_chat_registry = SessionRegistry(
+        client,
+        repository=repository,
+        register_generation=False,
+    )
     return _gemini_chat_registry.client_generation
 
 def get_gemini_chat_registry():

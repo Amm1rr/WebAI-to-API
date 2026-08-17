@@ -116,14 +116,18 @@ The passive pruning mechanism in `SessionRegistry` evaluates active streams to p
 ### 6.6 Multi-Tab / Multi-Agent Limitation
 The design enforces a strict 1-to-1 relationship between an active `conversation_id` and a single logical client. The system does not support a multi-tab or multi-agent paradigm where multiple independent actors concurrently interact with the exact same thread.
 
-### 6.7 Branching Conversation Corruption Risk
+### 6.7 Gemini Client Generation Leases
+Gemini WebAPI request paths acquire a lease for the client generation they use. A replacement retires the previous generation but does not close it while its lease count is nonzero. Buffered requests release after upstream generation and response construction; stateful streaming requests release from the generator `finally` after completion, cancellation, timeout, or failure. Retired clients close when their final lease releases. No background retirement task is used.
+
+New direct requests acquire the current client and generation atomically. Stateful requests acquire the manager's client-generation pair while holding `SessionManager.lock`; stale sessions remain subject to the existing lazy rebuild invariant.
+
+### 6.8 Branching Conversation Corruption Risk
 If multiple clients concurrently reuse the same `conversation_id` and send differing messages:
 * Because they are serialized, their messages will interleave sequentially rather than branching.
 * There is a high risk of branching conversation corruption since there is no server-side history branching mechanism. The model will treat interleaving requests as one linear history, poisoning the context for all participating clients.
 
-### 6.8 Asyncio Execution Assumptions
+### 6.9 Asyncio Execution Assumptions
 The lock safety and event-loop-safe guarantees of this concurrency model depend on the cooperative multitasking model of `asyncio`.
 * Within the supported deployment model, SessionRegistry and SessionManager execute inside a single asyncio event loop per worker process.
 * The atomic update of `active_streams` and lock acquisition relies on the fact that context switches only occur at explicit `await` boundaries.
 * **Important**: This model assumes a single-event-loop execution environment. It is not designed or proven as a universal guarantee across arbitrary multi-threaded or multi-worker systems running without proper IPC/distributed locking.
-

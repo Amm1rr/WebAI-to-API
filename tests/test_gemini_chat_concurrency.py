@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.providers.gemini.session_manager import SessionRegistry, SessionManager
+import app.services.providers.gemini.client as gemini_client_module
 from app.utils.tokens import generate_opaque_token
 
 
@@ -73,6 +74,72 @@ async def test_concurrent_independent_streams(mocker):
     assert cid1 in cids
     assert cid2 in cids
     assert len([r for r in results if r.get("type") == "chunk"]) == 6
+
+
+@pytest.mark.asyncio
+async def test_stateful_buffered_request_holds_retired_client_until_release(mocker):
+    client = mocker.Mock()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    session = mocker.Mock()
+
+    async def send_message(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return SimpleNamespace(text="ok")
+
+    session.send_message = send_message
+    client.start_chat.return_value = session
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("lease-buffered")
+    record = gemini_client_module._gemini_generation_records[manager.client_generation]
+
+    task = asyncio.create_task(
+        manager.get_response_stateful("model", [{"content": "hi"}], "")
+    )
+    await entered.wait()
+    gemini_client_module._retire_generation(record)
+    assert client.close.call_count == 0
+
+    release.set()
+    await task
+
+    assert record.lease_count == 0
+    client.close.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_stateful_stream_cancellation_releases_retired_client(mocker):
+    client = mocker.Mock()
+    entered = asyncio.Event()
+    session = mocker.Mock()
+
+    async def send_message_stream(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+        yield SimpleNamespace(text_delta="never")
+
+    session.send_message_stream = send_message_stream
+    client.start_chat.return_value = session
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("lease-stream")
+    record = gemini_client_module._gemini_generation_records[manager.client_generation]
+
+    async def consume():
+        async for _ in manager.get_streaming_response_stateful(
+            "model", [{"content": "hi"}], ""
+        ):
+            pass
+
+    task = asyncio.create_task(consume())
+    await entered.wait()
+    gemini_client_module._retire_generation(record)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert record.lease_count == 0
+    client.close.assert_called_once_with()
 
 @pytest.mark.asyncio
 async def test_same_session_serialization(mocker):

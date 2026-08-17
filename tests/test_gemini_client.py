@@ -5,6 +5,7 @@ import configparser
 from unittest.mock import AsyncMock, MagicMock
 from app.services.providers.gemini.client import close_gemini_client, init_gemini_client
 import app.services.providers.gemini.client as gemini_client_module
+from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.browser.auth_loader import GeminiAuthStateLoader
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate, GeminiAuthSelector
 
@@ -369,6 +370,71 @@ async def test_lease_release_is_idempotent_and_does_not_close_current_client():
 
     assert gemini_client_module._gemini_generation_records[0].lease_count == 0
     client.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_rejects_released_external_lease():
+    from app.services.providers.gemini.session_manager import SessionRegistry
+
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = client
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    await lease.release()
+    manager = await SessionRegistry(client).get_session("released-lease")
+
+    with pytest.raises(RuntimeError, match="no longer active"):
+        await manager.get_response_stateful("model", [{"content": "hi"}], "", lease=lease)
+    client.start_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_lease_streaming_response_releases_before_body_starts():
+    client = make_mock_client("AVAILABLE")
+    body_started = False
+    cleanup = AsyncMock()
+    gemini_client_module._gemini_client = client
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    record = gemini_client_module._gemini_generation_records[lease.generation]
+    gemini_client_module._retire_generation(record)
+
+    async def body():
+        nonlocal body_started
+        body_started = True
+        yield b"never"
+
+    response = GeminiLeaseStreamingResponse(
+        body(),
+        lease=lease,
+        cleanup=cleanup,
+    )
+    lease.transfer()
+
+    async def send(message):
+        raise OSError("disconnect before body")
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    with pytest.raises(Exception):
+        await response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+
+    assert body_started is False
+    cleanup.assert_awaited_once_with()
+    client.close.assert_awaited_once_with()
+
+
+def test_lease_cannot_transfer_ownership_twice():
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = client
+    lease = gemini_client_module.acquire_current_gemini_lease()
+
+    lease.transfer()
+    with pytest.raises(RuntimeError, match="already transferred"):
+        lease.transfer()
 
 
 @pytest.mark.asyncio

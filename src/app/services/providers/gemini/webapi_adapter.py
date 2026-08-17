@@ -5,7 +5,12 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from gemini_webapi.exceptions import APIError, AuthError, TimeoutError as GeminiTimeoutError
 
-from app.services.providers.gemini.client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.providers.gemini.client import (
+    acquire_gemini_lease_for_request,
+    get_gemini_client,
+    GeminiClientNotInitializedError,
+)
+from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.providers.gemini.session_manager import (
     SNAPSHOT_SCHEMA_VERSION,
     get_gemini_chat_registry,
@@ -46,21 +51,25 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
     def __init__(self, provider):
         self.provider = provider
 
-    def _get_available_gemini_client(self):
+    async def _acquire_available_gemini_lease(self):
         try:
-            gemini_client = get_gemini_client()
-        except GeminiClientNotInitializedError as e:
+            lease = acquire_gemini_lease_for_request(get_gemini_client)
+        except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
 
-        ensure_gemini_client_ready(
-            gemini_client,
-            unauthenticated_detail=(
-                "The provided conversation_id requires an authenticated Gemini session. "
-                "Please sign in and try again."
-            ),
-        )
+        try:
+            ensure_gemini_client_ready(
+                lease.client,
+                unauthenticated_detail=(
+                    "The provided conversation_id requires an authenticated Gemini session. "
+                    "Please sign in and try again."
+                ),
+            )
+        except Exception:
+            await asyncio.shield(lease.release())
+            raise
 
-        return gemini_client
+        return lease
 
     def _get_normalized_payload(self, request: OpenAIChatRequest):
         normalized = getattr(request, "_normalized_openai_chat_messages", None)
@@ -114,7 +123,13 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             raise HTTPException(status_code=500, detail=f"Error listing Gemini conversations: {str(e)}") from e
 
     async def delete_conversations(self) -> dict:
-        gemini_client = self._get_available_gemini_client()
+        lease = await self._acquire_available_gemini_lease()
+        try:
+            return await self._delete_conversations_with_client(lease.client)
+        finally:
+            await asyncio.shield(lease.release())
+
+    async def _delete_conversations_with_client(self, gemini_client) -> dict:
 
         registry = get_gemini_chat_registry()
         if not registry or not registry.repository:
@@ -225,7 +240,13 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
         }
 
     async def delete_conversation(self, conversation_id: str) -> dict:
-        gemini_client = self._get_available_gemini_client()
+        lease = await self._acquire_available_gemini_lease()
+        try:
+            return await self._delete_conversation_with_client(lease.client, conversation_id)
+        finally:
+            await asyncio.shield(lease.release())
+
+    async def _delete_conversation_with_client(self, gemini_client, conversation_id: str) -> dict:
 
         registry = get_gemini_chat_registry()
         if not registry or not registry.repository:
@@ -297,36 +318,44 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
 
     async def chat_completions(self, request: OpenAIChatRequest, cid: str, is_new_conversation: bool, tools_prompt: str) -> Any:
         try:
-            gemini_client = get_gemini_client()
-        except GeminiClientNotInitializedError as e:
+            lease = acquire_gemini_lease_for_request(get_gemini_client)
+        except (GeminiClientNotInitializedError, RuntimeError) as e:
             raise HTTPException(status_code=503, detail=str(e))
 
-        normalized = self._get_normalized_payload(request)
-        request.messages = normalized.messages
-        files = normalized.files or None
-        cleanup_started = False
+        async with lease:
+            gemini_client = lease.client
+            normalized = self._get_normalized_payload(request)
+            request.messages = normalized.messages
+            files = normalized.files or None
+            cleanup_started = False
 
-        async def cleanup_once() -> None:
-            nonlocal cleanup_started
-            if cleanup_started:
-                return
-            cleanup_started = True
-            await cleanup_staged_files(normalized)
+            async def cleanup_once() -> None:
+                nonlocal cleanup_started
+                if cleanup_started:
+                    return
+                cleanup_started = True
+                await cleanup_staged_files(normalized)
 
-        ensure_gemini_client_ready(
-            gemini_client,
-            unauthenticated_detail=(
-                "The provided conversation_id requires an authenticated Gemini session. "
-                "Please sign in and try again."
-            ),
-        )
+            ensure_gemini_client_ready(
+                gemini_client,
+                unauthenticated_detail=(
+                    "The provided conversation_id requires an authenticated Gemini session. "
+                    "Please sign in and try again."
+                ),
+            )
 
-        validate_model_name(request.model, gemini_client)
+            validate_model_name(request.model, gemini_client)
+            stream_lease_handoff = request.stream and not request.tools
+            lease.transfer()
+
+            async def release_lease() -> None:
+                await asyncio.shield(lease.release())
 
         # 1. Retrieve stateful SessionManager from SessionRegistry
         registry = get_gemini_chat_registry()
         if not registry:
             await cleanup_once()
+            await release_lease()
             raise HTTPException(status_code=503, detail="Session registry is not initialized.")
         
         try:
@@ -339,13 +368,19 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             )
         except SnapshotNotFoundError:
             await cleanup_once()
+            await release_lease()
             raise HTTPException(
                 status_code=404,
                 detail="The provided conversation_id was not found.",
             )
         except SessionRecoveryError as e:
             await cleanup_once()
+            await release_lease()
             raise HTTPException(status_code=409, detail=str(e)) from e
+        except Exception:
+            await cleanup_once()
+            await release_lease()
+            raise
 
         is_stream = request.stream if request.stream is not None else False
 
@@ -360,7 +395,8 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                             messages=request.messages,
                             tools_prompt=tools_prompt,
                             files=files,
-                            gem=request.gem
+                            gem=request.gem,
+                            lease=lease,
                         ):
                             if chunk.get("type") == "chunk" and chunk.get("text_delta"):
                                 openai_chunk = convert_to_openai_format(
@@ -391,8 +427,10 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                     finally:
                         await cleanup_once()
 
-                return StreamingResponse(
+                return GeminiLeaseStreamingResponse(
                     sse_generator(),
+                    lease=lease,
+                    cleanup=cleanup_once,
                     media_type="text/event-stream",
                     headers={
                         "Cache-Control": "no-cache",
@@ -402,13 +440,44 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                 )
 
             # 3. Buffered Path (for non-streaming or tool-calling)
-            response, is_reused = await session_manager.get_response_stateful(
-                model=request.model,
-                messages=request.messages,
-                tools_prompt=tools_prompt,
-                files=files,
-                gem=request.gem
-            )
+            try:
+                response, is_reused = await session_manager.get_response_stateful(
+                    model=request.model,
+                    messages=request.messages,
+                    tools_prompt=tools_prompt,
+                    files=files,
+                    gem=request.gem,
+                    lease=lease,
+                )
+            except RuntimeError as e:
+                if str(e) != "Gemini session generation changed before execution.":
+                    raise
+                await lease.release()
+                lease = acquire_gemini_lease_for_request(get_gemini_client)
+                gemini_client = lease.client
+                ensure_gemini_client_ready(
+                    gemini_client,
+                    unauthenticated_detail=(
+                        "The provided conversation_id requires an authenticated Gemini session. "
+                        "Please sign in and try again."
+                    ),
+                )
+                validate_model_name(request.model, gemini_client)
+                session_manager = await registry.get_session(
+                    cid,
+                    self.provider,
+                    allow_create=is_new_conversation,
+                    model=request.model,
+                    gem=request.gem,
+                )
+                response, is_reused = await session_manager.get_response_stateful(
+                    model=request.model,
+                    messages=request.messages,
+                    tools_prompt=tools_prompt,
+                    files=files,
+                    gem=request.gem,
+                    lease=lease,
+                )
             await registry.save_session_snapshot(cid, self.provider, session_manager)
             
             # 4. Parse tool calls if necessary
@@ -450,9 +519,11 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
 
         except HTTPException:
             await cleanup_once()
+            await release_lease()
             raise
         except APIError as e:
             await cleanup_once()
+            await release_lease()
             if not is_new_conversation and self._is_unrecoverable_conversation_error(e):
                 raise HTTPException(
                     status_code=410,
@@ -462,8 +533,12 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
         except Exception as e:
             await cleanup_once()
+            await release_lease()
             logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
+        finally:
+            if not stream_lease_handoff:
+                await release_lease()
 
     def _is_unrecoverable_conversation_error(self, error: APIError) -> bool:
         error_code = (

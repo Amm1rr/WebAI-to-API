@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GoogleGenerativeRequest
-from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.gemini_client import (
+    acquire_gemini_lease_for_request,
+    GeminiClientNotInitializedError,
+    get_gemini_client,
+)
 
 router = APIRouter()
 
@@ -104,11 +108,6 @@ def _make_google_response(response_text: str, tools=None) -> dict:
     description="Compatibility endpoint that accepts Google Generative AI style requests and returns Google-style responses. Intended for integration compatibility and not guaranteed to provide full protocol parity with official Google SDKs."
 )
 async def google_generative_generate(model_path: str, request: GoogleGenerativeRequest):
-    try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
     # model_path may be "gemini-2.5-flash:generateContent" or "gemini-2.5-flash:streamGenerateContent"
     parts = model_path.split(":")
     model_name = parts[0]
@@ -144,7 +143,10 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
 
         if is_streaming:
             async def sse_generator():
+                lease = None
                 try:
+                    lease = acquire_gemini_lease_for_request(get_gemini_client)
+                    gemini_client = lease.client
                     async for chunk in await gemini_client.generate_content_stream(prompt, model_name):
                         if chunk.text_delta:
                             partial_response = {
@@ -162,6 +164,9 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
                     raise
                 except Exception as e:
                     logger.error(f"Error in Google Generative progressive streaming: {e}", exc_info=True)
+                finally:
+                    if lease is not None:
+                        await asyncio.shield(lease.release())
 
             return StreamingResponse(
                 sse_generator(),
@@ -173,10 +178,16 @@ async def google_generative_generate(model_path: str, request: GoogleGenerativeR
                 }
             )
 
-        response = await gemini_client.generate_content(prompt, model_name)
-        google_response = _make_google_response(response.text, request.tools)
-        return google_response
+        try:
+            lease = acquire_gemini_lease_for_request(get_gemini_client)
+        except (GeminiClientNotInitializedError, RuntimeError) as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        async with lease:
+            response = await lease.client.generate_content(prompt, model_name)
+            return _make_google_response(response.text, request.tools)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /v1beta/models endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generating content: {str(e)}")

@@ -30,3 +30,30 @@ def reset_provider_factory():
             auth_mgr.coordination_lock.release()
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def reset_gemini_lifecycle_state():
+    """Keep generation lease state isolated between tests."""
+    try:
+        import app.services.providers.gemini.client as gemini_client
+        gemini_client._gemini_client = None
+        gemini_client._initialization_error = None
+        gemini_client._gemini_client_auth_source = None
+        gemini_client._gemini_generation_records.clear()
+        gemini_client._gemini_client_generations.clear()
+        gemini_client._retired_gemini_clients.clear()
+        gemini_client._current_gemini_generation = None
+        gemini_client._gemini_shutdown_started = False
+    except Exception:
+        pass
+    yield
+    try:
+        gemini_client._gemini_client = None
+        gemini_client._gemini_generation_records.clear()
+        gemini_client._gemini_client_generations.clear()
+        gemini_client._retired_gemini_clients.clear()
+        gemini_client._current_gemini_generation = None
+        gemini_client._gemini_shutdown_started = False
+    except Exception:
+        pass

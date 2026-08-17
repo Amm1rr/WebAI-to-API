@@ -8,7 +8,11 @@ from app.openapi.chat_completions import (
     TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
 )
 from app.schemas.request import GeminiRequest, OpenAIChatRequest
-from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.gemini_client import (
+    acquire_gemini_lease_for_request,
+    GeminiClientNotInitializedError,
+    get_gemini_client,
+)
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
 from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
@@ -28,23 +32,24 @@ router = APIRouter()
 )
 async def list_gems():
     try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
+        lease = acquire_gemini_lease_for_request(get_gemini_client)
+    except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        gems = await gemini_client.fetch_gems()
-        return {
-            "gems": [
-                {
-                    "id": gem.id,
-                    "name": gem.name,
-                    "description": gem.description,
-                    "predefined": gem.predefined,
-                }
-                for gem in gems
-            ]
-        }
+        async with lease:
+            gems = await lease.client.fetch_gems()
+            return {
+                "gems": [
+                    {
+                        "id": gem.id,
+                        "name": gem.name,
+                        "description": gem.description,
+                        "predefined": gem.predefined,
+                    }
+                    for gem in gems
+                ]
+            }
     except Exception as e:
         logger.error(f"Error fetching gems: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching gems: {str(e)}")
@@ -58,21 +63,23 @@ async def list_gems():
 )
 async def translate_chat(request: GeminiRequest):
     try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
+        lease = acquire_gemini_lease_for_request(get_gemini_client)
+    except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        ensure_gemini_client_ready(gemini_client)
-        validate_direct_webapi_model_name(request.model, gemini_client)
-        response = await gemini_client.generate_content(
-            request.message,
-            request.model,
-            files=request.files,
-            gem=request.gem,
-            temporary=True,
-        )
-        return {"response": response.text}
+        async with lease:
+            gemini_client = lease.client
+            ensure_gemini_client_ready(gemini_client)
+            validate_direct_webapi_model_name(request.model, gemini_client)
+            response = await gemini_client.generate_content(
+                request.message,
+                request.model,
+                files=request.files,
+                gem=request.gem,
+                temporary=True,
+            )
+            return {"response": response.text}
     except HTTPException:
         raise
     except Exception as e:

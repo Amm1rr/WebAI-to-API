@@ -9,7 +9,12 @@ from fastapi.responses import StreamingResponse
 from app.config import CONFIG
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
-from app.services.gemini_client import GeminiClientNotInitializedError, get_gemini_client
+from app.services.gemini_client import (
+    GeminiClientNotInitializedError,
+    acquire_gemini_lease_for_request,
+    get_gemini_client,
+)
+from app.services.providers.gemini.streaming_response import GeminiLeaseStreamingResponse
 from app.services.multimodal import (
     NormalizedOpenAIChatMessages,
     cleanup_staged_files,
@@ -154,7 +159,7 @@ async def _build_buffered_openai_response(
 
 
 async def _build_incremental_streaming_response(
-    gemini_client,
+    lease,
     *,
     prompt: str,
     model: str,
@@ -165,6 +170,7 @@ async def _build_incremental_streaming_response(
     async def sse_generator():
         final_response = None
         try:
+            gemini_client = lease.client
             stream = await gemini_client.generate_content_stream(
                 prompt,
                 model,
@@ -198,48 +204,55 @@ async def _build_incremental_streaming_response(
         finally:
             await cleanup_once()
 
-    return StreamingResponse(
+    lease.transfer()
+    return GeminiLeaseStreamingResponse(
         sse_generator(),
+        lease=lease,
+        cleanup=cleanup_once,
         media_type="text/event-stream",
         headers=_streaming_headers(),
     )
 
 
 async def handle_temporary_chat_completions(request: OpenAIChatRequest):
+    cleanup_once = None
     try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
+        preparation_lease = acquire_gemini_lease_for_request(get_gemini_client)
+    except (GeminiClientNotInitializedError, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    prepared = _prepare_temporary_chat_request(request, gemini_client)
-    cleanup_once = _build_cleanup_once(prepared.normalized)
-
     try:
-        if prepared.is_stream and not prepared.tools:
-            return await _build_incremental_streaming_response(
-                gemini_client,
+        async with preparation_lease:
+            prepared = _prepare_temporary_chat_request(request, preparation_lease.client)
+            cleanup_once = _build_cleanup_once(prepared.normalized)
+
+            if prepared.is_stream and not prepared.tools:
+                response = await _build_incremental_streaming_response(
+                    preparation_lease,
+                    prompt=prepared.prompt,
+                    model=prepared.model,
+                    files=prepared.files,
+                    gem=prepared.gem,
+                    cleanup_once=cleanup_once,
+                )
+                return response
+
+            openai_response = await _build_buffered_openai_response(
+                preparation_lease.client,
                 prompt=prepared.prompt,
                 model=prepared.model,
                 files=prepared.files,
                 gem=prepared.gem,
-                cleanup_once=cleanup_once,
+                tools=prepared.tools,
             )
-
-        openai_response = await _build_buffered_openai_response(
-            gemini_client,
-            prompt=prepared.prompt,
-            model=prepared.model,
-            files=prepared.files,
-            gem=prepared.gem,
-            tools=prepared.tools,
-        )
-        if prepared.is_stream:
-            return _build_streaming_compatibility_response(openai_response)
-        return openai_response
+            if prepared.is_stream:
+                return _build_streaming_compatibility_response(openai_response)
+            return openai_response
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in /v1/temporary/chat/completions endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generating temporary content: {str(e)}")
     finally:
-        await cleanup_once()
+        if cleanup_once is not None and not preparation_lease.is_transferred:
+            await cleanup_once()

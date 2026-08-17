@@ -49,6 +49,27 @@ class GeminiClientLease:
         self.generation = record.generation
         self._record = record
         self._released = False
+        self._transferred = False
+
+    def transfer(self) -> None:
+        """Transfer release ownership to a returned streaming generator."""
+        if self._released:
+            raise RuntimeError("Cannot transfer a released Gemini client lease.")
+        if self._transferred:
+            raise RuntimeError("Gemini client lease ownership was already transferred.")
+        self._transferred = True
+
+    @property
+    def is_active(self) -> bool:
+        return not self._released and self._record.lease_count > 0
+
+    @property
+    def is_transferred(self) -> bool:
+        return self._transferred
+
+    def assert_active(self) -> None:
+        if not self.is_active:
+            raise RuntimeError("Gemini client lease is no longer active.")
 
     async def release(self) -> None:
         if self._released:
@@ -65,6 +86,8 @@ class GeminiClientLease:
         return self
 
     async def __aexit__(self, exc_type, exc, traceback):
+        if self._transferred:
+            return False
         await asyncio.shield(self.release())
 
 
@@ -167,6 +190,28 @@ def acquire_gemini_lease(*, client, generation: int) -> GeminiClientLease:
         raise RuntimeError("Gemini client generation is retired.")
     record.lease_count += 1
     return GeminiClientLease(record)
+
+
+def register_gemini_generation(client, generation: Optional[int] = None) -> int:
+    existing_generation = _gemini_client_generations.get(id(client))
+    if existing_generation is not None:
+        record = _gemini_generation_records.get(existing_generation)
+        if record is not None and record.client is client:
+            return existing_generation
+    if generation is None:
+        generation = max(_gemini_generation_records) + 1 if _gemini_generation_records else 0
+    _register_generation(client, generation)
+    return generation
+
+
+def acquire_gemini_lease_for_request(getter) -> GeminiClientLease:
+    try:
+        return acquire_current_gemini_lease()
+    except GeminiClientNotInitializedError:
+        # Compatibility for isolated callers that inject a client without lifecycle init.
+        client = getter()
+        generation = register_gemini_generation(client)
+        return acquire_gemini_lease(client=client, generation=generation)
 
 
 def get_gemini_client_auth_source():

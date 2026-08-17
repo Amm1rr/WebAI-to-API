@@ -13,7 +13,9 @@ and existing test mocks.
 from app.services.providers.gemini.client import (
     GeminiClientNotInitializedError,
     init_gemini_client,
-    get_gemini_client
+    get_gemini_client,
+    acquire_current_gemini_lease,
+    acquire_gemini_lease_for_request,
 )
 
 # For backward compatibility with components or tests accessing private members

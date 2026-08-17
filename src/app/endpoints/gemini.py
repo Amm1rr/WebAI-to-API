@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from app.logger import logger
 from app.schemas.request import GeminiRequest
-from app.services.gemini_client import get_gemini_client, GeminiClientNotInitializedError
+from app.services.gemini_client import (
+    acquire_gemini_lease_for_request,
+    GeminiClientNotInitializedError,
+    get_gemini_client,
+)
 from app.services.providers.gemini.session_manager import get_gemini_chat_registry
 from app.utils.tokens import generate_opaque_token
 
@@ -23,27 +27,26 @@ router = APIRouter()
 )
 async def gemini_generate(request: GeminiRequest):
     try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
-    try:
         files: Optional[List[Union[str, Path]]] = [Path(f) for f in request.files] if request.files else None
-        
+
         if request.stream:
             async def sse_generator():
+                lease = None
                 try:
+                    lease = acquire_gemini_lease_for_request(get_gemini_client)
+                    gemini_client = lease.client
                     async for chunk in await gemini_client.generate_content_stream(request.message, request.model, files=files, gem=request.gem):
                         if chunk.text_delta:
                             yield f"data: {json.dumps({'response': chunk.text_delta}, ensure_ascii=False)}\n\n"
                 except (asyncio.CancelledError, GeneratorExit):
                     # Client disconnected or generator closed, propagate to stop upstream
                     raise
-                except Exception as e:
-                    logger.error(f"Error in /gemini progressive streaming: {e}", exc_info=True)
                 else:
                     # Explicit completion marker for successful streams
                     yield "data: [DONE]\n\n"
+                finally:
+                    if lease is not None:
+                        await asyncio.shield(lease.release())
 
             return StreamingResponse(
                 sse_generator(),
@@ -56,8 +59,20 @@ async def gemini_generate(request: GeminiRequest):
             )
 
         # Non-streaming path
-        response = await gemini_client.generate_content(request.message, request.model, files=files, gem=request.gem)
-        return {"response": response.text}
+        try:
+            lease = acquire_gemini_lease_for_request(get_gemini_client)
+        except (GeminiClientNotInitializedError, RuntimeError) as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        async with lease:
+            response = await lease.client.generate_content(
+                request.message,
+                request.model,
+                files=files,
+                gem=request.gem,
+            )
+            return {"response": response.text}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /gemini endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generating content: {str(e)}")
@@ -70,11 +85,6 @@ async def gemini_generate(request: GeminiRequest):
     description="Legacy conversation-oriented Gemini endpoint. Conversation state is maintained in memory only and does not survive server restarts. For persistent conversations, use `/v1/chat/completions` with `conversation_id`."
 )
 async def gemini_chat(request: GeminiRequest):
-    try:
-        gemini_client = get_gemini_client()
-    except GeminiClientNotInitializedError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
     registry = get_gemini_chat_registry()
     if not registry:
         raise HTTPException(status_code=503, detail="Session registry is not initialized.")
