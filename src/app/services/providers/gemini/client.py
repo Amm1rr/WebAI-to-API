@@ -256,7 +256,7 @@ async def init_gemini_client(
     
     async with _gemini_client_init_lock:
         old_client = _gemini_client
-        old_record = _ensure_current_generation_record() if old_client is not None else None
+        old_record = _get_current_generation_record_strict() if old_client is not None else None
         next_generation = (
             old_record.generation + 1
             if old_record is not None

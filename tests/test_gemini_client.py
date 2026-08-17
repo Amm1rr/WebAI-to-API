@@ -522,6 +522,101 @@ def test_current_lease_rejects_wrong_reverse_mapping_without_mutation(monkeypatc
     _assert_strict_current_lease_rejects(monkeypatch, "reverse generation mapping", setup)
 
 
+async def _assert_replacement_rejects_malformed_state(mocker, setup):
+    setup()
+    client_before = gemini_client_module._gemini_client
+    generation_before = gemini_client_module._current_gemini_generation
+    records_before = dict(gemini_client_module._gemini_generation_records)
+    mappings_before = dict(gemini_client_module._gemini_client_generations)
+    auth_source_before = gemini_client_module._gemini_client_auth_source
+    initialization_error_before = gemini_client_module._initialization_error
+
+    selector = mocker.patch.object(GeminiAuthSelector, "iter_candidates", return_value=iter(()))
+    constructor = mocker.patch("app.services.providers.gemini.client.MyGeminiClient")
+    register = mocker.patch.object(gemini_client_module, "_register_generation")
+    registry_updater = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="Gemini lifecycle invariant violated"):
+        await init_gemini_client(registry_updater=registry_updater)
+
+    assert gemini_client_module._gemini_client is client_before
+    assert gemini_client_module._current_gemini_generation == generation_before
+    assert gemini_client_module._gemini_generation_records == records_before
+    assert gemini_client_module._gemini_client_generations == mappings_before
+    assert gemini_client_module._gemini_client_auth_source == auth_source_before
+    assert gemini_client_module._initialization_error == initialization_error_before
+    selector.assert_not_called()
+    constructor.assert_not_called()
+    register.assert_not_called()
+    registry_updater.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_replacement_rejects_missing_current_generation_without_mutation(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._gemini_client = client
+        gemini_client_module._gemini_client_auth_source = "old source"
+        gemini_client_module._initialization_error = "old error"
+
+    await _assert_replacement_rejects_malformed_state(mocker, setup)
+
+
+@pytest.mark.asyncio
+async def test_replacement_rejects_missing_generation_record_without_mutation(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 7
+        gemini_client_module._gemini_client_auth_source = "old source"
+
+    await _assert_replacement_rejects_malformed_state(mocker, setup)
+
+
+@pytest.mark.asyncio
+async def test_replacement_rejects_record_for_another_client_without_mutation(mocker):
+    other = make_mock_client("AVAILABLE")
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(other, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_auth_source = "old source"
+
+    await _assert_replacement_rejects_malformed_state(mocker, setup)
+
+
+@pytest.mark.asyncio
+async def test_replacement_rejects_missing_reverse_mapping_without_mutation(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations.pop(id(client))
+        gemini_client_module._gemini_client_auth_source = "old source"
+
+    await _assert_replacement_rejects_malformed_state(mocker, setup)
+
+
+@pytest.mark.asyncio
+async def test_replacement_rejects_wrong_reverse_mapping_without_mutation(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations[id(client)] = 1
+        gemini_client_module._gemini_client_auth_source = "old source"
+
+    await _assert_replacement_rejects_malformed_state(mocker, setup)
+
+
 # Temporary legacy coverage. Phase 3B can change these repairs to invariant errors.
 def test_legacy_repair_current_client_without_generation():
     client = make_mock_client("AVAILABLE")
