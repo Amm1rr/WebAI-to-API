@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -404,6 +405,11 @@ async def test_stream_ends_without_done_when_page_crashes(monkeypatch, caplog):
         record.message == "Page crash detected" and record.levelname == "WARNING"
         for record in caplog.records
     )
+    assert any(
+        record.message == "Stream terminated: " + state_ref["state"].request_id
+        and record.reason == "BrowserDisconnectedError"
+        for record in caplog.records
+    )
     lease.close.assert_awaited_once()
 
 
@@ -641,12 +647,14 @@ async def test_stream_rewrite_emits_only_initial_full_text_before_first_chunk(mo
 
 
 @pytest.mark.asyncio
-async def test_stream_done_terminates_with_done_chunk(monkeypatch):
+async def test_stream_done_terminates_with_done_chunk(monkeypatch, caplog):
     page = make_mock_page()
     lease = make_mock_lease(page)
     session = make_mock_session(lease)
+    state_ref = {}
 
-    async def submit_prompt(_page, _prompt, _state):
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
         async def emit_events():
             await asyncio.sleep(0)
             await emit_bridge_event(page, {"type": "started"})
@@ -668,6 +676,111 @@ async def test_stream_done_terminates_with_done_chunk(monkeypatch):
     chunks = await collect_stream_chunks(response)
     assert chunks[-1] == "data: [DONE]\n\n"
     assert chunks == ["data: [DONE]\n\n"]
+    request_id = state_ref["state"].request_id
+    assert any(record.message == "Stream completed: " + request_id for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_stream_chunk_timeout_terminates_without_done_after_text(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        async def emit_events():
+            await asyncio.sleep(0)
+            await emit_bridge_event(page, {"type": "started"})
+            await emit_bridge_event(page, {"type": "chunk", "delta": "hello"})
+
+        asyncio.create_task(emit_events())
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    provider.playwright_adapter.executor.config = replace(
+        provider.playwright_adapter.executor.config,
+        chunk_timeout=0.01,
+    )
+    response = await provider.chat_completions(make_request(stream=True))
+
+    chunks = await collect_stream_chunks(response)
+
+    assert len(chunks) == 1
+    assert parse_sse_chunk(chunks[0])["choices"][0]["delta"]["content"] == "hello"
+    assert not any(chunk == "data: [DONE]\n\n" for chunk in chunks)
+    request_id = state_ref["state"].request_id
+    terminated = [record for record in caplog.records if record.message == "Stream terminated: " + request_id]
+    assert len(terminated) == 1
+    assert terminated[0].reason == "chunk_timeout"
+    assert not any(record.message == "Stream completed: " + request_id for record in caplog.records)
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_chunk_timeout_terminates_without_payload(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    provider.playwright_adapter.executor.config = replace(
+        provider.playwright_adapter.executor.config,
+        chunk_timeout=0.01,
+    )
+    response = await provider.chat_completions(make_request(stream=True))
+
+    assert await collect_stream_chunks(response) == []
+    request_id = state_ref["state"].request_id
+    terminated = [record for record in caplog.records if record.message == "Stream terminated: " + request_id]
+    assert len(terminated) == 1
+    assert terminated[0].reason == "chunk_timeout"
+    assert lease.close.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_buffered_chunk_timeout_remains_total_timeout_504(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=lambda *_args, **_kwargs: asyncio.sleep(0, result=True),
+    )
+
+    provider = GeminiProvider()
+    provider.playwright_adapter.executor.config = replace(
+        provider.playwright_adapter.executor.config,
+        total_request_timeout=0.01,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await provider.chat_completions(make_request(stream=False))
+
+    assert exc_info.value.status_code == 504
+    assert lease.close.await_count == 1
 
 
 @pytest.mark.asyncio

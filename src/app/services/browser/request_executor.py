@@ -447,33 +447,40 @@ class BrowserRequestExecutor:
                 raise QueueOverflowError("Event queue saturated")
 
             while True:
+                await self._register_conversation_if_available(page, state, session, lease)
+
                 try:
-                    await self._register_conversation_if_available(page, state, session, lease)
-
                     payload = await self._wait_for_payload(queue, state, self.config.chunk_timeout)
-                    if payload.get("type") == "done":
-                        break
-
-                    if state.active_tab:
-                        self._validate_tab_generation(state.active_tab, engine.browser_generation)
-
-                    text_to_send = ""
-                    if payload.get("type") == "chunk":
-                        text_to_send = payload["delta"]
-                    elif payload.get("type") == "rewrite" and not state.has_sent_text:
-                        text_to_send = payload["full_text"]
-
-                    if text_to_send:
-                        state.has_sent_text = True
-                        chunk = self.hooks.convert_to_openai_format(text_to_send, model, True)
-                        if state.conversation_id:
-                            chunk["conversation_id"] = state.conversation_id
-                            chunk["reused_conversation"] = state.reused_conversation
-                        yield await format_sse_chunk(chunk)
                 except asyncio.TimeoutError:
+                    stream_terminated = True
+                    logger.info(
+                        f"Stream terminated: {request_id}",
+                        extra={"request_id": request_id, "reason": "chunk_timeout"},
+                    )
                     break
 
-            yield await get_done_chunk()
+                if payload.get("type") == "done":
+                    break
+
+                if state.active_tab:
+                    self._validate_tab_generation(state.active_tab, engine.browser_generation)
+
+                text_to_send = ""
+                if payload.get("type") == "chunk":
+                    text_to_send = payload["delta"]
+                elif payload.get("type") == "rewrite" and not state.has_sent_text:
+                    text_to_send = payload["full_text"]
+
+                if text_to_send:
+                    state.has_sent_text = True
+                    chunk = self.hooks.convert_to_openai_format(text_to_send, model, True)
+                    if state.conversation_id:
+                        chunk["conversation_id"] = state.conversation_id
+                        chunk["reused_conversation"] = state.reused_conversation
+                    yield await format_sse_chunk(chunk)
+
+            if not stream_terminated:
+                yield await get_done_chunk()
 
         except (BrowserDisconnectedError, BrowserShuttingDownError) as error:
             stream_terminated = True
