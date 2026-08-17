@@ -77,6 +77,11 @@ def _auth_status_payload(
     return payload
 
 
+def test_temporary_endpoint_persistence_metadata_is_none():
+    assert ui_module.FEATURE_REGISTRY["/translate"]["persistence"] == "none"
+    assert ui_module.FEATURE_REGISTRY["/v1/temporary/chat/completions"]["persistence"] == "none"
+
+
 def _conversation_list_payload():
     return {
         "object": "list",

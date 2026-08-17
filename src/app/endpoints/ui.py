@@ -63,7 +63,7 @@ FEATURE_REGISTRY = {
     },
     "/translate": {
         "streaming": False,
-        "persistence": "shared-memory",
+        "persistence": "none",
     },
 }
 
