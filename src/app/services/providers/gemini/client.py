@@ -194,18 +194,6 @@ def acquire_gemini_lease(*, client, generation: int) -> GeminiClientLease:
     return GeminiClientLease(record)
 
 
-def register_gemini_generation(client, generation: Optional[int] = None) -> int:
-    existing_generation = _gemini_client_generations.get(id(client))
-    if existing_generation is not None:
-        record = _gemini_generation_records.get(existing_generation)
-        if record is not None and record.client is client:
-            return existing_generation
-    if generation is None:
-        generation = max(_gemini_generation_records) + 1 if _gemini_generation_records else 0
-    _register_generation(client, generation)
-    return generation
-
-
 def is_gemini_generation_registered(*, client, generation: int) -> bool:
     record = _gemini_generation_records.get(generation)
     return record is not None and record.client is client
