@@ -482,6 +482,7 @@ class ProviderSession:
                 self.eviction_task is not None,
                 self.reaper_task is not None,
                 bool(self._orphan_cleanup_tasks),
+                self._cleanup_lock.locked(),
             )
         )
 
