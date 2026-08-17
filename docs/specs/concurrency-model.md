@@ -39,8 +39,11 @@ Locks MUST be acquired in the following order. Acquiring out-of-order is strictl
 
 1. `BrowserEngine.management_lock`: Orchestrates global initialization and terminal shutdown.
 2. `ProviderSession.init_lock`: Serializes session-specific browser context setup.
-3. `ProviderSession.registry_lock`: Protects the in-memory `conversation_registry` and `active_orphans` set.
-4. `PersistentTab._lock`: Protects individual tab state transitions and lease ownership.
+3. `ProviderSession._cleanup_lock`: Serializes ProviderSession resource cleanup.
+4. `ProviderSession.registry_lock`: Protects the in-memory `conversation_registry` and `active_orphans` set.
+5. `PersistentTab._lock`: Protects individual tab state transitions and lease ownership.
+
+`conversation_lock` remains independent. No production path acquires `management_lock` from `init_lock`. `close_resources()` must not acquire `init_lock`; `_setup_locked()` assumes management and init locks are already held, `_setup()` acquires them in order, and `_ensure_healthy_browser()` assumes management-lock ownership.
 
 ### 2.1 Lock Scope Discipline
 - **Invariant**: `registry_lock` MUST NEVER be held across Playwright operations, network waits, or long-running awaits.
@@ -49,6 +52,15 @@ Locks MUST be acquired in the following order. Acquiring out-of-order is strictl
 ### 2.2 Recovery Concurrency Guarantees
 - **Serialization**: `ProviderSession.init_lock` serializes all recovery and setup paths.
 - **Convergence**: Concurrent recovery attempts must converge into a single authoritative execution path. Subsequent callers must wait and then verify the new state.
+
+### 2.3 Shutdown Admission and Request Drain
+- `shutdown_requested` closes new page/session admission before Uvicorn connection drain; `_shutdown_started` means terminal BrowserEngine cleanup has begun. First shutdown source wins.
+- Existing requests may finish during the existing 15-second grace period. After the deadline, BrowserEngine invokes request-owned abort callbacks and waits for bounded cleanup.
+- BrowserEngine never mutates lease counters. Request cleanup owns lease and semaphore release.
+- Browser/page/context loss signals the request terminal event immediately, bypassing queue/chunk/total timeout waits.
+
+### 2.4 Lifecycle Task Ownership
+ProviderSession owns context-close callback, recovery, recovery-wrapper, and orphan-cleanup tasks. BrowserEngine owns disconnect-triggered close tasks. Project-owned task completion must retrieve/log exceptions; request observer and queue tasks remain request-owned and are explicitly awaited or cancelled.
 
 ## 3. Cancellation Safety
 

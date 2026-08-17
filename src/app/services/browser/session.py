@@ -5,13 +5,13 @@ import os
 import time
 import weakref
 from collections import OrderedDict
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
-from playwright.async_api import Page, BrowserContext
+from typing import Optional, Dict, Any, List, TYPE_CHECKING, Callable
+from playwright.async_api import Error as PlaywrightError, Page, BrowserContext
 
 from app.logger import logger
 from app.config import CONFIG, get_default_auth_state_dir
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
-from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
+from app.services.browser.errors import BrowserDisconnectedError, BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
 
 if TYPE_CHECKING:
     from app.services.browser.engine import BrowserEngine
@@ -35,6 +35,7 @@ class ProviderSession:
         self.active_lease_count = 0
         
         self.init_lock = asyncio.Lock()   # For setup/re-init
+        self._cleanup_lock = asyncio.Lock()  # Serializes session resource cleanup.
         self.registry_lock = asyncio.Lock() # ONLY for trivial registry mutations
         self.conversation_lock = asyncio.Lock() # Protects ONLY active_conversations; MUST NOT be held simultaneously with registry_lock
         self.state_lock = asyncio.Lock()  # For disk I/O
@@ -55,6 +56,8 @@ class ProviderSession:
         self._orphan_cleanup_tasks = set()
         self.active_orphans = weakref.WeakSet()
         self._intentional_context_closes = weakref.WeakValueDictionary()
+        self._active_request_handles: Dict[str, tuple[Callable[[BaseException], None], Callable[[], None]]] = {}
+        self._lifecycle_tasks: set[asyncio.Task] = set()
         
         # Persistent state
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -76,6 +79,96 @@ class ProviderSession:
             not self.keepalive_page.is_closed() and
             self.last_browser_generation == self.engine.browser_generation
         )
+
+    @property
+    def application_shutdown_requested(self) -> bool:
+        return getattr(self.engine, "shutdown_requested", False) is True
+
+    @property
+    def shutdown_in_progress(self) -> bool:
+        return (
+            self.application_shutdown_requested
+            or getattr(self.engine, "is_shutting_down", False) is True
+        )
+
+    def register_request_abort(
+        self,
+        request_id: str,
+        signal_terminal: Callable[[BaseException], None],
+        abort: Callable[[], None],
+    ) -> None:
+        self._active_request_handles[request_id] = (signal_terminal, abort)
+
+    def unregister_request_abort(self, request_id: str) -> None:
+        self._active_request_handles.pop(request_id, None)
+
+    def signal_active_requests(self, error_factory: Callable[[], BaseException]) -> None:
+        for signal_terminal, _ in tuple(self._active_request_handles.values()):
+            signal_terminal(error_factory())
+
+    def abort_active_requests(self) -> None:
+        for _, abort in tuple(self._active_request_handles.values()):
+            abort()
+
+    def _track_lifecycle_task(self, task: asyncio.Task, source: str) -> None:
+        if not isinstance(task, asyncio.Future):
+            return
+        self._lifecycle_tasks.add(task)
+
+        def consume_result(done_task: asyncio.Task) -> None:
+            self._lifecycle_tasks.discard(done_task)
+            if done_task.cancelled():
+                return
+            try:
+                error = done_task.exception()
+            except Exception as inspection_error:
+                logger.error(
+                    "ProviderSession(%s): Failed to inspect %s task: %s",
+                    self.name,
+                    source,
+                    inspection_error,
+                    exc_info=True,
+                )
+                return
+            if error is not None:
+                logger.error(
+                    "ProviderSession(%s): %s task failed: %s",
+                    self.name,
+                    source,
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                    extra={"generation": self.last_browser_generation},
+                )
+
+        task.add_done_callback(consume_result)
+
+    async def _drain_lifecycle_tasks(self) -> None:
+        current = asyncio.current_task()
+        tasks = [task for task in self._lifecycle_tasks if task is not current and not task.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _drain_orphan_cleanup_tasks(self) -> None:
+        tasks = list(self._orphan_cleanup_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._orphan_cleanup_tasks.difference_update(tasks)
+            for tab in list(self.active_orphans):
+                if getattr(tab, "_cleanup_task", None) in tasks:
+                    tab._cleanup_task = None
+                    self.active_orphans.discard(tab)
+
+    async def _cancel_pending_recovery(self) -> None:
+        task = self._recovery_task
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self._recovery_task = None
 
     @property
     def metrics(self) -> dict:
@@ -147,7 +240,7 @@ class ProviderSession:
         PHASE 1: Semaphore & Registry Lookup (In-memory)
         PHASE 2: Tab Lock Acquisition (Blocking, outside registry_lock)
         """
-        if self.engine.is_shutting_down:
+        if self.engine.is_shutting_down or self.application_shutdown_requested:
             raise BrowserShuttingDownError("BrowserEngine is shutting down")
 
         # 1. Atomic Check-and-Reserve under conversation_lock (Strictly Zero-Await for lookups/mutations)
@@ -342,50 +435,50 @@ class ProviderSession:
 
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
-        if self.engine.is_shutting_down:
+        if self.engine.is_shutting_down or self.application_shutdown_requested:
             raise BrowserShuttingDownError("Browser engine is shutting down")
             
-        async with self.init_lock:
-            async with self.engine.management_lock:
+        async with self.engine.management_lock:
+            async with self.init_lock:
                 await self.engine._ensure_healthy_browser()
 
-            if self.engine.is_shutting_down:
-                raise BrowserShuttingDownError("Browser engine is shutting down")
+                if self.engine.is_shutting_down or self.application_shutdown_requested:
+                    raise BrowserShuttingDownError("Browser engine is shutting down")
 
-            # Atomic Purge on generation rollover
-            if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
-                old_generation = self.last_browser_generation
-                new_generation = self.engine.browser_generation
-                logger.warning(
-                    "ProviderSession(%s): Browser generation rollover (%s -> %s)",
-                    self.name,
-                    old_generation,
-                    new_generation,
-                    extra={
-                        "provider": self.name,
-                        "old_generation": old_generation,
-                        "new_generation": new_generation,
-                        "registry_size": len(self.conversation_registry)
-                    }
-                )
-                await self._purge_all_tabs()
-
-            # 2. Check active liveness of the session-wide keepalive page
-            if not self.is_alive:
-                await self._setup()
-            else:
-                try:
-                    if not self.keepalive_page or self.keepalive_page.is_closed():
-                        await self._setup()
-                    else:
-                        # ACTIVE PROBE: The authority for session liveness
-                        await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
-                except Exception as e:
+                # Atomic Purge on generation rollover
+                if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
+                    old_generation = self.last_browser_generation
+                    new_generation = self.engine.browser_generation
                     logger.warning(
-                        f"ProviderSession({self.name}) liveness probe failed: {e}. Re-initializing.",
-                        extra={"generation": self.last_browser_generation}
+                        "ProviderSession(%s): Browser generation rollover (%s -> %s)",
+                        self.name,
+                        old_generation,
+                        new_generation,
+                        extra={
+                            "provider": self.name,
+                            "old_generation": old_generation,
+                            "new_generation": new_generation,
+                            "registry_size": len(self.conversation_registry)
+                        }
                     )
-                    await self._setup()
+                    await self._purge_all_tabs()
+
+                # 2. Check active liveness of the session-wide keepalive page
+                if not self.is_alive:
+                    await self._setup_locked()
+                else:
+                    try:
+                        if not self.keepalive_page or self.keepalive_page.is_closed():
+                            await self._setup_locked()
+                        else:
+                            # ACTIVE PROBE: The authority for session liveness
+                            await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
+                    except Exception as e:
+                        logger.warning(
+                            f"ProviderSession({self.name}) liveness probe failed: {e}. Re-initializing.",
+                            extra={"generation": self.last_browser_generation}
+                        )
+                        await self._setup_locked()
 
     async def _purge_all_tabs(self):
         """Atomically clears and invalidates all tabs in registry."""
@@ -424,16 +517,31 @@ class ProviderSession:
 
     async def handle_session_failure(self):
         """Authoritative recovery execution for session failures."""
+        if self.shutdown_in_progress:
+            logger.debug(
+                "ProviderSession(%s): Recovery skipped during shutdown.",
+                self.name,
+                extra={"generation": self.last_browser_generation},
+            )
+            return
         if self._recovery_task and not self._recovery_task.done():
             logger.debug(f"ProviderSession({self.name}): Recovery task already in progress, skipping duplicate request.")
             return
 
         # Synchronously create the recovery task (100% atomic in single-threaded event loop)
         self._recovery_task = asyncio.create_task(self._do_session_recovery())
+        self._track_lifecycle_task(self._recovery_task, "recovery")
 
     async def _do_session_recovery(self):
         recovery_start = time.monotonic()
         async with self.init_lock:
+            if self.shutdown_in_progress:
+                logger.debug(
+                    "ProviderSession(%s): Recovery worker exited during shutdown.",
+                    self.name,
+                    extra={"generation": self.last_browser_generation},
+                )
+                return
             logger.warning(
                 "ProviderSession(%s): Session recovery started",
                 self.name,
@@ -452,6 +560,13 @@ class ProviderSession:
 
             # 2. Invalidate context to force re-setup on next ensure_healthy()
             try:
+                if self.shutdown_in_progress:
+                    logger.debug(
+                        "ProviderSession(%s): Recovery cleanup skipped during shutdown.",
+                        self.name,
+                        extra={"generation": self.last_browser_generation},
+                    )
+                    return
                 await self.close_resources(save_state=False)
                 recovery_duration = time.monotonic() - recovery_start
                 logger.info(
@@ -470,9 +585,30 @@ class ProviderSession:
                 )
                 raise
 
+    def _has_resources_to_close(self) -> bool:
+        return any(
+            (
+                self.context is not None,
+                self.keepalive_page is not None,
+                bool(self.conversation_registry),
+                bool(self.active_orphans),
+                self.autosave_task is not None,
+                self.eviction_task is not None,
+                self.reaper_task is not None,
+                bool(self._orphan_cleanup_tasks),
+                self._cleanup_lock.locked(),
+            )
+        )
+
     async def _setup(self):
+        async with self.engine.management_lock:
+            async with self.init_lock:
+                await self._setup_locked()
+
+    async def _setup_locked(self):
         """Full re-initialization of the provider context."""
-        await self.close_resources(save_state=False)
+        if self._has_resources_to_close():
+            await self.close_resources(save_state=False)
 
         context_args = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -493,10 +629,15 @@ class ProviderSession:
 
         try:
             self.context = await self.engine.browser.new_context(**context_args)
+            context_generation = self.engine.browser_generation
             
             def safe_on_context_close(c):
                 try:
-                    asyncio.get_running_loop().create_task(self._on_context_closed(c))
+                    task = asyncio.get_running_loop().create_task(
+                        self._on_context_closed(c, context_generation)
+                    )
+                    if task is not None:
+                        self._track_lifecycle_task(task, "context-close")
                 except RuntimeError as e:
                     logger.debug(
                         "ProviderSession(%s): Context close callback scheduling skipped - event loop already closed: %s",
@@ -510,7 +651,7 @@ class ProviderSession:
             self.last_browser_generation = self.engine.browser_generation
             
             # Start background tasks
-            if not self.engine.is_shutting_down:
+            if not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 # Background persistence tasks are strictly disabled in the runtime API service.
                 enable_autosave = (
                     self.enable_persistence and 
@@ -541,7 +682,7 @@ class ProviderSession:
 
     async def _autosave_loop(self):
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(60)
                 if self.is_alive:
                     await self.save_state()
@@ -555,7 +696,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -567,9 +709,9 @@ class ProviderSession:
     async def _eviction_loop(self):
         """Deterministic eviction and stale lease recovery."""
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(30)
-                if self.engine.is_shutting_down: break
+                if self.engine.is_shutting_down or self.application_shutdown_requested: break
                 
                 # Ignore stale generation state and delegate recovery/teardown to rollover purge flow
                 if self.last_browser_generation != self.engine.browser_generation:
@@ -632,7 +774,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -644,9 +787,9 @@ class ProviderSession:
     async def _reaper_loop(self):
         """Active liveness sweeper for IDLE persistent tabs."""
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(30)
-                if self.engine.is_shutting_down: break
+                if self.engine.is_shutting_down or self.application_shutdown_requested: break
                 
                 # Ignore stale generation state and delegate liveness monitoring/recovery to authoritative flow
                 if self.last_browser_generation != self.engine.browser_generation:
@@ -657,7 +800,7 @@ class ProviderSession:
                     continue
 
                 if not self.is_alive:
-                    if not self.engine.is_shutting_down:
+                    if not self.engine.is_shutting_down and not self.application_shutdown_requested:
                         logger.warning(
                             "ProviderSession(%s): Unexpected liveness loss (Window closure). Triggering shutdown.",
                             self.name,
@@ -738,7 +881,8 @@ class ProviderSession:
                     exc_info=True,
                     extra={"generation": self.last_browser_generation}
                 )
-                asyncio.create_task(self.handle_session_failure())
+                task = asyncio.create_task(self.handle_session_failure())
+                self._track_lifecycle_task(task, "recovery-request")
                 raise
             else:
                 logger.error(
@@ -753,9 +897,19 @@ class ProviderSession:
     def _consume_intentional_context_close(self, context: BrowserContext) -> bool:
         return self._intentional_context_closes.pop(id(context), None) is context
 
-    async def _on_context_closed(self, context: BrowserContext):
+    async def _on_context_closed(self, context: BrowserContext, generation: int):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
+            if (
+                not self._consume_intentional_context_close(context)
+                and generation == self.engine.browser_generation
+                and self.context is context
+            ):
+                self.signal_active_requests(
+                    lambda: BrowserDisconnectedError(
+                        "Browser context closed during active request"
+                    )
+                )
             return
 
         if self._consume_intentional_context_close(context):
@@ -765,8 +919,39 @@ class ProviderSession:
                 extra={"generation": self.last_browser_generation}
             )
             return
+
+        if self.application_shutdown_requested:
+            self.signal_active_requests(
+                lambda: BrowserDisconnectedError(
+                    "Browser context closed during application shutdown"
+                )
+            )
+            logger.info(
+                "ProviderSession(%s): Ignoring context close during application shutdown.",
+                self.name,
+                extra={
+                    "shutdown_source": self.engine.shutdown_source,
+                    "generation": self.last_browser_generation,
+                },
+            )
+            return
+
+        if generation != self.engine.browser_generation or self.context is not context:
+            logger.debug(
+                "ProviderSession(%s): Ignoring stale browser context close.",
+                self.name,
+                extra={
+                    "context_generation": generation,
+                    "current_generation": self.engine.browser_generation,
+                    "provider": self.name,
+                },
+            )
+            return
         
         logger.warning(f"ProviderSession({self.name}): Context closed (Window manually closed or crash).")
+        self.signal_active_requests(
+            lambda: BrowserDisconnectedError("Browser context closed during active request")
+        )
         # Delegate terminal shutdown to engine
         self.engine._on_browser_disconnected()
 
@@ -797,8 +982,15 @@ class ProviderSession:
                     except OSError: pass
 
     async def close_resources(self, save_state: bool = True):
+        async with self._cleanup_lock:
+            await self._close_resources(save_state=save_state)
+
+    async def _close_resources(self, save_state: bool = True):
         """Teardown all session resources and track tasks."""
         try:
+            if getattr(self.engine, "is_shutting_down", False) is True:
+                await self._cancel_pending_recovery()
+
             logger.info(
                 f"ProviderSession({self.name}): Closing session resources...",
                 extra={"generation": self.last_browser_generation}
@@ -851,16 +1043,9 @@ class ProviderSession:
                     )
                 self.reaper_task = None
     
-            # Drain orphan cleanup tasks
-            if hasattr(self, "_orphan_cleanup_tasks"):
-                orphan_tasks = list(self._orphan_cleanup_tasks)
-                for task in orphan_tasks:
-                    if not task.done():
-                        task.cancel()
-                if orphan_tasks:
-                    await asyncio.gather(*orphan_tasks, return_exceptions=True)
-    
+            await self._drain_orphan_cleanup_tasks()
             await self._purge_all_tabs()
+            await self._drain_orphan_cleanup_tasks()
     
             if self.keepalive_page:
                 try:
@@ -877,10 +1062,49 @@ class ProviderSession:
     
             if self.context:
                 context_to_close = self.context
+                self.context = None
                 self._mark_intentional_context_close(context_to_close)
                 try: 
-                    logger.info(f"ProviderSession({self.name}): Closing browser context...")
-                    await context_to_close.close()
+                    if context_to_close.is_closed():
+                        logger.debug(
+                            f"ProviderSession({self.name}): Browser context already closed.",
+                            extra={"generation": self.last_browser_generation},
+                        )
+                    else:
+                        logger.info(f"ProviderSession({self.name}): Closing browser context...")
+                        await context_to_close.close()
+                except PlaywrightError as close_error:
+                    try:
+                        context_closed = context_to_close.is_closed()
+                    except Exception as inspection_error:
+                        self._consume_intentional_context_close(context_to_close)
+                        logger.warning(
+                            f"ProviderSession({self.name}): Failed to inspect browser context after close error "
+                            f"{close_error}: {inspection_error}",
+                            exc_info=(
+                                type(close_error),
+                                close_error,
+                                close_error.__traceback__,
+                            ),
+                            extra={"generation": self.last_browser_generation},
+                        )
+                    else:
+                        if context_closed:
+                            logger.debug(
+                                f"ProviderSession({self.name}): Browser context already closed during cleanup.",
+                                extra={"generation": self.last_browser_generation},
+                            )
+                        else:
+                            self._consume_intentional_context_close(context_to_close)
+                            logger.warning(
+                                f"ProviderSession({self.name}): Failed to close browser context: {close_error}",
+                                exc_info=(
+                                    type(close_error),
+                                    close_error,
+                                    close_error.__traceback__,
+                                ),
+                                extra={"generation": self.last_browser_generation},
+                            )
                 except Exception as e:
                     self._consume_intentional_context_close(context_to_close)
                     logger.warning(
@@ -888,8 +1112,10 @@ class ProviderSession:
                         exc_info=True,
                         extra={"generation": self.last_browser_generation}
                     )
-                self.context = None
-                
+
+            await asyncio.sleep(0)
+            await self._drain_lifecycle_tasks()
+
             logger.info(
                 f"ProviderSession({self.name}): Session resources closed successfully.",
                 extra={"generation": self.last_browser_generation}
@@ -954,6 +1180,7 @@ class ProviderSession:
         task = asyncio.create_task(_delayed_close())
         tab._cleanup_task = task
         self._orphan_cleanup_tasks.add(task)
+        self._track_lifecycle_task(task, "orphan-cleanup")
 
     async def _setup_page_bridge(
         self,

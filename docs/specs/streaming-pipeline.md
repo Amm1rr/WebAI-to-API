@@ -68,7 +68,40 @@ The pipeline is designed to handle providers that "rewrite" the full response te
 - **Format**: All events are normalized to OpenAI-compatible Server-Sent Events (SSE).
 - **Finalization**: Every successful stream MUST terminate with a literal `data: [DONE]` chunk.
 
-### 7.2 Failure Isolation & Propagation
+### 7.2 Terminal Browser Conditions
+- **Before response start**: The request executor owns terminal browser loss and applies normal HTTP error policy. `BrowserDisconnectedError` retains its existing HTTP 502 mapping.
+- **After response start**: Once SSE status 200 and headers are sent, HTTP status cannot be rewritten. The SSE body iterator owns expected terminal browser conditions.
+- **Expected terminal conditions**: `BrowserDisconnectedError` and `BrowserShuttingDownError` terminate the iterator internally and MUST NOT escape into Starlette/AnyIO. No new SSE error event or schema is emitted.
+- **Terminal truncation**: A browser/page/context loss or forced shutdown ends the stream without `data: [DONE]` and logs `Stream terminated`, not `Stream completed`. Absence of `[DONE]` means the stream did not complete successfully; clients MUST NOT interpret it as successful completion.
+
+Successful completion remains:
+
+```text
+normal generation completion
+-> final SSE data/chunks
+-> data: [DONE]
+-> Stream completed
+```
+
+Terminal truncation is:
+
+```text
+browser/page/context loss or forced browser shutdown
+-> terminal request state
+-> stream iterator exits cleanly
+-> no [DONE]
+-> Stream terminated
+```
+
+### 7.3 Cleanup and Forced Shutdown
+- Terminal stream exit always enters request cleanup/finally handling.
+- Observer tasks are cancelled and awaited; bridge callbacks and listeners are removed.
+- Request abort handles are unregistered, and `ManagedPage`/`PersistentTab` lease release remains request-owned.
+- `BrowserEngine` never mutates lease counters.
+- Forced shutdown follows: drain deadline -> request abort callback -> `BrowserShuttingDownError` signal -> request/ASGI task cancellation -> stream cancellation path -> cleanup.
+- Cancellation and terminal browser loss are distinct internal mechanisms, but neither may produce a false `[DONE]`.
+
+### 7.4 Failure Isolation & Propagation
 - **Isolation**: Failures in one request stream (e.g., generator error or client disconnect) must not terminate or poison the `ProviderSession` unless the underlying page/context becomes invalid.
 - **Timeout**: If no chunks are received within `chunk_timeout`, the stream is terminated with a `TimeoutError`.
 - **Cancellation**: If the client disconnects, the provider MUST attempt to click the "Stop" button in the browser UI before cleaning up.

@@ -8,6 +8,23 @@ from app.config import CONFIG, resolve_logging_config
 from app.utils.startup import print_server_info, print_gemini_preflight_status
 
 
+class ApplicationServer(uvicorn.Server):
+    """Mark runtime shutdown intent before Uvicorn drains connections."""
+
+    def handle_exit(self, sig, frame):
+        from app.services.browser.engine import request_application_shutdown
+
+        request_application_shutdown()
+        super().handle_exit(sig, frame)
+
+
+def run_server(config):
+    try:
+        ApplicationServer(config).run()
+    except KeyboardInterrupt:
+        pass
+
+
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
@@ -45,7 +62,7 @@ if __name__ == "__main__":
     print_server_info(args.host, args.port, "webai", default_model=default_model)
 
     # Run the Uvicorn server directly in the main thread
-    uvicorn.run(
+    config = uvicorn.Config(
         webai_app,
         host=args.host,
         port=args.port,
@@ -55,3 +72,4 @@ if __name__ == "__main__":
         access_log=not resolved_disable_access,
         workers=1,
     )
+    run_server(config)

@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from playwright.async_api import Error as PlaywrightError
 
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.auth_types import AuthStatus
+from app.services.browser.errors import BrowserDisconnectedError, BrowserShuttingDownError
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.playwright_adapter import (
     GeminiPlaywrightAdapter,
@@ -85,6 +87,37 @@ async def collect_stream_chunks(response: StreamingResponse) -> list[str]:
     return chunks
 
 
+async def run_streaming_response(response: StreamingResponse, on_start=None, messages=None) -> list[dict]:
+    messages = messages if messages is not None else []
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.start" and on_start:
+            on_start()
+
+    await response(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/chat/completions",
+            "raw_path": b"/v1/chat/completions",
+            "query_string": b"",
+            "headers": [],
+            "client": ("test", 1),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+    return messages
+
+
 def parse_sse_chunk(chunk: str) -> dict:
     assert chunk.startswith("data: ")
     assert chunk.endswith("\n\n")
@@ -102,6 +135,7 @@ async def configure_playwright_success(
     mock_engine = MagicMock()
     mock_engine.browser_generation = 1
     mock_engine.get_session = AsyncMock(return_value=session)
+    session.engine = mock_engine
 
     async def mock_get_browser_engine():
         return mock_engine
@@ -173,6 +207,370 @@ async def test_stream_started_confirms_submission_without_emitting_content(monke
     assert isinstance(response, StreamingResponse)
     chunks = await collect_stream_chunks(response)
     assert chunks == ["data: [DONE]\n\n"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+
+    close_handler(page)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert "timed out" not in str(exc_info.value.detail).lower()
+    assert any(
+        record.message == "Page close detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_terminal_browser_error_precedes_later_playwright_close_error(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    operation_started = asyncio.Event()
+    release_operation = asyncio.Event()
+
+    async def submit_prompt(_page, _prompt, _state):
+        operation_started.set()
+        await release_operation.wait()
+        raise PlaywrightError("Target page, context or browser has been closed")
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await operation_started.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+    close_handler(page)
+    release_operation.set()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert "timed out" not in str(exc_info.value.detail).lower()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_page_close_during_application_shutdown_is_not_warning(monkeypatch, caplog):
+    page = make_mock_page()
+    persistent_tab = MagicMock(browser_generation=1)
+    lease = make_mock_lease(page, persistent_tab=persistent_tab)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    engine = await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+    engine.shutdown_requested = True
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+
+    close_handler(page)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert not any(
+        record.message == "Page close detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
+    assert any(
+        record.message == "Page close detected" and record.levelname in {"INFO", "DEBUG"}
+        for record in caplog.records
+    )
+    assert state_ref["state"].page_poisoned is True
+    persistent_tab.invalidate.assert_called()
+    assert state_ref["state"].terminal_event.is_set()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_buffered_request_abort_cancels_task_and_releases_lease(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    state_ref["state"].abort()
+
+    with pytest.raises(asyncio.CancelledError):
+        await request_task
+
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_ends_without_done_when_page_crashes(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    original_wait = provider.playwright_adapter.executor._wait_for_payload
+    wait_started = asyncio.Event()
+
+    async def wait_for_payload(*args, **kwargs):
+        wait_started.set()
+        return await original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(provider.playwright_adapter.executor, "_wait_for_payload", wait_for_payload)
+    stream_task = asyncio.create_task(collect_stream_chunks(response))
+    await wait_started.wait()
+    crash_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "crash")
+
+    crash_handler(page)
+
+    chunks = await stream_task
+
+    assert chunks == []
+    assert any(
+        record.message == "Page crash detected" and record.levelname == "WARNING"
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_handles_page_close_after_headers(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+    request_handles = {}
+
+    session.register_request_abort = MagicMock(side_effect=lambda request_id, signal, abort: request_handles.update({request_id: (signal, abort)}))
+    session.unregister_request_abort = MagicMock()
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    response = await GeminiProvider().chat_completions(make_request(stream=True))
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+    messages = await run_streaming_response(response, on_start=lambda: close_handler(page))
+
+    assert messages[0]["type"] == "http.response.start"
+    assert messages[0]["status"] == 200
+    assert not any(message.get("body") == b"data: [DONE]\n\n" for message in messages if message["type"] == "http.response.body")
+    assert isinstance(state_ref["state"].terminal_error, BrowserDisconnectedError)
+    session.unregister_request_abort.assert_called_once_with(state_ref["state"].request_id)
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_handles_application_shutdown_page_close(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    engine = await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+    engine.shutdown_requested = True
+
+    response = await GeminiProvider().chat_completions(make_request(stream=True))
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+    messages = await run_streaming_response(response, on_start=lambda: close_handler(page))
+
+    assert messages[0]["status"] == 200
+    assert not any(message.get("body") == b"data: [DONE]\n\n" for message in messages if message["type"] == "http.response.body")
+    assert isinstance(state_ref["state"].terminal_error, BrowserDisconnectedError)
+    assert not any(record.levelname == "WARNING" and record.message == "Page close detected" for record in caplog.records)
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_handles_forced_shutdown_abort(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    response = await GeminiProvider().chat_completions(make_request(stream=True))
+    messages = await run_streaming_response(
+        response,
+        on_start=lambda: state_ref["state"].signal_terminal(
+            BrowserShuttingDownError("Browser request aborted during engine shutdown")
+        ),
+    )
+
+    assert messages[0]["status"] == 200
+    assert not any(message.get("body") == b"data: [DONE]\n\n" for message in messages if message["type"] == "http.response.body")
+    assert isinstance(state_ref["state"].terminal_error, BrowserShuttingDownError)
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_handles_real_request_abort(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+    request_handles = {}
+    payload_wait_started = asyncio.Event()
+    messages = []
+    created_tasks = []
+    real_create_task = asyncio.create_task
+
+    def track_create_task(coro, *args, **kwargs):
+        task = real_create_task(coro, *args, **kwargs)
+        created_tasks.append(task)
+        return task
+
+    monkeypatch.setattr(asyncio, "create_task", track_create_task)
+
+    session.register_request_abort = MagicMock(
+        side_effect=lambda request_id, signal, abort: request_handles.update({request_id: (signal, abort)})
+    )
+    session.unregister_request_abort = MagicMock()
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+    provider = GeminiProvider()
+    original_wait = provider.playwright_adapter.executor._wait_for_payload
+
+    async def wait_for_payload(*args, **kwargs):
+        payload_wait_started.set()
+        return await original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(provider.playwright_adapter.executor, "_wait_for_payload", wait_for_payload)
+    response = await provider.chat_completions(make_request(stream=True))
+
+    abort_task_ref = {}
+
+    async def abort_after_payload_wait():
+        await payload_wait_started.wait()
+        request_id = state_ref["state"].request_id
+        request_handles[request_id][1]()
+
+    def on_start():
+        state_ref["state"].request_task = asyncio.current_task()
+        abort_task_ref["task"] = asyncio.create_task(abort_after_payload_wait())
+
+    response_task = asyncio.create_task(run_streaming_response(response, on_start, messages))
+    await response_task
+    await abort_task_ref["task"]
+
+    assert messages[0]["type"] == "http.response.start"
+    assert messages[0]["status"] == 200
+    assert not any(message.get("body") == b"data: [DONE]\n\n" for message in messages if message["type"] == "http.response.body")
+    assert isinstance(state_ref["state"].terminal_error, BrowserShuttingDownError)
+    session.unregister_request_abort.assert_called_once_with(state_ref["state"].request_id)
+    lease.close.assert_awaited_once()
+    assert any(record.message == "Stream cancelled: " + state_ref["state"].request_id for record in caplog.records)
+    assert not any(record.message == "Stream completed: " + state_ref["state"].request_id for record in caplog.records)
+    assert all(task.done() for task in created_tasks)
 
 
 @pytest.mark.asyncio

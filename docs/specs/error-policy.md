@@ -52,6 +52,14 @@ Failures are formally classified into four levels of impact:
 - **Examples**: Manual window closure, browser process disconnect, fatal `BrowserEngine` state corruption, generation rollover invalidation.
 - **Protocol**: The runtime enters an irreversible **Terminal Shutdown** state. All future recovery attempts and new requests MUST fail fast with terminal shutdown semantics.
 
+### 3.5 Browser Resource Loss During a Request
+- `BrowserDisconnectedError` represents terminal browser/page/context loss for the active request. The terminal signal wakes request waits immediately and preserves the existing HTTP 502 mapping.
+- Before streaming response headers are sent, this error is mapped through the normal HTTP 502 policy. After SSE status 200 is sent, the status cannot be rewritten; the stream iterator terminates cleanly instead.
+- Post-header `BrowserDisconnectedError` and `BrowserShuttingDownError` must not escape into Starlette/AnyIO as an ASGI application error and must not emit `[DONE]`.
+- If a request already recorded that terminal state, it takes precedence over a later raw Playwright close error caused by the same resource loss.
+- Raw Playwright errors without recorded terminal browser-disconnect state retain existing classification, including the existing 503 mapping for a closed page/context.
+- A true timeout remains a timeout and maps through existing timeout policy; browser death is not a timeout fallback.
+
 ---
 
 ## 4. Recovery Authority Boundaries
@@ -109,6 +117,7 @@ Cancellation safety is a core runtime invariant. The system prioritizes determin
 - **Non-Swallowing**: `asyncio.CancelledError` must be propagated after executing the shielded cleanup; it must never be silently suppressed.
 - **Best-Effort vs Mandatory Cleanup**: The system strongly guarantees the return of active leases and semaphores under normal cancellation (mandatory release). Auxiliary Playwright cleanup operations (such as script detachment, page closure, or tab recreation) are executed on a best-effort basis and must not prevent successful lease/semaphore release.
 - **Task Integrity**: Request-scoped async tasks (observers, stream buffers) must be terminated before the tab's communication channels are removed.
+- **Lease Ownership**: During graceful drain or forced abort, BrowserEngine invokes request-owned abort callbacks and never mutates lease counters directly.
 
 ---
 
@@ -124,6 +133,7 @@ Runtime integrity failures must be visible and traceable.
     - **WARNING**: Recoverable failures and successful session-scoped recovery events.
     - **ERROR**: Request-scoped terminal failures.
     - **CRITICAL**: Session corruption, invariant violations, or engine-scoped fatal errors.
+    - Expected page closure during application shutdown is `INFO`; unexpected runtime page closure is `WARNING`. Expected already-disconnected cleanup is debug/info; unexpected close errors remain warning/error.
 
 ---
 

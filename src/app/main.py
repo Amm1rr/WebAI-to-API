@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.browser.engine import get_browser_engine
         engine = await get_browser_engine()
-        await engine.close()
+        await engine.close(source="application")
         logger.info("BrowserEngine closed gracefully.")
     except Exception as e:
         logger.error(f"Error closing BrowserEngine: {e}", exc_info=True)
