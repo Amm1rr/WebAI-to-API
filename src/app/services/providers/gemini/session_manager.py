@@ -489,9 +489,9 @@ async def init_session_managers(client):
 
     # If already initialized, safely update client references to preserve runtime state.
     if _gemini_chat_registry is not None:
-        await _gemini_chat_registry.update_client(client)
-        logger.info("Session managers safely updated with new client reference.")
-        return
+            await _gemini_chat_registry.update_client(client)
+            logger.info("Session managers safely updated with new client reference.")
+            return _gemini_chat_registry.client_generation
 
     from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
@@ -500,6 +500,7 @@ async def init_session_managers(client):
     )
     repository.initialize_sync()
     _gemini_chat_registry = SessionRegistry(client, repository=repository)
+    return _gemini_chat_registry.client_generation
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry

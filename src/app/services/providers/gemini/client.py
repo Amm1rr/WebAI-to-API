@@ -3,6 +3,7 @@ import os
 import tempfile
 import asyncio
 import inspect
+from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 from .webapi_client import MyGeminiClient
 from app.services.browser.auth_loader import GeminiAuthStateLoader
@@ -26,6 +27,146 @@ _initialization_error = None
 _gemini_client_auth_source = None
 _gemini_client_init_lock = asyncio.Lock()
 _retired_gemini_clients = []
+_gemini_generation_records = {}
+_gemini_client_generations = {}
+_current_gemini_generation = None
+_gemini_shutdown_started = False
+
+
+@dataclass
+class GeminiGenerationRecord:
+    generation: int
+    client: object
+    lease_count: int = 0
+    retired: bool = False
+    close_started: bool = False
+    close_completed: bool = False
+
+
+class GeminiClientLease:
+    def __init__(self, record: GeminiGenerationRecord):
+        self.client = record.client
+        self.generation = record.generation
+        self._record = record
+        self._released = False
+
+    async def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        record = self._record
+        if record.lease_count == 0:
+            return
+        record.lease_count -= 1
+        if record.retired and record.lease_count == 0:
+            await asyncio.shield(_close_generation_record(record))
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        await asyncio.shield(self.release())
+
+
+def _ensure_current_generation_record():
+    global _current_gemini_generation
+
+    if _gemini_client is None:
+        return None
+
+    if _current_gemini_generation is not None:
+        record = _gemini_generation_records.get(_current_gemini_generation)
+        if record is not None and record.client is _gemini_client:
+            return record
+
+    mapped_generation = _gemini_client_generations.get(id(_gemini_client))
+    mapped_record = _gemini_generation_records.get(mapped_generation)
+    if mapped_record is not None and mapped_record.client is _gemini_client:
+        _current_gemini_generation = mapped_generation
+        return mapped_record
+
+    generation = 0 if not _gemini_generation_records else max(_gemini_generation_records) + 1
+    record = GeminiGenerationRecord(generation, _gemini_client)
+    _gemini_generation_records[generation] = record
+    _gemini_client_generations[id(record.client)] = generation
+    _current_gemini_generation = generation
+    return record
+
+
+def _register_generation(client, generation):
+    existing_record = _gemini_generation_records.get(generation)
+    if existing_record is not None:
+        if existing_record.client is client:
+            return existing_record
+        raise RuntimeError("Gemini generation is already assigned to another client.")
+
+    existing_generation = _gemini_client_generations.get(id(client))
+    if existing_generation is not None:
+        existing = _gemini_generation_records.get(existing_generation)
+        if existing is not None and existing.client is client:
+            return existing
+        raise RuntimeError("Gemini client identity is already mapped to another generation.")
+
+    record = GeminiGenerationRecord(generation, client)
+    _gemini_generation_records[generation] = record
+    _gemini_client_generations[id(client)] = generation
+    return record
+
+
+def _retire_generation(record):
+    record.retired = True
+    if not any(client is record.client for client in _retired_gemini_clients):
+        _retired_gemini_clients.append(record.client)
+
+
+async def _close_generation_record(record):
+    if (
+        not record.retired
+        or record.lease_count
+        or record.close_started
+        or record.close_completed
+    ):
+        return
+
+    record.close_started = True
+    try:
+        result = record.client.close()
+        if inspect.isawaitable(result):
+            await result
+        record.close_completed = True
+        _gemini_generation_records.pop(record.generation, None)
+        if _gemini_client_generations.get(id(record.client)) == record.generation:
+            _gemini_client_generations.pop(id(record.client), None)
+        _retired_gemini_clients[:] = [
+            client for client in _retired_gemini_clients if client is not record.client
+        ]
+    except Exception as e:
+        logger.warning(f"Error closing retired Gemini client: {e}")
+
+
+def acquire_current_gemini_lease() -> GeminiClientLease:
+    # ponytail: synchronous counter mutations avoid adding another lock to request paths.
+    if _gemini_shutdown_started:
+        raise RuntimeError("Gemini client lifecycle is shutting down.")
+    record = _ensure_current_generation_record()
+    if record is None:
+        raise GeminiClientNotInitializedError("Gemini client was not initialized.")
+    if record.retired:
+        raise RuntimeError("Current Gemini client generation is retired.")
+    record.lease_count += 1
+    return GeminiClientLease(record)
+
+
+def acquire_gemini_lease(*, client, generation: int) -> GeminiClientLease:
+    if _gemini_shutdown_started:
+        raise RuntimeError("Gemini client lifecycle is shutting down.")
+    record = _gemini_generation_records.get(generation)
+    if record is None or record.client is not client:
+        raise RuntimeError("Gemini client and generation do not match.")
+    if record.retired:
+        raise RuntimeError("Gemini client generation is retired.")
+    record.lease_count += 1
+    return GeminiClientLease(record)
 
 
 def get_gemini_client_auth_source():
@@ -37,26 +178,37 @@ def get_gemini_client_auth_source():
 
 async def init_gemini_client(
     *,
-    registry_updater: Optional[Callable[[MyGeminiClient], Awaitable[None]]] = None,
+    registry_updater: Optional[Callable[[MyGeminiClient], Awaitable[Optional[int]]]] = None,
 ) -> bool:
     """
     Initialize and set up the Gemini client based on the configuration and canonical storage.
     Returns True on success, False on failure.
     """
     global _gemini_client, _initialization_error, _gemini_client_auth_source
+    global _current_gemini_generation
     
     async with _gemini_client_init_lock:
         old_client = _gemini_client
+        old_record = _ensure_current_generation_record() if old_client is not None else None
+        next_generation = (
+            old_record.generation + 1
+            if old_record is not None
+            else (max(_gemini_generation_records) + 1 if _gemini_generation_records else 0)
+        )
         _initialization_error = None
         if old_client is None:
             _gemini_client_auth_source = None
 
         async def publish_candidate(candidate, auth_source: str) -> bool:
             global _gemini_client, _gemini_client_auth_source, _initialization_error
+            global _current_gemini_generation, _gemini_shutdown_started
+            committed_generation = next_generation
 
             if registry_updater is not None:
                 try:
-                    await registry_updater(candidate)
+                    registry_generation = await registry_updater(candidate)
+                    if isinstance(registry_generation, int):
+                        committed_generation = registry_generation
                 except Exception as e:
                     logger.error(f"Gemini client replacement registry update failed: {e}", exc_info=True)
                     _initialization_error = None if old_client is not None else str(e)
@@ -66,10 +218,18 @@ async def init_gemini_client(
                         logger.warning(f"Error closing failed Gemini replacement: {close_error}")
                     return False
 
+            if old_record is not None and candidate is old_record.client:
+                _gemini_client_auth_source = auth_source
+                return True
+
+            record = _register_generation(candidate, committed_generation)
             _gemini_client = candidate
             _gemini_client_auth_source = auth_source
-            if old_client is not None:
-                _retired_gemini_clients.append(old_client)
+            _current_gemini_generation = record.generation
+            _gemini_shutdown_started = False
+            if old_record is not None:
+                _retire_generation(old_record)
+                await _close_generation_record(old_record)
             return True
 
         if not CONFIG.getboolean("EnabledAI", "gemini", fallback=True):
@@ -78,11 +238,10 @@ async def init_gemini_client(
             _gemini_client = None
             _gemini_client_auth_source = None
             _initialization_error = error_msg
-            if old_client is not None:
-                try:
-                    await old_client.close()
-                except Exception as e:
-                    logger.warning(f"Error closing disabled Gemini client: {e}")
+            _current_gemini_generation = None
+            if old_record is not None:
+                _retire_generation(old_record)
+                await _close_generation_record(old_record)
             return False
 
         gemini_proxy = CONFIG["Proxy"].get("http_proxy")
@@ -236,23 +395,43 @@ def get_gemini_client():
 async def close_gemini_client() -> None:
     """Close all process-global Gemini clients and clear their state."""
     global _gemini_client, _initialization_error, _gemini_client_auth_source
+    global _current_gemini_generation, _gemini_shutdown_started
 
     async with _gemini_client_init_lock:
-        clients = [_gemini_client, *_retired_gemini_clients]
+        current_record = _ensure_current_generation_record()
+        records = list(_gemini_generation_records.values())
+        if current_record is not None and current_record not in records:
+            records.append(current_record)
+        record_client_ids = {id(record.client) for record in records}
+        legacy_clients = [
+            client for client in _retired_gemini_clients
+            if id(client) not in record_client_ids
+        ]
+
+        _gemini_shutdown_started = True
         _gemini_client = None
         _gemini_client_auth_source = None
         _initialization_error = None
+        _current_gemini_generation = None
         _retired_gemini_clients.clear()
 
-        closed_ids = set()
-        for client in clients:
-            if client is None or id(client) in closed_ids:
-                continue
-            closed_ids.add(id(client))
+        close_records = []
+        for record in records:
+            _retire_generation(record)
+            if record.lease_count == 0:
+                close_records.append(record)
 
-            try:
-                result = client.close()
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as e:
-                logger.warning(f"Error closing Gemini client during shutdown: {e}")
+    for record in close_records:
+        await _close_generation_record(record)
+
+    closed_ids = set()
+    for client in legacy_clients:
+        if id(client) in closed_ids:
+            continue
+        closed_ids.add(id(client))
+        try:
+            result = client.close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.warning(f"Error closing Gemini client during shutdown: {e}")
