@@ -181,7 +181,10 @@ def acquire_current_gemini_lease() -> GeminiClientLease:
         raise RuntimeError("Gemini client lifecycle is shutting down.")
     record = _ensure_current_generation_record()
     if record is None:
-        raise GeminiClientNotInitializedError("Gemini client was not initialized.")
+        raise GeminiClientNotInitializedError(
+            _initialization_error
+            or "Gemini client was not initialized. Check logs for details."
+        )
     if record.retired:
         raise GeminiGenerationUnavailableError("Current Gemini client generation is retired.")
     record.lease_count += 1
@@ -217,14 +220,9 @@ def is_gemini_generation_registered(*, client, generation: int) -> bool:
     return record is not None and record.client is client
 
 
-def acquire_gemini_lease_for_request(getter) -> GeminiClientLease:
-    try:
-        return acquire_current_gemini_lease()
-    except GeminiClientNotInitializedError:
-        # Compatibility for isolated callers that inject a client without lifecycle init.
-        client = getter()
-        generation = register_gemini_generation(client)
-        return acquire_gemini_lease(client=client, generation=generation)
+def acquire_gemini_lease_for_request(getter=None) -> GeminiClientLease:
+    """Compatibility wrapper; request leasing is lifecycle-current only."""
+    return acquire_current_gemini_lease()
 
 
 def get_gemini_client_auth_source():

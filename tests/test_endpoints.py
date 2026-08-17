@@ -6,7 +6,6 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
-from app.services.providers.gemini.client import GeminiClientNotInitializedError
 import app.services.providers.gemini.client as gemini_client_module
 import app.services.providers.gemini.temporary_chat as temporary_chat_module
 from app.services.providers.atlas import AtlasProvider
@@ -241,15 +240,13 @@ async def test_translate_validates_and_preserves_aliases(mocker, install_gemini_
 
 @pytest.mark.asyncio
 async def test_translate_client_unavailable_precedes_model_validation(mocker):
-    mocker.patch(
-        "app.endpoints.chat.get_gemini_client",
-        side_effect=GeminiClientNotInitializedError("client unavailable"),
-    )
+    gemini_client_module._initialization_error = "client unavailable"
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/translate", json={"model": "unknown-model", "message": "Translate this text"})
 
     assert response.status_code == 503
+    assert response.json()["detail"] == "client unavailable"
 
 
 @pytest.mark.asyncio
@@ -544,8 +541,8 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
 
 
 @pytest.mark.asyncio
-async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocker):
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
+async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocker, install_gemini_client):
+    install_gemini_client(mocker.Mock())
     payload = {
         "model": "gemini-3-flash",
         "conversation_id": "existing-conversation",
@@ -587,8 +584,13 @@ async def test_temporary_chat_completions_endpoint_rejects_conversation_id(mocke
         ),
     ],
 )
-async def test_temporary_chat_completions_endpoint_rejects_unsupported_providers(mocker, payload, detail_fragment):
-    mocker.patch("app.services.providers.gemini.temporary_chat.get_gemini_client", return_value=mocker.Mock())
+async def test_temporary_chat_completions_endpoint_rejects_unsupported_providers(
+    mocker,
+    install_gemini_client,
+    payload,
+    detail_fragment,
+):
+    install_gemini_client(mocker.Mock())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/v1/temporary/chat/completions", json=payload)
 

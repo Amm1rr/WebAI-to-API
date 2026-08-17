@@ -449,6 +449,40 @@ def test_current_lease_creates_initial_generation_record():
     assert record.lease_count == 1
 
 
+def test_current_lease_uses_initialization_error_detail():
+    gemini_client_module._initialization_error = "Gemini cookies are unavailable."
+
+    with pytest.raises(
+        gemini_client_module.GeminiClientNotInitializedError,
+        match="Gemini cookies are unavailable",
+    ):
+        gemini_client_module.acquire_current_gemini_lease()
+
+
+def test_request_lease_ignores_unmanaged_getter(mocker):
+    getter = mocker.Mock(return_value=make_mock_client("AVAILABLE"))
+
+    with pytest.raises(
+        gemini_client_module.GeminiClientNotInitializedError,
+        match="Check logs for details",
+    ):
+        gemini_client_module.acquire_gemini_lease_for_request(getter)
+
+    getter.assert_not_called()
+    assert gemini_client_module._gemini_generation_records == {}
+
+
+def test_request_lease_delegates_to_current_generation(mocker):
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._gemini_client = client
+    getter = mocker.Mock(return_value=make_mock_client("AVAILABLE"))
+
+    lease = gemini_client_module.acquire_gemini_lease_for_request(getter)
+
+    assert lease.client is client
+    getter.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_lease_release_is_idempotent_and_does_not_close_current_client():
     client = make_mock_client("AVAILABLE")
