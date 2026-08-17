@@ -315,6 +315,7 @@ class SessionRegistry:
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
+        self._restore_tasks: Dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
     async def update_client(self, client):
@@ -360,6 +361,7 @@ class SessionRegistry:
         gem: Optional[Any] = None,
     ) -> SessionManager:
         """Retrieve, restore, or create a session manager. Triggers passive cleanup."""
+        restore_task = None
         async with self._lock:
             if conversation_id in self._deleting:
                 raise ConversationInUseError(f"Conversation is currently being deleted: {conversation_id}")
@@ -371,23 +373,119 @@ class SessionRegistry:
             # 2. Lookup or create
             if conversation_id not in self._sessions:
                 if not allow_create:
-                    manager = await self._restore_session(conversation_id, provider_adapter, model=model, gem=gem)
-                    self._sessions[conversation_id] = manager
-                    return manager
-
-                if len(self._sessions) >= MAX_SESSIONS:
-                    from fastapi import HTTPException
-                    raise HTTPException(
-                        status_code=429, 
-                        detail="Server at capacity. No available chat sessions. Please try again later."
+                    restore_task = self._restore_tasks.get(conversation_id)
+                    if restore_task is None:
+                        restore_client = self.client
+                        restore_generation = self.client_generation
+                        restore_task = asyncio.create_task(
+                            self._restore_and_publish(
+                                conversation_id,
+                                provider_adapter,
+                                model=model,
+                                gem=gem,
+                                client=restore_client,
+                                client_generation=restore_generation,
+                            )
+                        )
+                        restore_task.add_done_callback(self._consume_restore_task_result)
+                        self._restore_tasks[conversation_id] = restore_task
+                else:
+                    if len(self._sessions) >= MAX_SESSIONS:
+                        from fastapi import HTTPException
+                        raise HTTPException(
+                            status_code=429, 
+                            detail="Server at capacity. No available chat sessions. Please try again later."
+                        )
+                    
+                    self._sessions[conversation_id] = SessionManager(
+                        self.client,
+                        self.client_generation,
                     )
-                
-                self._sessions[conversation_id] = SessionManager(
-                    self.client,
-                    self.client_generation,
-                )
-            
-            return self._sessions[conversation_id]
+
+            if restore_task is None:
+                return self._sessions[conversation_id]
+
+        return await asyncio.shield(restore_task)
+
+    @staticmethod
+    def _consume_restore_task_result(task: asyncio.Task) -> None:
+        if not task.cancelled():
+            task.exception()
+
+    async def _restore_and_publish(
+        self,
+        conversation_id: str,
+        provider_adapter: Optional[Any],
+        *,
+        model: Optional[Any],
+        gem: Optional[Any],
+        client: Any,
+        client_generation: int,
+    ) -> SessionManager:
+        try:
+            while True:
+                attempt_lease = None
+                retry = False
+                try:
+                    try:
+                        attempt_lease = acquire_gemini_lease(
+                            client=client,
+                            generation=client_generation,
+                        )
+                    except RuntimeError:
+                        async with self._lock:
+                            if (
+                                self.client is client
+                                and self.client_generation == client_generation
+                            ):
+                                raise
+                            client = self.client
+                            client_generation = self.client_generation
+                            retry = True
+                    else:
+                        manager = await self._restore_session(
+                            conversation_id,
+                            provider_adapter,
+                            model=model,
+                            gem=gem,
+                            client=client,
+                            client_generation=client_generation,
+                        )
+
+                        async with self._lock:
+                            if conversation_id in self._deleting:
+                                raise ConversationInUseError(
+                                    f"Conversation is currently being deleted: {conversation_id}"
+                                )
+
+                            existing = self._sessions.get(conversation_id)
+                            if existing is not None:
+                                return existing
+
+                            if (
+                                self.client is not client
+                                or self.client_generation != client_generation
+                            ):
+                                client = self.client
+                                client_generation = self.client_generation
+                                retry = True
+                            else:
+                                # Preserve restore behavior: prune at publication,
+                                # but do not apply normal create's second rejection.
+                                if len(self._sessions) >= MAX_SESSIONS:
+                                    self._prune_sessions()
+                                self._sessions[conversation_id] = manager
+                                return manager
+                finally:
+                    if attempt_lease is not None:
+                        await asyncio.shield(attempt_lease.release())
+
+                if retry:
+                    continue
+        finally:
+            async with self._lock:
+                if self._restore_tasks.get(conversation_id) is asyncio.current_task():
+                    self._restore_tasks.pop(conversation_id, None)
 
     async def begin_delete_session(self, conversation_id: str) -> None:
         """
@@ -477,6 +575,8 @@ class SessionRegistry:
         *,
         model: Optional[Any] = None,
         gem: Optional[Any] = None,
+        client: Any,
+        client_generation: int,
     ) -> SessionManager:
         if not self.repository:
             raise SnapshotNotFoundError(f"Conversation snapshot not found: {conversation_id}")
@@ -498,16 +598,16 @@ class SessionRegistry:
         )
         session = provider_adapter.deserialize_session_state(
             validated_state,
-            self.client,
+            client,
             model=model,
             gem=gem,
         )
 
-        manager = SessionManager(self.client, self.client_generation)
+        manager = SessionManager(client, client_generation)
         manager.session = session
         manager.model = model if model is not None else getattr(session, "model", None)
         manager.gem = gem if gem is not None else getattr(session, "gem", None)
-        manager.session_generation = self.client_generation
+        manager.session_generation = client_generation
         manager.last_accessed = time.time()
         return manager
 
