@@ -79,6 +79,10 @@ class ProviderSession:
         )
 
     @property
+    def application_shutdown_requested(self) -> bool:
+        return getattr(self.engine, "shutdown_requested", False) is True
+
+    @property
     def metrics(self) -> dict:
         return {
             "provider": self.name,
@@ -148,7 +152,7 @@ class ProviderSession:
         PHASE 1: Semaphore & Registry Lookup (In-memory)
         PHASE 2: Tab Lock Acquisition (Blocking, outside registry_lock)
         """
-        if self.engine.is_shutting_down:
+        if self.engine.is_shutting_down or self.application_shutdown_requested:
             raise BrowserShuttingDownError("BrowserEngine is shutting down")
 
         # 1. Atomic Check-and-Reserve under conversation_lock (Strictly Zero-Await for lookups/mutations)
@@ -343,14 +347,14 @@ class ProviderSession:
 
     async def ensure_healthy(self):
         """Self-healing: Ensures browser process and provider context are functional."""
-        if self.engine.is_shutting_down:
+        if self.engine.is_shutting_down or self.application_shutdown_requested:
             raise BrowserShuttingDownError("Browser engine is shutting down")
             
         async with self.engine.management_lock:
             async with self.init_lock:
                 await self.engine._ensure_healthy_browser()
 
-                if self.engine.is_shutting_down:
+                if self.engine.is_shutting_down or self.application_shutdown_requested:
                     raise BrowserShuttingDownError("Browser engine is shutting down")
 
                 # Atomic Purge on generation rollover
@@ -535,7 +539,7 @@ class ProviderSession:
             self.last_browser_generation = self.engine.browser_generation
             
             # Start background tasks
-            if not self.engine.is_shutting_down:
+            if not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 # Background persistence tasks are strictly disabled in the runtime API service.
                 enable_autosave = (
                     self.enable_persistence and 
@@ -566,7 +570,7 @@ class ProviderSession:
 
     async def _autosave_loop(self):
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(60)
                 if self.is_alive:
                     await self.save_state()
@@ -592,9 +596,9 @@ class ProviderSession:
     async def _eviction_loop(self):
         """Deterministic eviction and stale lease recovery."""
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(30)
-                if self.engine.is_shutting_down: break
+                if self.engine.is_shutting_down or self.application_shutdown_requested: break
                 
                 # Ignore stale generation state and delegate recovery/teardown to rollover purge flow
                 if self.last_browser_generation != self.engine.browser_generation:
@@ -669,9 +673,9 @@ class ProviderSession:
     async def _reaper_loop(self):
         """Active liveness sweeper for IDLE persistent tabs."""
         try:
-            while not self.engine.is_shutting_down:
+            while not self.engine.is_shutting_down and not self.application_shutdown_requested:
                 await asyncio.sleep(30)
-                if self.engine.is_shutting_down: break
+                if self.engine.is_shutting_down or self.application_shutdown_requested: break
                 
                 # Ignore stale generation state and delegate liveness monitoring/recovery to authoritative flow
                 if self.last_browser_generation != self.engine.browser_generation:
@@ -682,7 +686,7 @@ class ProviderSession:
                     continue
 
                 if not self.is_alive:
-                    if not self.engine.is_shutting_down:
+                    if not self.engine.is_shutting_down and not self.application_shutdown_requested:
                         logger.warning(
                             "ProviderSession(%s): Unexpected liveness loss (Window closure). Triggering shutdown.",
                             self.name,
@@ -788,6 +792,17 @@ class ProviderSession:
                 "ProviderSession(%s): Ignoring intentional browser context close.",
                 self.name,
                 extra={"generation": self.last_browser_generation}
+            )
+            return
+
+        if self.application_shutdown_requested:
+            logger.info(
+                "ProviderSession(%s): Ignoring context close during application shutdown.",
+                self.name,
+                extra={
+                    "shutdown_source": self.engine.shutdown_source,
+                    "generation": self.last_browser_generation,
+                },
             )
             return
 

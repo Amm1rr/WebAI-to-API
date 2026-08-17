@@ -42,6 +42,61 @@ async def test_engine_close_sets_terminal_shutdown_and_closes_owned_resources():
 
 
 @pytest.mark.asyncio
+async def test_application_shutdown_intent_is_idempotent_before_close():
+    engine = BrowserEngine(headless=True)
+
+    assert engine.request_shutdown("application") is True
+    assert engine.request_shutdown("application") is False
+    assert engine.shutdown_requested is True
+    assert engine.shutdown_source == "application"
+    assert engine._shutdown_started is False
+
+    engine.close = AsyncMock()
+    engine._on_browser_disconnected()
+
+    engine.close.assert_not_awaited()
+    assert engine._shutdown_started is False
+
+
+@pytest.mark.asyncio
+async def test_application_shutdown_close_preserves_application_source():
+    engine = BrowserEngine(headless=True)
+    engine.request_shutdown("application")
+
+    await engine.close(source="application")
+
+    assert engine.shutdown_source == "application"
+    assert engine._shutdown_started is True
+
+
+@pytest.mark.asyncio
+async def test_browser_disconnect_source_wins_before_application_intent(mocker):
+    engine = BrowserEngine(headless=True)
+    scheduled = []
+    loop = MagicMock()
+    loop.create_task.side_effect = lambda coroutine: scheduled.append(coroutine)
+    mocker.patch("app.services.browser.engine.asyncio.get_running_loop", return_value=loop)
+    engine.close = AsyncMock()
+
+    engine._on_browser_disconnected()
+    engine.request_shutdown("application")
+
+    assert engine.shutdown_source == "browser-disconnect"
+    assert len(scheduled) == 1
+    scheduled.pop().close()
+    engine.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_requested_rejects_new_page_admission():
+    engine = BrowserEngine(headless=True)
+    engine.request_shutdown("application")
+
+    with pytest.raises(BrowserShuttingDownError):
+        await engine.get_page("gemini")
+
+
+@pytest.mark.asyncio
 async def test_engine_close_is_idempotent():
     engine = BrowserEngine(headless=True)
     browser = make_browser()

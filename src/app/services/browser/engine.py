@@ -22,6 +22,7 @@ class BrowserEngine:
     """
     _instance: Optional['BrowserEngine'] = None
     _lock = asyncio.Lock()
+    _SHUTDOWN_SOURCES = {"application", "browser-disconnect", "manual/internal"}
 
     def __init__(self, headless: Optional[bool] = None, is_bootstrap: bool = False):
         self.playwright: Optional[Playwright] = None
@@ -40,8 +41,26 @@ class BrowserEngine:
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
         self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
+        self.shutdown_requested = False
+        self.shutdown_source: Optional[str] = None
         self._shutdown_started = False
         self._disconnect_handled = False
+
+    def request_shutdown(self, source: str) -> bool:
+        """Record first shutdown intent without starting resource teardown."""
+        if source not in self._SHUTDOWN_SOURCES:
+            raise ValueError(f"Unsupported browser shutdown source: {source}")
+        if self.shutdown_requested:
+            return False
+
+        self.shutdown_requested = True
+        self.shutdown_source = source
+        if source == "application":
+            logger.info(
+                "BrowserEngine: Application shutdown requested",
+                extra={"shutdown_source": source, "generation": self.browser_generation},
+            )
+        return True
 
     @classmethod
     async def get_instance(cls, headless: Optional[bool] = None) -> 'BrowserEngine':
@@ -124,8 +143,20 @@ class BrowserEngine:
         """Internal handler for Playwright's disconnected event."""
         if self.is_shutting_down or self._disconnect_handled:
             return
+
+        if self.shutdown_requested:
+            self._disconnect_handled = True
+            logger.info(
+                "BrowserEngine: Browser disconnected during application shutdown",
+                extra={
+                    "shutdown_source": self.shutdown_source,
+                    "generation": self.browser_generation,
+                },
+            )
+            return
             
         self._disconnect_handled = True
+        self.request_shutdown("browser-disconnect")
         logger.warning("BrowserEngine: Unexpected browser disconnection detected (Manual closure or crash).", extra={"generation": self.browser_generation})
         # Fire-and-forget terminal shutdown to kill all background loops and prevent recreation
         try:
@@ -210,17 +241,19 @@ class BrowserEngine:
             else:
                 logger.warning(f"BrowserEngine: Eviction failed for {tab.conversation_id} (Status: {tab.status})")
 
-    async def close(self) -> None:
+    async def close(self, source: Optional[str] = None) -> None:
         try:
             async with self.management_lock:
                 if self._shutdown_started: 
                     logger.info("BrowserEngine: Shutdown already in progress or complete.", extra={"generation": self.browser_generation})
                     return
+
+                self.request_shutdown(source or self.shutdown_source or "manual/internal")
                 
                 if getattr(self, "is_bootstrap", False):
-                    logger.info("BrowserEngine: Shutting down isolated bootstrap engine...", extra={"generation": self.browser_generation})
+                    logger.info("BrowserEngine: Shutting down isolated bootstrap engine...", extra={"shutdown_source": self.shutdown_source, "generation": self.browser_generation})
                 else:
-                    logger.info("BrowserEngine: Shutting down singleton runtime engine...", extra={"generation": self.browser_generation})
+                    logger.info("BrowserEngine: Shutting down singleton runtime engine...", extra={"shutdown_source": self.shutdown_source, "generation": self.browser_generation})
                 
                 self.is_shutting_down = True
                 self._shutdown_started = True
@@ -277,3 +310,10 @@ async def get_browser_engine(headless: Optional[bool] = None, is_bootstrap: bool
     if is_bootstrap:
         return BrowserEngine(headless=headless, is_bootstrap=True)
     return await BrowserEngine.get_instance(headless=headless)
+
+
+def request_application_shutdown() -> bool:
+    """Mark existing runtime engine shutdown intent from Uvicorn's signal hook."""
+    if BrowserEngine._instance is None:
+        return False
+    return BrowserEngine._instance.request_shutdown("application")

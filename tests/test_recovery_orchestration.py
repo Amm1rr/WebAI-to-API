@@ -232,6 +232,26 @@ async def test_unexpected_provider_context_close_triggers_engine_shutdown(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_application_shutdown_context_close_does_not_trigger_crash_shutdown(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+    mock_engine.shutdown_requested = True
+    mock_engine.shutdown_source = "application"
+    mock_engine._on_browser_disconnected = Mock()
+
+    session = ProviderSession(mock_engine, "test_provider")
+    context = MagicMock()
+    session.context = context
+
+    await session._on_context_closed(context, mock_engine.browser_generation)
+
+    mock_engine._on_browser_disconnected.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_delayed_intentional_context_callback_cannot_shutdown_new_generation(tmp_path, mocker):
     old_context = MagicMock()
     old_context.is_closed.return_value = False
