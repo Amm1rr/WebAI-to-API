@@ -35,9 +35,9 @@ def test_registry_constructor_uses_explicit_registered_generation(mocker, instal
     client = mocker.Mock()
     generation = install_registry_generation(client)
     register = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     registry = SessionRegistry(
@@ -337,6 +337,7 @@ async def test_registry_update_client_updates_all(mocker, install_registry_gener
     mock_client2 = mocker.Mock()
     
     generation = install_registry_generation(mock_client1)
+    new_generation = install_registry_generation(mock_client2, generation=generation + 1)
     registry = SessionRegistry(mock_client1, generation=generation)
     manager1 = await registry.get_session("conv_1")
     manager2 = await registry.get_session("conv_2")
@@ -346,7 +347,7 @@ async def test_registry_update_client_updates_all(mocker, install_registry_gener
     assert manager2.client == mock_client1
     
     # Execute async update
-    await registry.update_client(mock_client2)
+    await registry.update_client(mock_client2, generation=new_generation)
     
     assert registry.client == mock_client2
     assert manager1.client == mock_client2
@@ -359,6 +360,7 @@ async def test_registry_update_client_is_lock_protected(mocker, install_registry
     mock_client2 = mocker.Mock()
     
     generation = install_registry_generation(mock_client1)
+    new_generation = install_registry_generation(mock_client2, generation=generation + 1)
     registry = SessionRegistry(mock_client1, generation=generation)
     
     # Forcefully acquire the registry lock
@@ -366,7 +368,9 @@ async def test_registry_update_client_is_lock_protected(mocker, install_registry
     assert registry._lock.locked() is True
     
     # Attempt update_client in a background task
-    update_task = asyncio.create_task(registry.update_client(mock_client2))
+    update_task = asyncio.create_task(
+        registry.update_client(mock_client2, generation=new_generation)
+    )
     
     # Wait a brief moment to ensure the task runs and tries to acquire lock
     await asyncio.sleep(0.01)
@@ -384,6 +388,60 @@ async def test_registry_update_client_is_lock_protected(mocker, install_registry
 
 
 @pytest.mark.asyncio
+async def test_registry_update_client_requires_explicit_generation(mocker, install_registry_generation):
+    client = mocker.Mock()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, generation=generation)
+    allocator = mocker.patch.object(gemini_client_module, "register_gemini_generation")
+
+    with pytest.raises(TypeError):
+        await registry.update_client(client)
+
+    assert registry.client is client
+    assert registry.client_generation == generation
+    allocator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_registry_update_client_rejects_unregistered_generation_without_mutation(
+    mocker,
+    install_registry_generation,
+):
+    client = mocker.Mock()
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, generation=generation)
+    manager = await registry.get_session("preserve-me")
+    state = (registry.client, registry.client_generation, manager.client, manager.client_generation)
+
+    with pytest.raises(RuntimeError, match="generation is not registered"):
+        await registry.update_client(mocker.Mock(), generation=generation + 1)
+
+    assert (registry.client, registry.client_generation, manager.client, manager.client_generation) == state
+
+
+@pytest.mark.asyncio
+async def test_registry_update_client_same_client_new_generation_updates_managers(
+    mocker,
+    install_registry_generation,
+):
+    client = mocker.Mock()
+    generation = install_registry_generation(client)
+    gemini_client_module._gemini_client_generations.pop(id(client))
+    new_generation = install_registry_generation(client, generation=generation + 1)
+    registry = SessionRegistry(client, generation=generation)
+    manager = await registry.get_session("preserve-session")
+    manager.session_generation = generation
+
+    await registry.update_client(client, generation=new_generation)
+
+    assert registry.client is client
+    assert registry.client_generation == new_generation
+    assert manager.client is client
+    assert manager.client_generation == new_generation
+    assert manager.session_generation == generation
+
+
+@pytest.mark.asyncio
 async def test_registry_same_client_update_preserves_generation_and_session(mocker, install_registry_generation):
     client = mocker.Mock()
     session = _FakeChatSession(client, "model", None)
@@ -396,7 +454,7 @@ async def test_registry_same_client_update_preserves_generation_and_session(mock
     generation = registry.client_generation
     session_generation = manager.session_generation
 
-    await registry.update_client(client)
+    await registry.update_client(client, generation=generation)
     await manager.get_response_stateful("model", [{"content": "second"}], "")
 
     assert registry.client_generation == generation
@@ -411,13 +469,14 @@ async def test_session_generation_mismatch_uses_typed_error(mocker, install_regi
     client1 = mocker.Mock()
     client2 = mocker.Mock()
     generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
     registry = SessionRegistry(client1, generation=generation)
     manager = await registry.get_session("conversation")
     lease = gemini_client_module.acquire_gemini_lease(
         client=client1,
         generation=registry.client_generation,
     )
-    await registry.update_client(client2)
+    await registry.update_client(client2, generation=new_generation)
 
     with pytest.raises(
         gemini_client_module.GeminiGenerationUnavailableError,
@@ -495,9 +554,9 @@ async def test_registry_reopen_same_client_same_generation(mocker, install_regis
     registry = SessionRegistry(client, generation=generation)
     generation = registry.client_generation
     register = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     await registry.shutdown()
@@ -556,9 +615,9 @@ async def test_registry_reopen_requires_generation_without_implicit_registration
     generation = install_registry_generation(client)
     registry = SessionRegistry(client, generation=generation)
     register = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     await registry.shutdown()
@@ -676,13 +735,14 @@ async def test_client_replacement_and_session_request_do_not_deadlock(mocker, in
     client1.start_chat.return_value = _FakeChatSession(client1, "model", None)
     client2.start_chat.return_value = _FakeChatSession(client2, "model", None)
     generation = install_registry_generation(client1)
+    new_generation = install_registry_generation(client2, generation=generation + 1)
     registry = SessionRegistry(client1, generation=generation)
     manager = await registry.get_session("conversation")
 
     await asyncio.wait_for(
         asyncio.gather(
             manager.get_response_stateful("model", [{"content": "request"}], ""),
-            registry.update_client(client2),
+            registry.update_client(client2, generation=new_generation),
         ),
         timeout=1,
     )

@@ -18,7 +18,6 @@ from app.services.providers.gemini.client import (
     acquire_gemini_lease,
     GeminiGenerationUnavailableError,
     is_gemini_generation_registered,
-    register_gemini_generation,
 )
 from app.services.providers.gemini.persistence import deserialize_session_state, serialize_session_state
 from app.utils.tokens import generate_opaque_token
@@ -319,8 +318,6 @@ class SessionRegistry:
         generation: int,
     ):
         self.client = client
-        # Constructor is lifecycle-strict; retain false branch for update_client compatibility.
-        self._register_generation = False
         if not is_gemini_generation_registered(client=client, generation=generation):
             raise RuntimeError("Gemini client generation is not registered.")
         self.client_generation = generation
@@ -331,7 +328,7 @@ class SessionRegistry:
         self._closed = False
         self._lock = asyncio.Lock() # Registry-level lock for atomic lookup-or-create
 
-    async def update_client(self, client, *, generation: Optional[int] = None):
+    async def update_client(self, client, *, generation: int):
         """
         Safely update the direct client reference in all active session managers
         under the registry-level management lock. This guarantees coroutine-level
@@ -351,18 +348,10 @@ class SessionRegistry:
             self._update_client_locked(client, generation=generation)
             self._closed = False
 
-    def _update_client_locked(self, client, *, generation: Optional[int] = None) -> None:
-        if client is self.client and generation is None:
-            return
-        if generation is not None:
-            if not is_gemini_generation_registered(client=client, generation=generation):
-                raise RuntimeError("Gemini client generation is not registered.")
-            next_generation = generation
-        elif self._register_generation:
-            next_generation = register_gemini_generation(client)
-        else:
-            next_generation = self.client_generation + 1
-        if client is self.client and next_generation == self.client_generation:
+    def _update_client_locked(self, client, *, generation: int) -> None:
+        if not is_gemini_generation_registered(client=client, generation=generation):
+            raise RuntimeError("Gemini client generation is not registered.")
+        if client is self.client and generation == self.client_generation:
             return
         previous_client = self.client
         previous_generation = self.client_generation
@@ -370,7 +359,7 @@ class SessionRegistry:
             manager: manager.client_generation for manager in self._sessions.values()
         }
         try:
-            self.client_generation = next_generation
+            self.client_generation = generation
             self.client = client
             for manager in self._sessions.values():
                 manager.client = client

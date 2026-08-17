@@ -89,9 +89,9 @@ async def test_init_session_managers_uses_registered_generation_without_allocati
     _patch_session_repository(mocker)
     mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
     allocator = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     await session_manager_module.init_session_managers(client, generation)
@@ -114,9 +114,9 @@ async def test_init_session_managers_reopens_existing_registry_with_exact_genera
     _patch_session_repository(mocker)
     mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
     allocator = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     await session_manager_module.init_session_managers(client1, generation1)
@@ -140,9 +140,9 @@ async def test_init_session_managers_rejects_unregistered_initial_generation(moc
     _patch_session_repository(mocker)
     mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
     allocator = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     with pytest.raises(RuntimeError, match="generation is not registered"):
@@ -163,9 +163,9 @@ async def test_init_session_managers_rejects_unregistered_reopen_without_mutatio
     _patch_session_repository(mocker)
     mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
     allocator = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
 
     await session_manager_module.init_session_managers(client1, generation)
@@ -195,9 +195,9 @@ async def test_gemini_lifecycle_passes_registered_generation_to_session_managers
     _patch_session_repository(mocker)
     mocker.patch.object(session_manager_module, "_gemini_chat_registry", None)
     allocator = mocker.patch.object(
-        session_manager_module,
+        gemini_client_module,
         "register_gemini_generation",
-        wraps=session_manager_module.register_gemini_generation,
+        wraps=gemini_client_module.register_gemini_generation,
     )
     updater = mocker.patch.object(
         session_manager_module,
