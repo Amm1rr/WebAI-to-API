@@ -1,5 +1,6 @@
 # src/app/services/providers/gemini/session_manager.py
 import asyncio
+import json
 import time
 import secrets
 import os
@@ -14,6 +15,7 @@ from app.services.providers.exceptions import (
     SnapshotNotFoundError,
     StateIntegrityError,
 )
+from app.services.providers.gemini.persistence import deserialize_session_state, serialize_session_state
 from app.utils.tokens import generate_opaque_token
 
 # Configuration constants
@@ -24,8 +26,10 @@ SNAPSHOT_SCHEMA_VERSION = 1
 RETENTION_PERIOD_DAYS = int(os.getenv("CONVERSATION_RETENTION_DAYS", "90"))
 
 class SessionManager:
-    def __init__(self, client):
+    def __init__(self, client, client_generation: int = 0):
         self.client = client
+        self.client_generation = client_generation
+        self.session_generation = None
         self.session = None
         self.model = None
         self.gem = None
@@ -198,11 +202,44 @@ class SessionManager:
 
     def _ensure_session(self, model, gem):
         """Internal helper to start or switch session if needed. Must be called inside self.lock."""
-        if self.session is None or self.model != model or self.gem != gem:
-            model_value = model.value if hasattr(model, "value") else model
+        if (
+            self.session is not None
+            and self.session_generation == self.client_generation
+            and self.model == model
+            and self.gem == gem
+        ):
+            return
+
+        model_value = model.value if hasattr(model, "value") else model
+        stale_session = (
+            self.session is not None
+            and self.session_generation != self.client_generation
+            and self.model == model
+            and self.gem == gem
+        )
+        session_state = None
+        if self.session is not None and self.session_generation != self.client_generation:
+            if stale_session:
+                session_state = serialize_session_state(self.session)
+            self.session = None
+            self.session_generation = None
+
+        if session_state is not None:
+            state = json.loads(session_state)
+            restore_model = model_value if model is not None else state.get("model_name")
+            restore_gem = gem if gem is not None else state.get("gem_id")
+            self.session = deserialize_session_state(
+                session_state,
+                self.client,
+                model=restore_model,
+                gem=restore_gem,
+            )
+        else:
             self.session = self.client.start_chat(model=model_value, gem=gem)
-            self.model = model
-            self.gem = gem
+
+        self.model = model
+        self.gem = gem
+        self.session_generation = self.client_generation
 
 
 class SessionRegistry:
@@ -212,6 +249,7 @@ class SessionRegistry:
     """
     def __init__(self, client, repository: Optional[IConversationRepository] = None):
         self.client = client
+        self.client_generation = 0
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
@@ -225,9 +263,13 @@ class SessionRegistry:
         but does not represent low-level hardware or CPU-level atomicity.
         """
         async with self._lock:
+            if client is self.client:
+                return
+            self.client_generation += 1
             self.client = client
             for manager in self._sessions.values():
                 manager.client = client
+                manager.client_generation = self.client_generation
 
     async def get_session(
         self,
@@ -261,7 +303,10 @@ class SessionRegistry:
                         detail="Server at capacity. No available chat sessions. Please try again later."
                     )
                 
-                self._sessions[conversation_id] = SessionManager(self.client)
+                self._sessions[conversation_id] = SessionManager(
+                    self.client,
+                    self.client_generation,
+                )
             
             return self._sessions[conversation_id]
 
@@ -379,10 +424,11 @@ class SessionRegistry:
             gem=gem,
         )
 
-        manager = SessionManager(self.client)
+        manager = SessionManager(self.client, self.client_generation)
         manager.session = session
         manager.model = model if model is not None else getattr(session, "model", None)
         manager.gem = gem if gem is not None else getattr(session, "gem", None)
+        manager.session_generation = self.client_generation
         manager.last_accessed = time.time()
         return manager
 

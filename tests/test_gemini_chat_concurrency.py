@@ -1,10 +1,32 @@
 import asyncio
 import json
 import pytest
+from types import SimpleNamespace
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.providers.gemini.session_manager import SessionRegistry, SessionManager
 from app.utils.tokens import generate_opaque_token
+
+
+class _FakeChatSession:
+    def __init__(self, client, model, gem):
+        self.geminiclient = client
+        self.model = model
+        self.gem = gem
+        self._ChatSession__metadata = ["cid", "rid", "rcid", "context"]
+        self.calls = []
+
+    @property
+    def metadata(self):
+        return self._ChatSession__metadata
+
+    @metadata.setter
+    def metadata(self, value):
+        self._ChatSession__metadata = value
+
+    async def send_message(self, prompt, files=None, temporary=False):
+        self.calls.append((prompt, files, temporary))
+        return SimpleNamespace(text="ok")
 
 @pytest.mark.asyncio
 async def test_concurrent_independent_streams(mocker):
@@ -231,3 +253,136 @@ async def test_registry_update_client_is_lock_protected(mocker):
     
     assert update_task.done() is True
     assert registry.client == mock_client2
+
+
+@pytest.mark.asyncio
+async def test_registry_same_client_update_preserves_generation_and_session(mocker):
+    client = mocker.Mock()
+    session = _FakeChatSession(client, "model", None)
+    client.start_chat.return_value = session
+
+    registry = SessionRegistry(client)
+    manager = await registry.get_session("conversation")
+    await manager.get_response_stateful("model", [{"content": "first"}], "")
+    generation = registry.client_generation
+    session_generation = manager.session_generation
+
+    await registry.update_client(client)
+    await manager.get_response_stateful("model", [{"content": "second"}], "")
+
+    assert registry.client_generation == generation
+    assert manager.client_generation == generation
+    assert manager.session_generation == session_generation
+    assert manager.session is session
+    client.start_chat.assert_called_once_with(model="model", gem=None)
+
+
+@pytest.mark.asyncio
+async def test_client_replacement_lazily_rebuilds_stale_session_with_metadata(mocker):
+    client1 = mocker.Mock()
+    client2 = mocker.Mock()
+    old_session = _FakeChatSession(client1, "model", "gem")
+    new_session = _FakeChatSession(client2, "model", "gem")
+    client1.start_chat.return_value = old_session
+    client2.start_chat.return_value = new_session
+
+    registry = SessionRegistry(client1)
+    manager = await registry.get_session("conversation")
+    await manager.get_response_stateful("model", [{"content": "first"}], "", gem="gem")
+
+    await registry.update_client(client2)
+    assert manager.session is old_session
+    assert manager.session_generation != manager.client_generation
+
+    await manager.get_response_stateful("model", [{"content": "second"}], "", gem="gem")
+
+    assert manager.session is new_session
+    assert new_session.geminiclient is client2
+    assert new_session.metadata == old_session.metadata
+    assert manager.session_generation == manager.client_generation == registry.client_generation
+    assert old_session.calls == [("User: first", None, False)]
+    assert new_session.calls == [("second", None, False)]
+
+
+@pytest.mark.asyncio
+async def test_same_generation_reuses_session_and_replacements_are_independent(mocker):
+    client1 = mocker.Mock()
+    client2 = mocker.Mock()
+    client3 = mocker.Mock()
+    old1 = _FakeChatSession(client1, "model", None)
+    old2 = _FakeChatSession(client1, "model", None)
+    new1 = _FakeChatSession(client2, "model", None)
+    new2 = _FakeChatSession(client2, "model", None)
+    newest1 = _FakeChatSession(client3, "model", None)
+    newest2 = _FakeChatSession(client3, "model", None)
+    client1.start_chat.side_effect = [old1, old2]
+    client2.start_chat.side_effect = [new1, new2]
+    client3.start_chat.side_effect = [newest1, newest2]
+    registry = SessionRegistry(client1)
+    manager1 = await registry.get_session("one")
+    manager2 = await registry.get_session("two")
+
+    await manager1.get_response_stateful("model", [{"content": "one"}], "")
+    first_session = manager1.session
+    await manager1.get_response_stateful("model", [{"content": "same"}], "")
+    assert manager1.session is first_session
+
+    await registry.update_client(client2)
+    await manager1.get_response_stateful("model", [{"content": "one-new"}], "")
+    await manager2.get_response_stateful("model", [{"content": "two-new"}], "")
+
+    assert manager1.session is not first_session
+    assert manager1.session.geminiclient is client2
+    assert manager2.session.geminiclient is client2
+    assert manager1.session_generation == manager2.session_generation == registry.client_generation
+
+    await registry.update_client(client3)
+    await manager1.get_response_stateful("model", [{"content": "one-newest"}], "")
+    await manager2.get_response_stateful("model", [{"content": "two-newest"}], "")
+    assert manager1.session.geminiclient is client3
+    assert manager2.session.geminiclient is client3
+    assert manager1.session_generation == manager2.session_generation == registry.client_generation
+
+
+@pytest.mark.asyncio
+async def test_stale_rebuild_failure_does_not_affect_other_manager(mocker):
+    client1 = mocker.Mock()
+    client2 = mocker.Mock()
+    old1 = _FakeChatSession(client1, "model", None)
+    old2 = _FakeChatSession(client1, "model", None)
+    new2 = _FakeChatSession(client2, "model", None)
+    client1.start_chat.side_effect = [old1, old2]
+    client2.start_chat.side_effect = [RuntimeError("rebuild failed"), new2]
+
+    registry = SessionRegistry(client1)
+    manager1 = await registry.get_session("one")
+    manager2 = await registry.get_session("two")
+    await manager1.get_response_stateful("model", [{"content": "one"}], "")
+    await manager2.get_response_stateful("model", [{"content": "two"}], "")
+    await registry.update_client(client2)
+
+    with pytest.raises(RuntimeError):
+        await manager1.get_response_stateful("model", [{"content": "retry"}], "")
+    await manager2.get_response_stateful("model", [{"content": "retry"}], "")
+
+    assert manager1.session is None
+    assert manager2.session is new2
+    assert manager2.session_generation == registry.client_generation
+
+
+@pytest.mark.asyncio
+async def test_client_replacement_and_session_request_do_not_deadlock(mocker):
+    client1 = mocker.Mock()
+    client2 = mocker.Mock()
+    client1.start_chat.return_value = _FakeChatSession(client1, "model", None)
+    client2.start_chat.return_value = _FakeChatSession(client2, "model", None)
+    registry = SessionRegistry(client1)
+    manager = await registry.get_session("conversation")
+
+    await asyncio.wait_for(
+        asyncio.gather(
+            manager.get_response_stateful("model", [{"content": "request"}], ""),
+            registry.update_client(client2),
+        ),
+        timeout=1,
+    )
