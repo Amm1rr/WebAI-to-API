@@ -34,19 +34,12 @@ class _FakeChatSession:
 def test_registry_constructor_uses_explicit_registered_generation(mocker, install_registry_generation):
     client = mocker.Mock()
     generation = install_registry_generation(client)
-    register = mocker.patch.object(
-        gemini_client_module,
-        "register_gemini_generation",
-        wraps=gemini_client_module.register_gemini_generation,
-    )
-
     registry = SessionRegistry(
         client,
         generation=generation,
     )
 
     assert registry.client_generation == generation
-    register.assert_not_called()
 
 
 def test_registry_constructor_rejects_unregistered_explicit_generation(mocker, install_registry_generation):
@@ -392,14 +385,11 @@ async def test_registry_update_client_requires_explicit_generation(mocker, insta
     client = mocker.Mock()
     generation = install_registry_generation(client)
     registry = SessionRegistry(client, generation=generation)
-    allocator = mocker.patch.object(gemini_client_module, "register_gemini_generation")
-
     with pytest.raises(TypeError):
         await registry.update_client(client)
 
     assert registry.client is client
     assert registry.client_generation == generation
-    allocator.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -553,19 +543,12 @@ async def test_registry_reopen_same_client_same_generation(mocker, install_regis
     generation = install_registry_generation(client)
     registry = SessionRegistry(client, generation=generation)
     generation = registry.client_generation
-    register = mocker.patch.object(
-        gemini_client_module,
-        "register_gemini_generation",
-        wraps=gemini_client_module.register_gemini_generation,
-    )
-
     await registry.shutdown()
     await registry.reopen(client, generation=generation)
 
     assert registry._closed is False
     assert registry.client is client
     assert registry.client_generation == generation
-    register.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -614,18 +597,11 @@ async def test_registry_reopen_requires_generation_without_implicit_registration
     client = mocker.Mock()
     generation = install_registry_generation(client)
     registry = SessionRegistry(client, generation=generation)
-    register = mocker.patch.object(
-        gemini_client_module,
-        "register_gemini_generation",
-        wraps=gemini_client_module.register_gemini_generation,
-    )
-
     await registry.shutdown()
     with pytest.raises(RuntimeError, match="requires a registered generation"):
         await registry.reopen(client)
 
     assert registry._closed is True
-    register.assert_not_called()
 
 
 @pytest.mark.asyncio

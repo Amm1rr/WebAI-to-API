@@ -12,10 +12,10 @@ from app.services.providers.atlas import AtlasProvider
 
 
 @pytest.mark.asyncio
-async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, monkeypatch):
+async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, monkeypatch, install_registry_generation):
     client = mocker.Mock()
     client.close = mocker.AsyncMock()
-    generation = gemini_client_module.register_gemini_generation(client)
+    generation = install_registry_generation(client, generation=0)
     lease = gemini_client_module.acquire_gemini_lease(
         client=client,
         generation=generation,
@@ -152,7 +152,6 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker, install
     assert gemini_client_module._gemini_client is mock_client
     assert gemini_client_module._current_gemini_generation == generation
     assert gemini_client_module._gemini_generation_records[generation].client is mock_client
-    register = mocker.spy(gemini_client_module, "register_gemini_generation")
 
     payload = {
         "model": "gemini-3-flash",
@@ -166,7 +165,6 @@ async def test_translate_endpoint_uses_temporary_gemini_requests(mocker, install
 
     assert response.status_code == 200
     assert response.json() == {"response": "Translated response"}
-    register.assert_not_called()
     mock_client.generate_content.assert_awaited_once_with(
         "Translate this text",
         "gemini-3-flash",
@@ -495,7 +493,6 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=mock_stream())
 
     install_gemini_client(mock_client)
-    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch(
         "app.endpoints.chat.ProviderFactory.get_provider",
         side_effect=AssertionError("ProviderFactory must not be used by /v1/temporary/chat/completions"),
@@ -529,7 +526,6 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
     assert "Temporary delta" in body_text
     assert "artifacts" in body_text
     assert "data: [DONE]" in body_text
-    register.assert_not_called()
     mock_client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
         "gemini-3-flash",

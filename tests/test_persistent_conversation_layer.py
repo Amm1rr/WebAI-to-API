@@ -127,7 +127,6 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
         repository=first_repo,
         generation=generation,
     )
-    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart")
 
@@ -169,7 +168,6 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
 
     assert second_response["reused_conversation"] is True
     assert client.sessions[-1].prompts == ["What did I ask you to remember?"]
-    register.assert_not_called()
 
 
 @pytest.mark.asyncio

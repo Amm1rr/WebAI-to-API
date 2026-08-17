@@ -383,7 +383,6 @@ async def test_delete_conversation_success(mocker, provider, install_gemini_clie
     mock_registry.abort_delete_session = mocker.AsyncMock()
 
     install_gemini_client(gemini_client)
-    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
 
     result = await provider.delete_conversation("conv-delete")
@@ -399,7 +398,6 @@ async def test_delete_conversation_success(mocker, provider, install_gemini_clie
     gemini_client.client.delete_chat.assert_called_once_with("c_remote_delete")
     mock_registry.complete_delete_session.assert_called_once_with("conv-delete")
     mock_registry.abort_delete_session.assert_not_called()
-    register.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -889,7 +887,6 @@ async def test_chat_completions_stateful_buffered(mocker, provider, install_gemi
     
     # Mock global client and session registry resolution
     install_gemini_client(mock_client)
-    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
     
     request = OpenAIChatRequest(
@@ -912,7 +909,6 @@ async def test_chat_completions_stateful_buffered(mocker, provider, install_gemi
     )
     mock_manager.get_response_stateful.assert_called_once()
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
-    register.assert_not_called()
 
 
 @pytest.mark.asyncio

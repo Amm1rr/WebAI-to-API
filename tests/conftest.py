@@ -64,7 +64,18 @@ def install_registry_generation():
     def install(client, generation=None):
         import app.services.providers.gemini.client as gemini_client
 
-        return gemini_client.register_gemini_generation(client, generation=generation)
+        existing_generation = gemini_client._gemini_client_generations.get(id(client))
+        if existing_generation is not None:
+            record = gemini_client._gemini_generation_records.get(existing_generation)
+            if record is not None and record.client is client:
+                if generation is None or generation == existing_generation:
+                    return existing_generation
+                raise RuntimeError("Test client is already registered to another generation.")
+
+        if generation is None:
+            generation = max(gemini_client._gemini_generation_records) + 1 \
+                if gemini_client._gemini_generation_records else 0
+        return gemini_client._register_generation(client, generation).generation
 
     return install
 
@@ -75,13 +86,15 @@ def install_gemini_client():
     def install(client, generation=0, auth_source=None):
         import app.services.providers.gemini.client as gemini_client
 
-        record = gemini_client._gemini_generation_records.get(generation)
-        if record is None:
-            if gemini_client._gemini_generation_records:
-                raise AssertionError("Test Gemini lifecycle state has conflicting generations.")
-            gemini_client.register_gemini_generation(client, generation=generation)
-        elif record.client is not client:
-            raise AssertionError("Test Gemini lifecycle state has a different client.")
+        existing_generation = gemini_client._gemini_client_generations.get(id(client))
+        if existing_generation is not None:
+            record = gemini_client._gemini_generation_records.get(existing_generation)
+            if record is None or record.client is not client:
+                raise AssertionError("Test Gemini lifecycle state has conflicting client mapping.")
+            if existing_generation != generation:
+                raise AssertionError("Test Gemini lifecycle state has a conflicting generation.")
+        else:
+            record = gemini_client._register_generation(client, generation)
         gemini_client._gemini_client = client
         gemini_client._current_gemini_generation = generation
         gemini_client._gemini_shutdown_started = False
