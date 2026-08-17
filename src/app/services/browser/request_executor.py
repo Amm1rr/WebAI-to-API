@@ -432,6 +432,7 @@ class BrowserRequestExecutor:
         request_id = state.request_id
         stream_start_time = time.monotonic()
         stream_cancelled = False
+        stream_terminated = False
 
         try:
             if state.queue_overflow:
@@ -474,6 +475,13 @@ class BrowserRequestExecutor:
 
             yield await get_done_chunk()
 
+        except (BrowserDisconnectedError, BrowserShuttingDownError) as error:
+            stream_terminated = True
+            logger.info(
+                f"Stream terminated: {request_id}",
+                extra={"request_id": request_id, "reason": type(error).__name__},
+            )
+
         except (asyncio.CancelledError, GeneratorExit):
             duration = time.monotonic() - stream_start_time
             logger.warning(
@@ -488,7 +496,7 @@ class BrowserRequestExecutor:
             raise
 
         finally:
-            if not stream_cancelled:
+            if not stream_cancelled and not stream_terminated:
                 duration = time.monotonic() - stream_start_time
                 logger.info(
                     f"Stream completed: {request_id}",
