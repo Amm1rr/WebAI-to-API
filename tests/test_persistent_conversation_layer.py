@@ -111,7 +111,7 @@ async def test_session_manager_get_response_passes_temporary_flag(mocker):
 
 
 @pytest.mark.asyncio
-async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(mocker):
+async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(mocker, install_gemini_client):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -123,7 +123,8 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
     )
     first_registry = SessionRegistry(client, repository=first_repo)
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    install_gemini_client(client)
+    register = mocker.spy(gemini_client_module, "register_gemini_generation")
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart")
 
@@ -161,10 +162,11 @@ async def test_restart_recovery_reuses_snapshot_and_sends_only_final_message(moc
 
     assert second_response["reused_conversation"] is True
     assert client.sessions[-1].prompts == ["What did I ask you to remember?"]
+    register.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(mocker):
+async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(mocker, install_gemini_client):
     provider = GeminiProvider()
     client = MockGeminiClient()
     saved_snapshots = []
@@ -176,7 +178,7 @@ async def test_restart_recovery_reuses_snapshot_and_passes_file_on_current_turn(
     )
     first_registry = SessionRegistry(client, repository=first_repo)
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    install_gemini_client(client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=first_registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-restart-file")
 
@@ -243,7 +245,7 @@ async def test_registry_fails_closed_when_requested_snapshot_is_missing(mocker):
 
 
 @pytest.mark.asyncio
-async def test_provider_returns_recovery_error_for_missing_snapshot(mocker):
+async def test_provider_returns_recovery_error_for_missing_snapshot(mocker, install_gemini_client):
     provider = GeminiProvider()
     client = MockGeminiClient()
     repo = SimpleNamespace(
@@ -254,7 +256,7 @@ async def test_provider_returns_recovery_error_for_missing_snapshot(mocker):
     )
     registry = SessionRegistry(client, repository=repo)
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    install_gemini_client(client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -882,13 +884,13 @@ async def test_model_mismatch_does_not_block_recovery(mocker):
 
 
 @pytest.mark.asyncio
-async def test_file_parts_are_passed_on_current_turn_without_persisting_payload(mocker):
+async def test_file_parts_are_passed_on_current_turn_without_persisting_payload(mocker, install_gemini_client):
     provider = GeminiProvider()
     client = MockGeminiClient()
     mock_repository = SimpleNamespace(save_snapshot=mocker.AsyncMock())
     registry = SessionRegistry(client, repository=mock_repository)
 
-    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_client", return_value=client)
+    install_gemini_client(client)
     mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=registry)
     mocker.patch("app.services.providers.gemini.provider.generate_opaque_token", return_value="conv-file")
 

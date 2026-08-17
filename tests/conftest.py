@@ -64,9 +64,13 @@ def install_gemini_client():
     def install(client, generation=0, auth_source=None):
         import app.services.providers.gemini.client as gemini_client
 
-        if gemini_client._gemini_generation_records:
-            raise AssertionError("Test Gemini lifecycle state is already installed.")
-        gemini_client.register_gemini_generation(client, generation=generation)
+        record = gemini_client._gemini_generation_records.get(generation)
+        if record is None:
+            if gemini_client._gemini_generation_records:
+                raise AssertionError("Test Gemini lifecycle state has conflicting generations.")
+            gemini_client.register_gemini_generation(client, generation=generation)
+        elif record.client is not client:
+            raise AssertionError("Test Gemini lifecycle state has a different client.")
         gemini_client._gemini_client = client
         gemini_client._current_gemini_generation = generation
         gemini_client._gemini_shutdown_started = False
