@@ -346,47 +346,47 @@ class ProviderSession:
         if self.engine.is_shutting_down:
             raise BrowserShuttingDownError("Browser engine is shutting down")
             
-        async with self.init_lock:
-            async with self.engine.management_lock:
+        async with self.engine.management_lock:
+            async with self.init_lock:
                 await self.engine._ensure_healthy_browser()
 
-            if self.engine.is_shutting_down:
-                raise BrowserShuttingDownError("Browser engine is shutting down")
+                if self.engine.is_shutting_down:
+                    raise BrowserShuttingDownError("Browser engine is shutting down")
 
-            # Atomic Purge on generation rollover
-            if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
-                old_generation = self.last_browser_generation
-                new_generation = self.engine.browser_generation
-                logger.warning(
-                    "ProviderSession(%s): Browser generation rollover (%s -> %s)",
-                    self.name,
-                    old_generation,
-                    new_generation,
-                    extra={
-                        "provider": self.name,
-                        "old_generation": old_generation,
-                        "new_generation": new_generation,
-                        "registry_size": len(self.conversation_registry)
-                    }
-                )
-                await self._purge_all_tabs()
-
-            # 2. Check active liveness of the session-wide keepalive page
-            if not self.is_alive:
-                await self._setup()
-            else:
-                try:
-                    if not self.keepalive_page or self.keepalive_page.is_closed():
-                        await self._setup()
-                    else:
-                        # ACTIVE PROBE: The authority for session liveness
-                        await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
-                except Exception as e:
+                # Atomic Purge on generation rollover
+                if self.last_browser_generation is not None and self.last_browser_generation != self.engine.browser_generation:
+                    old_generation = self.last_browser_generation
+                    new_generation = self.engine.browser_generation
                     logger.warning(
-                        f"ProviderSession({self.name}) liveness probe failed: {e}. Re-initializing.",
-                        extra={"generation": self.last_browser_generation}
+                        "ProviderSession(%s): Browser generation rollover (%s -> %s)",
+                        self.name,
+                        old_generation,
+                        new_generation,
+                        extra={
+                            "provider": self.name,
+                            "old_generation": old_generation,
+                            "new_generation": new_generation,
+                            "registry_size": len(self.conversation_registry)
+                        }
                     )
-                    await self._setup()
+                    await self._purge_all_tabs()
+
+                # 2. Check active liveness of the session-wide keepalive page
+                if not self.is_alive:
+                    await self._setup_locked()
+                else:
+                    try:
+                        if not self.keepalive_page or self.keepalive_page.is_closed():
+                            await self._setup_locked()
+                        else:
+                            # ACTIVE PROBE: The authority for session liveness
+                            await asyncio.wait_for(self.keepalive_page.evaluate("1"), timeout=2.0)
+                    except Exception as e:
+                        logger.warning(
+                            f"ProviderSession({self.name}) liveness probe failed: {e}. Re-initializing.",
+                            extra={"generation": self.last_browser_generation}
+                        )
+                        await self._setup_locked()
 
     async def _purge_all_tabs(self):
         """Atomically clears and invalidates all tabs in registry."""
@@ -471,9 +471,29 @@ class ProviderSession:
                 )
                 raise
 
+    def _has_resources_to_close(self) -> bool:
+        return any(
+            (
+                self.context is not None,
+                self.keepalive_page is not None,
+                bool(self.conversation_registry),
+                bool(self.active_orphans),
+                self.autosave_task is not None,
+                self.eviction_task is not None,
+                self.reaper_task is not None,
+                bool(self._orphan_cleanup_tasks),
+            )
+        )
+
     async def _setup(self):
+        async with self.engine.management_lock:
+            async with self.init_lock:
+                await self._setup_locked()
+
+    async def _setup_locked(self):
         """Full re-initialization of the provider context."""
-        await self.close_resources(save_state=False)
+        if self._has_resources_to_close():
+            await self.close_resources(save_state=False)
 
         context_args = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"

@@ -42,7 +42,7 @@ async def test_ensure_healthy_purges_tabs_on_generation_rollover(mocker):
         session.keepalive_page = keepalive_page
         session.last_browser_generation = engine.browser_generation
 
-    session._setup = AsyncMock(side_effect=mark_session_healthy)
+    session._setup_locked = AsyncMock(side_effect=mark_session_healthy)
     schedule_orphan_cleanup = mocker.patch.object(session, "_schedule_orphan_cleanup")
 
     idle_page = make_page()

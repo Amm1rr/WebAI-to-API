@@ -69,6 +69,18 @@ class BrowserEngine:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
+    async def _close_sessions_before_browser_replacement(self):
+        """Detach provider resources before replacing their parent browser."""
+        for session in list(self.sessions.values()):
+            if not session._has_resources_to_close():
+                continue
+            logger.info(
+                "BrowserEngine: Closing resources for %s before browser replacement",
+                session.name,
+                extra={"generation": self.browser_generation},
+            )
+            await session.close_resources(save_state=False)
+
     async def _ensure_healthy_browser(self):
         if self.is_shutting_down:
             logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.", extra={"generation": self.browser_generation})
@@ -76,6 +88,8 @@ class BrowserEngine:
 
         if not self.playwright or not self.browser or not self.browser.is_connected():
             logger.info("BrowserEngine: Initializing Browser...", extra={"generation": self.browser_generation})
+
+            await self._close_sessions_before_browser_replacement()
             
             if self.browser:
                 try: 

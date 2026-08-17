@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -77,7 +78,8 @@ async def test_ensure_healthy_browser_noops_after_shutdown(mocker):
     engine.is_shutting_down = True
     async_playwright = mocker.patch("app.services.browser.engine.async_playwright")
 
-    await engine._ensure_healthy_browser()
+    async with engine.management_lock:
+        await engine._ensure_healthy_browser()
 
     async_playwright.assert_not_called()
     assert engine.browser_generation == 4
@@ -92,3 +94,257 @@ async def test_get_page_after_shutdown_fails_fast():
 
     with pytest.raises(BrowserShuttingDownError):
         await engine.get_page("gemini")
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_closes_provider_context_before_old_browser(mocker):
+    engine = BrowserEngine(headless=True)
+    order = []
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_browser.close.side_effect = lambda: order.append("browser")
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock(side_effect=lambda: order.append("playwright"))
+    new_browser = make_browser()
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+
+    session = MagicMock()
+    session.name = "gemini"
+    session._has_resources_to_close.return_value = True
+    session.context = object()
+
+    async def close_resources(*, save_state):
+        assert save_state is False
+        assert session.context is not None
+        session.context = None
+        order.append("session")
+
+    session.close_resources = AsyncMock(side_effect=close_resources)
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.browser_generation = 4
+    engine.sessions = {"gemini": session}
+
+    async with engine.management_lock:
+        await engine._ensure_healthy_browser()
+
+    assert order == ["session", "browser", "playwright"]
+    assert session.context is None
+    assert engine.browser is new_browser
+    assert engine.browser_generation == 5
+    session.close_resources.assert_awaited_once_with(save_state=False)
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_skips_provider_sessions_without_resources(mocker):
+    engine = BrowserEngine(headless=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_browser = make_browser()
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+
+    session = MagicMock()
+    session._has_resources_to_close.return_value = False
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.sessions = {"empty": session}
+
+    async with engine.management_lock:
+        await engine._ensure_healthy_browser()
+
+    session.close_resources.assert_not_called()
+    assert engine.browser_generation == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_cleans_multiple_provider_sessions(mocker):
+    engine = BrowserEngine(headless=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_browser = make_browser()
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+
+    sessions = []
+    for name in ("gemini", "other"):
+        session = MagicMock()
+        session.name = name
+        session._has_resources_to_close.return_value = True
+        session.close_resources = AsyncMock()
+        sessions.append(session)
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.sessions = {session.name: session for session in sessions}
+
+    async with engine.management_lock:
+        await engine._ensure_healthy_browser()
+
+    for session in sessions:
+        session.close_resources.assert_awaited_once_with(save_state=False)
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_cleanup_failure_stops_before_parent_close(mocker):
+    engine = BrowserEngine(headless=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    session = MagicMock()
+    session._has_resources_to_close.return_value = True
+    session.close_resources = AsyncMock(side_effect=RuntimeError("cleanup failed"))
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.sessions = {"gemini": session}
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        async with engine.management_lock:
+            await engine._ensure_healthy_browser()
+
+    old_browser.close.assert_not_awaited()
+    assert engine.browser_generation == 0
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_browser_close_failure_preserves_launch_policy(mocker):
+    engine = BrowserEngine(headless=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_browser.close.side_effect = RuntimeError("old browser close failed")
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_browser = make_browser()
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+    session = MagicMock()
+    session._has_resources_to_close.return_value = False
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.sessions = {"gemini": session}
+
+    async with engine.management_lock:
+        await engine._ensure_healthy_browser()
+
+    assert engine.browser is new_browser
+    assert engine.browser_generation == 1
+
+
+@pytest.mark.asyncio
+async def test_replacement_setup_creates_context_on_new_generation(mocker):
+    engine = BrowserEngine(headless=True, is_bootstrap=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_context = MagicMock()
+    new_context.on = MagicMock()
+    new_context.new_page = AsyncMock(return_value=MagicMock())
+    new_browser = make_browser()
+    new_browser.new_context = AsyncMock(return_value=new_context)
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+
+    from app.services.browser.session import ProviderSession
+
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.last_browser_generation = 1
+    session._eviction_loop = AsyncMock()
+    session._reaper_loop = AsyncMock()
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.browser_generation = 1
+    engine.sessions = {"gemini": session}
+
+    await session.ensure_healthy()
+    await session.close_resources(save_state=False)
+
+    assert new_browser.new_context.await_count == 1
+    assert session.last_browser_generation == 2
+    assert session.context is None
+
+
+@pytest.mark.asyncio
+async def test_browser_replacement_launch_failure_does_not_increment_generation(mocker):
+    engine = BrowserEngine(headless=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(side_effect=RuntimeError("launch failed"))
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+    session = MagicMock()
+    session._has_resources_to_close.return_value = True
+    session.close_resources = AsyncMock()
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.browser_generation = 7
+    engine.sessions = {"gemini": session}
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        async with engine.management_lock:
+            await engine._ensure_healthy_browser()
+
+    assert engine.browser is None
+    assert engine.browser_generation == 7
+
+
+@pytest.mark.asyncio
+async def test_provider_health_replacement_does_not_deadlock_cleanup(mocker):
+    engine = BrowserEngine(headless=True, is_bootstrap=True)
+    old_browser = make_browser()
+    old_browser.is_connected.return_value = False
+    old_playwright = MagicMock()
+    old_playwright.stop = AsyncMock()
+    new_context = MagicMock()
+    new_context.on = MagicMock()
+    new_context.new_page = AsyncMock(return_value=MagicMock())
+    new_browser = make_browser()
+    new_browser.new_context = AsyncMock(return_value=new_context)
+    new_playwright = MagicMock()
+    new_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+    playwright_factory = mocker.patch("app.services.browser.engine.async_playwright")
+    playwright_factory.return_value.start = AsyncMock(return_value=new_playwright)
+    mocker.patch(
+        "app.services.providers.gemini.auth_selector.GeminiAuthSelector.iter_candidates",
+        return_value=iter([]),
+    )
+
+    from app.services.browser.session import ProviderSession
+
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.last_browser_generation = 1
+    session._eviction_loop = AsyncMock()
+    session._reaper_loop = AsyncMock()
+    engine.browser = old_browser
+    engine.playwright = old_playwright
+    engine.browser_generation = 1
+    engine.sessions = {"gemini": session}
+
+    await asyncio.wait_for(session.ensure_healthy(), timeout=1)
+
+    assert engine.browser_generation == 2
+    assert new_browser.new_context.await_count == 1
+    assert session.last_browser_generation == 2
+    await session.close_resources(save_state=False)
