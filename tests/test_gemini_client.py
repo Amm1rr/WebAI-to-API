@@ -450,6 +450,78 @@ def test_current_lease_reuses_registered_generation(install_gemini_client):
     assert record.lease_count == 1
 
 
+def _assert_strict_current_lease_rejects(monkeypatch, expected_message, setup):
+    setup()
+    generation_before = gemini_client_module._current_gemini_generation
+    records_before = dict(gemini_client_module._gemini_generation_records)
+    mappings_before = dict(gemini_client_module._gemini_client_generations)
+    register = lambda *args, **kwargs: pytest.fail("request lookup must not register generations")
+    monkeypatch.setattr(gemini_client_module, "register_gemini_generation", register)
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        gemini_client_module.acquire_current_gemini_lease()
+
+    assert gemini_client_module._current_gemini_generation == generation_before
+    assert gemini_client_module._gemini_generation_records == records_before
+    assert gemini_client_module._gemini_client_generations == mappings_before
+
+
+def test_current_lease_rejects_missing_current_generation_without_mutation(monkeypatch):
+    client = make_mock_client("AVAILABLE")
+
+    _assert_strict_current_lease_rejects(
+        monkeypatch,
+        "current generation is not set",
+        lambda: setattr(gemini_client_module, "_gemini_client", client),
+    )
+
+
+def test_current_lease_rejects_missing_generation_record_without_mutation(monkeypatch):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 7
+
+    _assert_strict_current_lease_rejects(monkeypatch, "generation record is missing", setup)
+
+
+def test_current_lease_rejects_record_for_another_client_without_mutation(monkeypatch):
+    other = make_mock_client("AVAILABLE")
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(other, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+
+    _assert_strict_current_lease_rejects(monkeypatch, "does not match current client", setup)
+
+
+def test_current_lease_rejects_missing_reverse_mapping_without_mutation(monkeypatch):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations.pop(id(client))
+
+    _assert_strict_current_lease_rejects(monkeypatch, "reverse generation mapping", setup)
+
+
+def test_current_lease_rejects_wrong_reverse_mapping_without_mutation(monkeypatch):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations[id(client)] = 1
+
+    _assert_strict_current_lease_rejects(monkeypatch, "reverse generation mapping", setup)
+
+
 # Temporary legacy coverage. Phase 3B can change these repairs to invariant errors.
 def test_legacy_repair_current_client_without_generation():
     client = make_mock_client("AVAILABLE")

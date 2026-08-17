@@ -117,6 +117,22 @@ def _ensure_current_generation_record():
     return record
 
 
+def _get_current_generation_record_strict():
+    if _gemini_client is None:
+        return None
+    if _current_gemini_generation is None:
+        raise RuntimeError("Gemini lifecycle invariant violated: current generation is not set.")
+
+    record = _gemini_generation_records.get(_current_gemini_generation)
+    if record is None:
+        raise RuntimeError("Gemini lifecycle invariant violated: current generation record is missing.")
+    if record.client is not _gemini_client:
+        raise RuntimeError("Gemini lifecycle invariant violated: generation record does not match current client.")
+    if _gemini_client_generations.get(id(_gemini_client)) != _current_gemini_generation:
+        raise RuntimeError("Gemini lifecycle invariant violated: reverse generation mapping does not match.")
+    return record
+
+
 def _register_generation(client, generation):
     existing_record = _gemini_generation_records.get(generation)
     if existing_record is not None:
@@ -179,7 +195,7 @@ def acquire_current_gemini_lease() -> GeminiClientLease:
     # ponytail: synchronous counter mutations avoid adding another lock to request paths.
     if _gemini_shutdown_started:
         raise RuntimeError("Gemini client lifecycle is shutting down.")
-    record = _ensure_current_generation_record()
+    record = _get_current_generation_record_strict()
     if record is None:
         raise GeminiClientNotInitializedError(
             _initialization_error
