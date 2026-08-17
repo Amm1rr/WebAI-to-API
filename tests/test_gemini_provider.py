@@ -491,7 +491,6 @@ async def test_delete_conversation_repository_failure_returns_500_and_clears_tom
     registry = SessionRegistry(
         gemini_client,
         repository=repository,
-        register_generation=False,
         generation=generation,
     )
     manager = await registry.get_session("conv-delete")
@@ -801,7 +800,6 @@ async def test_delete_conversations_local_cleanup_failure_records_failed_and_cle
     registry = SessionRegistry(
         gemini_client,
         repository=repository,
-        register_generation=False,
         generation=generation,
     )
 
@@ -830,7 +828,6 @@ async def test_delete_conversations_tombstone_cleared_after_remote_failure(mocke
     registry = SessionRegistry(
         gemini_client,
         repository=repository,
-        register_generation=False,
         generation=generation,
     )
 

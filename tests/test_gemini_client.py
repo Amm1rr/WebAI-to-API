@@ -371,7 +371,6 @@ async def test_restore_can_lease_generation_during_registry_commit(mocker, insta
     registry = SessionRegistry(
         old_client,
         repository=repository,
-        register_generation=False,
         generation=generation,
     )
     install_gemini_client(old_client, generation=generation)
@@ -564,7 +563,6 @@ async def test_successful_replacement_updates_registry_and_retains_old_client(mo
     generation = install_gemini_client(old_client)
     registry = SessionRegistry(
         old_client,
-        register_generation=False,
         generation=generation,
     )
     gemini_client_module._gemini_client_auth_source = "[Gemini] config"
@@ -935,7 +933,6 @@ async def test_session_manager_rejects_released_external_lease(install_gemini_cl
     await lease.release()
     manager = await SessionRegistry(
         client,
-        register_generation=False,
         generation=generation,
     ).get_session("released-lease")
 
@@ -1216,7 +1213,6 @@ async def test_registry_update_failure_rolls_back_replacement(mocker, install_ge
     generation = install_gemini_client(old_client)
     registry = SessionRegistry(
         old_client,
-        register_generation=False,
         generation=generation,
     )
     gemini_client_module._gemini_client_auth_source = "[Gemini] config"

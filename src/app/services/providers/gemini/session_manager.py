@@ -316,19 +316,14 @@ class SessionRegistry:
         client,
         repository: Optional[IConversationRepository] = None,
         *,
-        register_generation: bool = True,
-        generation: Optional[int] = None,
+        generation: int,
     ):
         self.client = client
-        self._register_generation = register_generation
-        if generation is not None:
-            if not is_gemini_generation_registered(client=client, generation=generation):
-                raise RuntimeError("Gemini client generation is not registered.")
-            self.client_generation = generation
-        else:
-            self.client_generation = (
-                register_gemini_generation(client) if register_generation else 0
-            )
+        # Constructor is lifecycle-strict; retain false branch for update_client compatibility.
+        self._register_generation = False
+        if not is_gemini_generation_registered(client=client, generation=generation):
+            raise RuntimeError("Gemini client generation is not registered.")
+        self.client_generation = generation
         self.repository = repository
         self._sessions: Dict[str, SessionManager] = {}
         self._deleting: set[str] = set()
@@ -723,7 +718,6 @@ async def init_session_managers(client, generation: int):
     _gemini_chat_registry = SessionRegistry(
         client,
         repository=repository,
-        register_generation=False,
         generation=generation,
     )
 
