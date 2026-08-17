@@ -53,39 +53,31 @@ async def add_response(page, text="answer"):
 
 
 @pytest.mark.asyncio
-async def test_hidden_disabled_send_does_not_block_visible_ready_send(observer_page):
+async def test_stop_disappears_after_generation_and_emits_done(observer_page):
     page, events = observer_page
     await page.evaluate(
         """
         () => document.querySelector("#app").innerHTML = `
-            <button class="send-button" disabled style="display: none">stale</button>
-            <button aria-label="Send">current</button>
+            <button class="stop-button">active</button>
         `
         """
     )
 
     await add_response(page)
+    await page.evaluate('document.querySelector(".stop-button").style.display = "none"')
     await page.wait_for_timeout(150)
 
     assert [event["type"] for event in events].count("done") == 1
 
 
 @pytest.mark.asyncio
-async def test_hidden_stale_stop_does_not_block_completion(observer_page):
+async def test_no_active_generation_signal_does_not_emit_done(observer_page):
     page, events = observer_page
-    await page.evaluate(
-        """
-        () => document.querySelector("#app").innerHTML = `
-            <button aria-label="Send">current</button>
-            <button class="stop-button" style="display: none">stale</button>
-        `
-        """
-    )
 
     await add_response(page)
     await page.wait_for_timeout(150)
 
-    assert [event["type"] for event in events].count("done") == 1
+    assert [event["type"] for event in events].count("done") == 0
 
 
 @pytest.mark.asyncio
@@ -94,7 +86,6 @@ async def test_visible_stop_prevents_completion(observer_page):
     await page.evaluate(
         """
         () => document.querySelector("#app").innerHTML = `
-            <button aria-label="Send">current</button>
             <button class="stop-button">active</button>
         `
         """
@@ -107,13 +98,46 @@ async def test_visible_stop_prevents_completion(observer_page):
 
 
 @pytest.mark.asyncio
-async def test_missing_send_control_does_not_emit_done(observer_page):
+async def test_detached_response_container_does_not_emit_done(observer_page):
     page, events = observer_page
+    await page.evaluate(
+        """
+        () => document.querySelector("#app").innerHTML =
+            '<button class="stop-button">active</button>'
+        """
+    )
 
     await add_response(page)
+    await page.evaluate(
+        """
+        () => {
+            document.querySelector("message-content").remove();
+            document.querySelector(".stop-button").style.display = "none";
+        }
+        """
+    )
     await page.wait_for_timeout(200)
 
     assert [event["type"] for event in events].count("done") == 0
+
+
+@pytest.mark.asyncio
+async def test_hidden_stale_stop_does_not_block_after_active_generation(observer_page):
+    page, events = observer_page
+    await page.evaluate(
+        """
+        () => document.querySelector("#app").innerHTML = `
+            <button class="stop-button active">active</button>
+            <button class="stop-button stale" style="display: none">stale</button>
+        `
+        """
+    )
+
+    await add_response(page)
+    await page.evaluate('document.querySelector(".stop-button.active").style.display = "none"')
+    await page.wait_for_timeout(150)
+
+    assert [event["type"] for event in events].count("done") == 1
 
 
 @pytest.mark.asyncio
@@ -122,11 +146,12 @@ async def test_completed_response_emits_done_once(observer_page):
     await page.evaluate(
         """
         () => document.querySelector("#app").innerHTML =
-            '<button aria-label="Send">current</button>'
+            '<button class="stop-button">active</button>'
         """
     )
 
     await add_response(page)
+    await page.evaluate('document.querySelector(".stop-button").style.display = "none"')
     await page.wait_for_timeout(400)
 
     assert [event["type"] for event in events].count("done") == 1
@@ -138,7 +163,7 @@ async def test_response_chunks_remain_before_single_done(observer_page):
     await page.evaluate(
         """
         () => document.querySelector("#app").innerHTML =
-            '<button aria-label="Send" disabled>current</button>'
+            '<button class="stop-button">active</button>'
         """
     )
     await page.evaluate(
@@ -154,11 +179,7 @@ async def test_response_chunks_remain_before_single_done(observer_page):
     await page.wait_for_timeout(150)
     await page.evaluate('document.querySelector("message-content").textContent = "hello world"')
     await page.wait_for_timeout(150)
-    await page.evaluate(
-        """
-        () => document.querySelector('button[aria-label="Send"]').disabled = false
-        """
-    )
+    await page.evaluate('document.querySelector(".stop-button").style.display = "none"')
     await page.wait_for_timeout(300)
 
     done_indexes = [index for index, event in enumerate(events) if event["type"] == "done"]

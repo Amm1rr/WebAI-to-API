@@ -120,16 +120,16 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         return !element.disabled && element.getAttribute("aria-disabled") !== "true";
     }};
 
-    const getSendState = () => {{
+    const hasBusySend = () => {{
         const visible = getMatchingElements('{SELECTORS["SEND_BUTTON"]}').filter(isElementVisible);
-        return {{
-            hasReady: visible.some(isControlEnabled),
-            hasBusy: visible.some((element) => !isControlEnabled(element))
-        }};
+        return visible.some((element) => !isControlEnabled(element));
     }};
 
-    const hasVisibleStopButton = () => {{
-        return getMatchingElements('{SELECTORS["STOP_BUTTON"]}').some(isElementVisible);
+    const getStopState = () => {{
+        const candidates = getMatchingElements('{SELECTORS["STOP_BUTTON"]}');
+        return {{
+            visible: candidates.filter(isElementVisible)
+        }};
     }};
 
     // Initialize Global Request Registry (Singleton for the window)
@@ -193,7 +193,8 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         started: false,
         done: false,
         cleanedUp: false,
-        intervals: []
+        intervals: [],
+        generationActiveObserved: false
     }};
 
     try {{
@@ -255,7 +256,6 @@ STREAM_EXTRACTOR_SCRIPT = f"""
                 const payload = computeDelta(currentSnapshot);
                 state.lastSnapshot = currentSnapshot;
                 state.lastTextContent = textContent;
-                
                 emit(payload);
             }} catch (e) {{
                 console.warn(`[${{requestId}}] Observer callback error:`, e.message);
@@ -292,9 +292,13 @@ STREAM_EXTRACTOR_SCRIPT = f"""
         try {{
             if (state.cleanedUp || state.done) return;
             
-            const sendState = getSendState();
-            const isStopVisible = hasVisibleStopButton();
-            const isGenerating = (state.responseContainer && sendState.hasBusy) || isStopVisible;
+            const stopState = getStopState();
+            const isStopVisible = stopState.visible.length > 0;
+            const isGenerating = (state.responseContainer && hasBusySend()) || isStopVisible;
+
+            if (isGenerating) {{
+                state.generationActiveObserved = true;
+            }}
 
             // INVARIANT: Transition to 'started' is strictly one-way
             if (isGenerating && !state.started) {{
@@ -302,8 +306,13 @@ STREAM_EXTRACTOR_SCRIPT = f"""
                 emit({{type: "started"}});
             }}
 
-            // INVARIANT: Completion required a detected start and a stable idle state
-            if (state.started && state.responseContainer && sendState.hasReady && !isStopVisible) {{
+            if (
+                state.started &&
+                state.generationActiveObserved &&
+                state.responseContainer &&
+                state.responseContainer.isConnected &&
+                !isStopVisible
+            ) {{
                 // Terminal State Transition
                 state.done = true;
                 
@@ -316,7 +325,6 @@ STREAM_EXTRACTOR_SCRIPT = f"""
                     }}
                 }} catch (err) {{}}
                 
-                console.log(`[${{requestId}}] Generation finished.`);
                 emit({{type: "done"}});
                 
                 // Self-Cleanup
