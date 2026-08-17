@@ -42,7 +42,6 @@ def reset_gemini_lifecycle_state():
         gemini_client._gemini_client_auth_source = None
         gemini_client._gemini_generation_records.clear()
         gemini_client._gemini_client_generations.clear()
-        gemini_client._retired_gemini_clients.clear()
         gemini_client._current_gemini_generation = None
         gemini_client._gemini_shutdown_started = False
     except Exception:
@@ -52,7 +51,6 @@ def reset_gemini_lifecycle_state():
         gemini_client._gemini_client = None
         gemini_client._gemini_generation_records.clear()
         gemini_client._gemini_client_generations.clear()
-        gemini_client._retired_gemini_clients.clear()
         gemini_client._current_gemini_generation = None
         gemini_client._gemini_shutdown_started = False
     except Exception:

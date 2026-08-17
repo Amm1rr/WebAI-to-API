@@ -23,7 +23,6 @@ _gemini_client = None
 _initialization_error = None
 _gemini_client_auth_source = None
 _gemini_client_init_lock = asyncio.Lock()
-_retired_gemini_clients = []
 _gemini_generation_records = {}
 _gemini_client_generations = {}
 _current_gemini_generation = None
@@ -147,8 +146,6 @@ def _unregister_generation(record: GeminiGenerationRecord) -> None:
 
 def _retire_generation(record):
     record.retired = True
-    if not any(client is record.client for client in _retired_gemini_clients):
-        _retired_gemini_clients.append(record.client)
 
 
 async def _close_generation_record(record):
@@ -169,9 +166,6 @@ async def _close_generation_record(record):
         _gemini_generation_records.pop(record.generation, None)
         if _gemini_client_generations.get(id(record.client)) == record.generation:
             _gemini_client_generations.pop(id(record.client), None)
-        _retired_gemini_clients[:] = [
-            client for client in _retired_gemini_clients if client is not record.client
-        ]
     except Exception as e:
         logger.warning(f"Error closing retired Gemini client: {e}")
 
@@ -478,18 +472,12 @@ async def close_gemini_client() -> None:
         records = list(_gemini_generation_records.values())
         if current_record is not None and current_record not in records:
             records.append(current_record)
-        record_client_ids = {id(record.client) for record in records}
-        legacy_clients = [
-            client for client in _retired_gemini_clients
-            if id(client) not in record_client_ids
-        ]
 
         _gemini_shutdown_started = True
         _gemini_client = None
         _gemini_client_auth_source = None
         _initialization_error = None
         _current_gemini_generation = None
-        _retired_gemini_clients.clear()
 
         close_records = []
         for record in records:
@@ -499,15 +487,3 @@ async def close_gemini_client() -> None:
 
     for record in close_records:
         await _close_generation_record(record)
-
-    closed_ids = set()
-    for client in legacy_clients:
-        if id(client) in closed_ids:
-            continue
-        closed_ids.add(id(client))
-        try:
-            result = client.close()
-            if inspect.isawaitable(result):
-                await result
-        except Exception as e:
-            logger.warning(f"Error closing Gemini client during shutdown: {e}")

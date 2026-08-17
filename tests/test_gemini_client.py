@@ -23,7 +23,6 @@ def reset_gemini_client_state():
     gemini_client_module._gemini_client_generations.clear()
     gemini_client_module._current_gemini_generation = None
     gemini_client_module._gemini_shutdown_started = False
-    gemini_client_module._retired_gemini_clients.clear()
     yield
     gemini_client_module._gemini_client = None
     gemini_client_module._initialization_error = None
@@ -32,7 +31,6 @@ def reset_gemini_client_state():
     gemini_client_module._gemini_client_generations.clear()
     gemini_client_module._current_gemini_generation = None
     gemini_client_module._gemini_shutdown_started = False
-    gemini_client_module._retired_gemini_clients.clear()
 
 
 class Status:
@@ -194,13 +192,11 @@ async def test_registry_callback_receives_private_candidate_until_commit(mocker)
     task = asyncio.create_task(init_gemini_client(registry_updater=update_registry))
     await entered.wait()
     assert gemini_client_module.get_gemini_client() is old_client
-    assert new_client not in gemini_client_module._retired_gemini_clients
     release.set()
 
     assert await task is True
     assert gemini_client_module.get_gemini_client() is new_client
     old_client.close.assert_awaited_once_with()
-    assert old_client not in gemini_client_module._retired_gemini_clients
 
 
 @pytest.mark.asyncio
@@ -302,7 +298,6 @@ async def test_startup_registry_failure_keeps_candidate_private(mocker):
     candidate.close.assert_awaited_once_with()
     assert gemini_client_module._gemini_generation_records == {}
     assert gemini_client_module._gemini_client_generations == {}
-    assert gemini_client_module._retired_gemini_clients == []
 
 
 @pytest.mark.asyncio
@@ -401,7 +396,6 @@ async def test_failed_candidate_closes_candidate_and_preserves_old_client(mocker
     assert gemini_client_module._gemini_client is old_client
     assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     new_client.close.assert_awaited_once_with()
-    assert new_client not in gemini_client_module._retired_gemini_clients
 
 
 @pytest.mark.asyncio
@@ -436,7 +430,8 @@ async def test_successful_replacement_updates_registry_and_retains_old_client(mo
     assert registry.client is new_client
     assert registry.client_generation == 1
     old_client.close.assert_not_awaited()
-    assert old_client in gemini_client_module._retired_gemini_clients
+    old_record = gemini_client_module._gemini_generation_records[0]
+    assert old_record.retired is True
     await old_lease.release()
     old_client.close.assert_awaited_once_with()
 
@@ -727,7 +722,7 @@ async def test_restart_preserves_active_old_lease_and_new_generation(mocker):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_close_failure_does_not_block_other_generations():
+async def test_shutdown_closes_record_generations_after_failure():
     failed = make_mock_client("AVAILABLE")
     remaining = make_mock_client("AVAILABLE")
     failed.close.side_effect = RuntimeError("close failed")
@@ -793,48 +788,26 @@ async def test_close_gemini_client_closes_and_resets_state(mocker):
 
 
 @pytest.mark.asyncio
-async def test_close_gemini_client_closes_retired_clients_and_clears_list():
-    current = make_mock_client("AVAILABLE")
-    retired = [make_mock_client("AVAILABLE"), make_mock_client("AVAILABLE")]
-    gemini_client_module._gemini_client = current
-    gemini_client_module._retired_gemini_clients.extend(retired)
-
-    await close_gemini_client()
-
-    current.close.assert_awaited_once_with()
-    for client in retired:
-        client.close.assert_awaited_once_with()
-    assert gemini_client_module._retired_gemini_clients == []
-
-
-@pytest.mark.asyncio
-async def test_close_gemini_client_deduplicates_clients_by_identity():
-    client = make_mock_client("AVAILABLE")
-    gemini_client_module._gemini_client = client
-    gemini_client_module._retired_gemini_clients.extend([client, client])
-
-    await close_gemini_client()
-
-    client.close.assert_awaited_once_with()
-    assert gemini_client_module._retired_gemini_clients == []
-
-
-@pytest.mark.asyncio
-async def test_close_gemini_client_continues_after_retired_close_failure():
+async def test_shutdown_close_failure_does_not_block_other_generations():
     current = make_mock_client("AVAILABLE")
     failed = make_mock_client("AVAILABLE")
     remaining = make_mock_client("AVAILABLE")
     failed.close.side_effect = RuntimeError("close failed")
     gemini_client_module._gemini_client = current
-    gemini_client_module._retired_gemini_clients.extend([failed, remaining])
+    current_record = gemini_client_module._ensure_current_generation_record()
+    failed_record = gemini_client_module._register_generation(failed, 1)
+    remaining_record = gemini_client_module._register_generation(remaining, 2)
+    gemini_client_module._retire_generation(failed_record)
+    gemini_client_module._retire_generation(remaining_record)
 
     await close_gemini_client()
 
     current.close.assert_awaited_once_with()
     failed.close.assert_awaited_once_with()
     remaining.close.assert_awaited_once_with()
-    assert gemini_client_module._gemini_client is None
-    assert gemini_client_module._retired_gemini_clients == []
+    assert current_record.close_completed is True
+    assert failed_record.close_started is True
+    assert remaining_record.close_completed is True
 
 
 @pytest.mark.asyncio
