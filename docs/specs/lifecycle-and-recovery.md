@@ -116,10 +116,15 @@ If the registry finds an active `SessionManager` for the given token, it reuses 
 * **Missing Snapshot Behavior**: If an existing `conversation_id` is not present in memory and no valid snapshot exists, the request fails explicitly. The current implementation does not silently rebuild an existing WebAPI conversation from incoming message history.
 * **Deletion**: Gemini WebAPI deletion reserves the local `conversation_id` in `SessionRegistry` before remote deletion begins. This tombstone blocks concurrent reuse or SQLite restoration while the remote Gemini chat is being deleted and local state is being removed.
 
-### 7.5 Gemini WebAPI Client Generation Retirement
+### 7.5 Gemini WebAPI Restore Coordination and Generation Ownership
+Each restore captures client generation `N` and acquires a lease for that exact generation before snapshot recovery, validation, deserialization, and `ChatSession` construction. A replacement may retire `N`, but cannot close it while the restore lease remains active.
+
+Before publication, the restore rechecks the deletion tombstone, existing session, and current client/generation. A changed generation discards the candidate, releases lease `N`, and retries with the current generation. A concurrently created session may win; restore never overwrites it. Failed or cancelled restores clear in-flight coordination state. Restore preserves its existing pruning and capacity semantics.
+
+### 7.6 Gemini WebAPI Client Generation Retirement
 Each committed Gemini WebAPI client has a generation record. Request paths lease the generation for the duration of direct client use. Replacement marks the old generation retired; the old client closes immediately only when no leases remain, otherwise its final lease release closes it. Shutdown rejects new leases, closes zero-lease records, and preserves active-leased records until release.
 
-### 7.6 Gemini Playwright URL-Backed Continuity
+### 7.7 Gemini Playwright URL-Backed Continuity
 
 The Gemini Playwright backend does not use SQLite conversation snapshots. It uses two continuity mechanisms:
 
@@ -130,12 +135,12 @@ For new Playwright conversations, the provider-side `conversation_id` is discove
 
 `reused_conversation=true` in Playwright indicates live in-memory `PersistentTab` reuse. After a process restart or context recreation, Playwright may still resume the provider-side Gemini thread by URL navigation while reporting `reused_conversation=false` because no in-memory tab was reused.
 
-### 7.7 Model and Gem Switching
+### 7.8 Model and Gem Switching
 If a stateful request switches models (e.g. from `gemini-3-flash` to `gemini-3-pro`) or changes the gem ID:
 * **Gemini WebAPI**: `SessionManager._ensure_session()` detects the mismatch, replaces the `ChatSession`, and uses full prompt concatenation on the current request to bootstrap the new model/gem context.
 * **Gemini Playwright**: model/gem behavior is handled by the Playwright adapter and provider UI flow, not by SQLite snapshots.
 
-### 7.8 Session Pruning Policy
+### 7.9 Session Pruning Policy
 To protect server memory, the `SessionRegistry` passively prunes idle sessions when the cache capacity exceeds `MAX_SESSIONS = 500`.
 * **Prunability Invariant**: A session can ONLY be pruned if it is unlocked (`manager.lock` is not locked) and has `active_streams == 0` (no active progressive stream tasks).
 * **TTL Policy**: Stale sessions are evicted if their idle time exceeds `IDLE_TIMEOUT = 3600` (60 minutes).

@@ -7,15 +7,12 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 from .webapi_client import MyGeminiClient
 from app.services.browser.auth_loader import GeminiAuthStateLoader
-from app.config import CONFIG, get_default_auth_state_dir
+from app.config import CONFIG
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 from app.services.providers.gemini.auth_selector import GeminiAuthSelector
 
 # Import the specific exception to handle it gracefully
-from gemini_webapi.exceptions import AuthError
-
-
 class GeminiClientNotInitializedError(Exception):
     """Raised when the Gemini client is not initialized or initialization failed."""
     pass

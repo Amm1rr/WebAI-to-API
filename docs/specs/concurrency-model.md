@@ -121,12 +121,17 @@ Gemini WebAPI request paths acquire a lease for the client generation they use. 
 
 New direct requests acquire the current client and generation atomically. Stateful requests acquire the manager's client-generation pair while holding `SessionManager.lock`; stale sessions remain subject to the existing lazy rebuild invariant.
 
-### 6.8 Branching Conversation Corruption Risk
+### 6.8 SessionRegistry Persistent Restore Coordination
+Persistent snapshot restoration uses one in-flight restore producer per `conversation_id`. Same-ID followers await the shared task, shielded so cancellation of one waiter does not cancel the producer. Unrelated conversation IDs continue through the registry independently.
+
+`SessionRegistry._lock` protects local registry checks, tombstones, pruning, and publication only. Snapshot I/O, validation, deserialization, and `client.start_chat()` run outside this lock. Before publication, the restore task rechecks deletion state, an existing session, the current client generation, and the capacity/pruning policy.
+
+### 6.9 Branching Conversation Corruption Risk
 If multiple clients concurrently reuse the same `conversation_id` and send differing messages:
 * Because they are serialized, their messages will interleave sequentially rather than branching.
 * There is a high risk of branching conversation corruption since there is no server-side history branching mechanism. The model will treat interleaving requests as one linear history, poisoning the context for all participating clients.
 
-### 6.9 Asyncio Execution Assumptions
+### 6.10 Asyncio Execution Assumptions
 The lock safety and event-loop-safe guarantees of this concurrency model depend on the cooperative multitasking model of `asyncio`.
 * Within the supported deployment model, SessionRegistry and SessionManager execute inside a single asyncio event loop per worker process.
 * The atomic update of `active_streams` and lock acquisition relies on the fact that context switches only occur at explicit `await` boundaries.
