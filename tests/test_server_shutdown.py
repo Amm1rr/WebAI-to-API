@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import uvicorn
 
 from app.services.browser.engine import BrowserEngine
-from run import ApplicationServer
+from run import ApplicationServer, run_server
 
 
 def make_server():
@@ -50,3 +50,35 @@ def test_application_shutdown_hook_does_not_require_existing_engine(mocker):
 
     uvicorn_exit.assert_called_once()
     assert uvicorn_exit.call_args.args[1:] == (sig, frame)
+
+
+def test_run_server_suppresses_top_level_keyboard_interrupt(mocker):
+    config = MagicMock()
+    server = mocker.patch("run.ApplicationServer")
+    server.return_value.run.side_effect = KeyboardInterrupt
+
+    run_server(config)
+
+    server.assert_called_once_with(config)
+    server.return_value.run.assert_called_once_with()
+
+
+def test_run_server_propagates_runtime_error(mocker):
+    config = MagicMock()
+    server = mocker.patch("run.ApplicationServer")
+    server.return_value.run.side_effect = RuntimeError("startup failed")
+
+    try:
+        run_server(config)
+    except RuntimeError as error:
+        assert str(error) == "startup failed"
+    else:
+        raise AssertionError("RuntimeError was suppressed")
+
+
+def test_run_server_returns_normally_when_server_returns(mocker):
+    config = MagicMock()
+    server = mocker.patch("run.ApplicationServer")
+
+    assert run_server(config) is None
+    server.return_value.run.assert_called_once_with()

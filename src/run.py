@@ -18,6 +18,13 @@ class ApplicationServer(uvicorn.Server):
         super().handle_exit(sig, frame)
 
 
+def run_server(config):
+    try:
+        ApplicationServer(config).run()
+    except KeyboardInterrupt:
+        pass
+
+
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
@@ -65,4 +72,4 @@ if __name__ == "__main__":
         access_log=not resolved_disable_access,
         workers=1,
     )
-    ApplicationServer(config).run()
+    run_server(config)
