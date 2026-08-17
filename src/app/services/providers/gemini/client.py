@@ -92,31 +92,6 @@ class GeminiClientLease:
         await asyncio.shield(self.release())
 
 
-def _ensure_current_generation_record():
-    global _current_gemini_generation
-
-    if _gemini_client is None:
-        return None
-
-    if _current_gemini_generation is not None:
-        record = _gemini_generation_records.get(_current_gemini_generation)
-        if record is not None and record.client is _gemini_client:
-            return record
-
-    mapped_generation = _gemini_client_generations.get(id(_gemini_client))
-    mapped_record = _gemini_generation_records.get(mapped_generation)
-    if mapped_record is not None and mapped_record.client is _gemini_client:
-        _current_gemini_generation = mapped_generation
-        return mapped_record
-
-    generation = 0 if not _gemini_generation_records else max(_gemini_generation_records) + 1
-    record = GeminiGenerationRecord(generation, _gemini_client)
-    _gemini_generation_records[generation] = record
-    _gemini_client_generations[id(record.client)] = generation
-    _current_gemini_generation = generation
-    return record
-
-
 def _get_current_generation_record_strict():
     if _gemini_client is None:
         return None
@@ -482,10 +457,16 @@ async def close_gemini_client() -> None:
     global _current_gemini_generation, _gemini_shutdown_started
 
     async with _gemini_client_init_lock:
-        current_record = _ensure_current_generation_record()
+        current_client = _gemini_client
+        try:
+            _get_current_generation_record_strict()
+        except RuntimeError:
+            pass
         records = list(_gemini_generation_records.values())
-        if current_record is not None and current_record not in records:
-            records.append(current_record)
+        represented_current_client = any(
+            current_client is not None and record.client is current_client
+            for record in records
+        )
 
         _gemini_shutdown_started = True
         _gemini_client = None
@@ -501,3 +482,11 @@ async def close_gemini_client() -> None:
 
     for record in close_records:
         await _close_generation_record(record)
+
+    if current_client is not None and not represented_current_client:
+        try:
+            result = current_client.close()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.warning(f"Error closing untracked Gemini client during shutdown: {e}")

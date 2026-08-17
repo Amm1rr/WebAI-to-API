@@ -617,66 +617,6 @@ async def test_replacement_rejects_wrong_reverse_mapping_without_mutation(mocker
     await _assert_replacement_rejects_malformed_state(mocker, setup)
 
 
-# Temporary legacy coverage. Phase 3B can change these repairs to invariant errors.
-def test_legacy_repair_current_client_without_generation():
-    client = make_mock_client("AVAILABLE")
-    gemini_client_module._gemini_client = client
-
-    record = gemini_client_module._ensure_current_generation_record()
-
-    assert record.client is client
-    assert gemini_client_module._current_gemini_generation == 0
-
-
-def test_legacy_repair_current_generation_without_record():
-    client = make_mock_client("AVAILABLE")
-    gemini_client_module._gemini_client = client
-    gemini_client_module._current_gemini_generation = 7
-
-    record = gemini_client_module._ensure_current_generation_record()
-
-    assert record.client is client
-    assert gemini_client_module._current_gemini_generation == 0
-
-
-def test_legacy_repair_record_owned_by_another_client():
-    other = make_mock_client("AVAILABLE")
-    client = make_mock_client("AVAILABLE")
-    gemini_client_module._register_generation(other, 0)
-    gemini_client_module._gemini_client = client
-    gemini_client_module._current_gemini_generation = 0
-
-    record = gemini_client_module._ensure_current_generation_record()
-
-    assert record.client is client
-    assert gemini_client_module._current_gemini_generation == 1
-
-
-def test_legacy_repair_missing_reverse_mapping_does_not_mutate_valid_record():
-    client = make_mock_client("AVAILABLE")
-    record = gemini_client_module._register_generation(client, 0)
-    gemini_client_module._gemini_client = client
-    gemini_client_module._current_gemini_generation = 0
-    gemini_client_module._gemini_client_generations.pop(id(client))
-
-    assert gemini_client_module._ensure_current_generation_record() is record
-    assert id(client) not in gemini_client_module._gemini_client_generations
-
-
-def test_legacy_repair_wrong_reverse_mapping():
-    other = make_mock_client("AVAILABLE")
-    client = make_mock_client("AVAILABLE")
-    gemini_client_module._register_generation(other, 0)
-    gemini_client_module._gemini_client = client
-    gemini_client_module._gemini_client_generations[id(client)] = 0
-
-    record = gemini_client_module._ensure_current_generation_record()
-
-    assert record.client is client
-    assert gemini_client_module._current_gemini_generation == 1
-    assert gemini_client_module._gemini_client_generations[id(client)] == 1
-
-
 def test_current_lease_uses_initialization_error_detail():
     gemini_client_module._initialization_error = "Gemini cookies are unavailable."
 
@@ -685,6 +625,130 @@ def test_current_lease_uses_initialization_error_detail():
         match="Gemini cookies are unavailable",
     ):
         gemini_client_module.acquire_current_gemini_lease()
+
+
+async def _assert_shutdown_closes_current_client_without_repair(mocker, client, setup):
+    setup()
+    register = mocker.patch.object(gemini_client_module, "_register_generation")
+
+    await close_gemini_client()
+
+    client.close.assert_awaited_once_with()
+    register.assert_not_called()
+    assert not any(record.client is client for record in gemini_client_module._gemini_generation_records.values())
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._current_gemini_generation is None
+    assert gemini_client_module._gemini_client_auth_source is None
+    assert gemini_client_module._initialization_error is None
+
+
+@pytest.mark.asyncio
+async def test_shutdown_defensively_closes_untracked_current_client(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    await _assert_shutdown_closes_current_client_without_repair(
+        mocker,
+        client,
+        lambda: setattr(gemini_client_module, "_gemini_client", client),
+    )
+
+
+@pytest.mark.asyncio
+async def test_shutdown_missing_current_generation_does_not_create_record(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 7
+
+    await _assert_shutdown_closes_current_client_without_repair(mocker, client, setup)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_record_mismatch_does_not_create_record(mocker):
+    other = make_mock_client("AVAILABLE")
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(other, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+
+    await _assert_shutdown_closes_current_client_without_repair(mocker, client, setup)
+    other.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_missing_reverse_mapping_closes_record_without_repair(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations.pop(id(client))
+
+    await _assert_shutdown_closes_current_client_without_repair(mocker, client, setup)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_wrong_reverse_mapping_closes_record_without_repair(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 0
+        gemini_client_module._gemini_client_generations[id(client)] = 1
+
+    await _assert_shutdown_closes_current_client_without_repair(mocker, client, setup)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_double_close_recorded_client_with_malformed_pointer(mocker):
+    client = make_mock_client("AVAILABLE")
+
+    def setup():
+        gemini_client_module._register_generation(client, 0)
+        gemini_client_module._gemini_client = client
+        gemini_client_module._current_gemini_generation = 7
+        gemini_client_module._gemini_client_generations[id(client)] = 9
+
+    await _assert_shutdown_closes_current_client_without_repair(mocker, client, setup)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_preserves_active_lease_for_recorded_client_with_malformed_pointer(mocker):
+    client = make_mock_client("AVAILABLE")
+    gemini_client_module._register_generation(client, 0)
+    gemini_client_module._gemini_client = client
+    gemini_client_module._current_gemini_generation = 0
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    gemini_client_module._current_gemini_generation = 7
+    gemini_client_module._gemini_client_generations.pop(id(client))
+
+    await close_gemini_client()
+
+    client.close.assert_not_awaited()
+    await lease.release()
+    client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_untracked_close_failure_does_not_block_record_cleanup(mocker):
+    current = make_mock_client("AVAILABLE")
+    other = make_mock_client("AVAILABLE")
+    current.close.side_effect = RuntimeError("close failed")
+    gemini_client_module._register_generation(other, 0)
+    gemini_client_module._gemini_client = current
+    gemini_client_module._current_gemini_generation = 0
+
+    await close_gemini_client()
+
+    current.close.assert_awaited_once_with()
+    other.close.assert_awaited_once_with()
+    assert gemini_client_module._gemini_client is None
+    assert gemini_client_module._current_gemini_generation is None
 
 
 @pytest.mark.asyncio
