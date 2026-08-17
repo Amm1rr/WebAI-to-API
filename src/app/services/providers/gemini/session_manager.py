@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Any, AsyncGenerator, List
 from app.config import get_default_conversation_snapshot_db
 from app.logger import logger
-from app.services.providers.gemini.client import get_gemini_client, GeminiClientNotInitializedError
 from app.services.providers.base_repository import ConversationSnapshot, IConversationRepository, ProviderCapability
 from app.services.providers.exceptions import (
     ConversationInUseError,
@@ -480,31 +479,27 @@ class SessionRegistry:
 # Global persistent-chat registry.
 _gemini_chat_registry = None
 
-async def init_session_managers():
+async def init_session_managers(client):
     """
     Initialize persistent chat session managers.
     If already initialized, safely updates client references in all active 
     session managers and registries to preserve runtime/concurrency state.
     """
     global _gemini_chat_registry
-    try:
-        client = get_gemini_client()
-        
-        # If already initialized, safely update their client references to preserve runtime state
-        if _gemini_chat_registry is not None:
-            await _gemini_chat_registry.update_client(client)
-            logger.info("Session managers safely updated with new client reference.")
-            return
 
-        from app.services.providers.sqlite_repository import SQLiteConversationRepository
+    # If already initialized, safely update client references to preserve runtime state.
+    if _gemini_chat_registry is not None:
+        await _gemini_chat_registry.update_client(client)
+        logger.info("Session managers safely updated with new client reference.")
+        return
 
-        repository = SQLiteConversationRepository(
-            db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", get_default_conversation_snapshot_db())
-        )
-        repository.initialize_sync()
-        _gemini_chat_registry = SessionRegistry(client, repository=repository)
-    except GeminiClientNotInitializedError:
-        logger.warning("Session managers not initialized: Gemini client not available.")
+    from app.services.providers.sqlite_repository import SQLiteConversationRepository
+
+    repository = SQLiteConversationRepository(
+        db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", get_default_conversation_snapshot_db())
+    )
+    repository.initialize_sync()
+    _gemini_chat_registry = SessionRegistry(client, repository=repository)
 
 def get_gemini_chat_registry():
     return _gemini_chat_registry

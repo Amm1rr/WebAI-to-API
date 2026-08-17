@@ -223,6 +223,3 @@ class GeminiAuthStrategy:
         init_success = await init_gemini_client(registry_updater=init_session_managers)
         if not init_success:
             raise RuntimeError("Gemini direct client initialization returned False.")
-        
-        logger.info("GeminiAuthStrategy: Re-initializing session managers with new client...")
-        await init_session_managers()

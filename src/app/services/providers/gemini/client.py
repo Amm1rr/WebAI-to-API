@@ -37,7 +37,7 @@ def get_gemini_client_auth_source():
 
 async def init_gemini_client(
     *,
-    registry_updater: Optional[Callable[[], Awaitable[None]]] = None,
+    registry_updater: Optional[Callable[[MyGeminiClient], Awaitable[None]]] = None,
 ) -> bool:
     """
     Initialize and set up the Gemini client based on the configuration and canonical storage.
@@ -47,7 +47,6 @@ async def init_gemini_client(
     
     async with _gemini_client_init_lock:
         old_client = _gemini_client
-        old_auth_source = _gemini_client_auth_source
         _initialization_error = None
         if old_client is None:
             _gemini_client_auth_source = None
@@ -55,16 +54,11 @@ async def init_gemini_client(
         async def publish_candidate(candidate, auth_source: str) -> bool:
             global _gemini_client, _gemini_client_auth_source, _initialization_error
 
-            _gemini_client = candidate
-            _gemini_client_auth_source = auth_source
-
             if registry_updater is not None:
                 try:
-                    await registry_updater()
+                    await registry_updater(candidate)
                 except Exception as e:
                     logger.error(f"Gemini client replacement registry update failed: {e}", exc_info=True)
-                    _gemini_client = old_client
-                    _gemini_client_auth_source = old_auth_source
                     _initialization_error = None if old_client is not None else str(e)
                     try:
                         await candidate.close()
@@ -72,6 +66,8 @@ async def init_gemini_client(
                         logger.warning(f"Error closing failed Gemini replacement: {close_error}")
                     return False
 
+            _gemini_client = candidate
+            _gemini_client_auth_source = auth_source
             if old_client is not None:
                 _retired_gemini_clients.append(old_client)
             return True

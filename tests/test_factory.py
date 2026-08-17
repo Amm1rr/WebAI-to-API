@@ -179,5 +179,5 @@ async def test_gemini_auth_recovery_invalidates_provider_cache(mocker):
     await GeminiAuthStrategy().run_post_login_recovery()
 
     close_provider.assert_awaited_once_with("gemini")
-    init_client.assert_awaited_once()
-    init_managers.assert_awaited_once()
+    init_client.assert_awaited_once_with(registry_updater=init_managers)
+    init_managers.assert_not_awaited()

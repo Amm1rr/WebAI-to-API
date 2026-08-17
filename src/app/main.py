@@ -8,7 +8,6 @@ import uuid
 from app.services.providers.gemini.client import (
     close_gemini_client,
     init_gemini_client,
-    GeminiClientNotInitializedError,
 )
 from app.services.providers.gemini.session_manager import init_session_managers
 from app.services.browser.auth_manager import get_auth_manager
@@ -46,13 +45,6 @@ async def lifespan(app: FastAPI):
         logger.info("Gemini authentication strategy registered.")
     except Exception as e:
         logger.error(f"Failed to register Gemini auth strategy: {e}")
-
-    # Initialize session managers
-    try:
-        await init_session_managers()
-        logger.info("Session managers initialized for WebAI-to-API.")
-    except GeminiClientNotInitializedError as e:
-        logger.warning(f"Session managers not initialized: {e}")
 
     # Refresh auth status cache asynchronously on startup
     try:
