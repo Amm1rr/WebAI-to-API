@@ -7,7 +7,48 @@ from app.main import app
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.client import GeminiClientNotInitializedError
+import app.services.providers.gemini.client as gemini_client_module
+import app.services.providers.gemini.temporary_chat as temporary_chat_module
 from app.services.providers.atlas import AtlasProvider
+
+
+@pytest.mark.asyncio
+async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, monkeypatch):
+    client = mocker.Mock()
+    client.close = mocker.AsyncMock()
+    generation = gemini_client_module.register_gemini_generation(client)
+    lease = gemini_client_module.acquire_gemini_lease(
+        client=client,
+        generation=generation,
+    )
+    record = gemini_client_module._gemini_generation_records[generation]
+    gemini_client_module._retire_generation(record)
+    cleanup = mocker.AsyncMock()
+    monkeypatch.setattr(
+        temporary_chat_module,
+        "GeminiLeaseStreamingResponse",
+        mocker.Mock(side_effect=RuntimeError("response construction failed")),
+    )
+
+    try:
+        async with lease:
+            with pytest.raises(RuntimeError, match="response construction failed"):
+                await temporary_chat_module._build_incremental_streaming_response(
+                    lease,
+                    prompt="hello",
+                    model="gemini-3-flash",
+                    files=None,
+                    gem=None,
+                    cleanup_once=cleanup,
+                )
+    finally:
+        if not lease.is_transferred:
+            await cleanup()
+
+    assert lease.is_transferred is False
+    assert record.lease_count == 0
+    cleanup.assert_awaited_once_with()
+    client.close.assert_awaited_once_with()
 
 @pytest.mark.asyncio
 async def test_list_models_endpoint(mocker):

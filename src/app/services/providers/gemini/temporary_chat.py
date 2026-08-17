@@ -204,14 +204,15 @@ async def _build_incremental_streaming_response(
         finally:
             await cleanup_once()
 
-    lease.transfer()
-    return GeminiLeaseStreamingResponse(
+    response = GeminiLeaseStreamingResponse(
         sse_generator(),
         lease=lease,
         cleanup=cleanup_once,
         media_type="text/event-stream",
         headers=_streaming_headers(),
     )
+    lease.transfer()
+    return response
 
 
 async def handle_temporary_chat_completions(request: OpenAIChatRequest):
