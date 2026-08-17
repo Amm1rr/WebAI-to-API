@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from playwright.async_api import Error as PlaywrightError
 
+from app.services.browser.errors import BrowserDisconnectedError
 from app.services.browser.session import ProviderSession
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
 
@@ -226,6 +227,27 @@ async def test_close_resources_is_idempotent_for_context(mocker):
 
     assert session.context is None
     context.close.assert_awaited_once()
+
+
+def test_active_request_handles_signal_and_abort_once():
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "test_provider")
+    signals = []
+    aborts = []
+
+    session.register_request_abort("request-1", signals.append, lambda: aborts.append("request-1"))
+    session.register_request_abort("request-2", signals.append, lambda: aborts.append("request-2"))
+    error = BrowserDisconnectedError("browser disconnected")
+
+    session.signal_active_requests(lambda: BrowserDisconnectedError(str(error)))
+    session.abort_active_requests()
+    session.unregister_request_abort("request-1")
+    session.abort_active_requests()
+
+    assert signals[0] is not signals[1]
+    assert [type(value) for value in signals] == [BrowserDisconnectedError, BrowserDisconnectedError]
+    assert [str(value) for value in signals] == [str(error), str(error)]
+    assert aborts == ["request-1", "request-2", "request-2"]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -64,6 +65,20 @@ class PlaywrightRequestState:
     on_close_handler: Any = None
     on_crash_handler: Any = None
     queue_overflow: bool = False
+    terminal_event: asyncio.Event = field(default_factory=asyncio.Event)
+    terminal_error: Optional[BaseException] = None
+    request_task: Optional[asyncio.Task] = None
+    request_registered: bool = False
+
+    def signal_terminal(self, error: BaseException) -> None:
+        if self.terminal_error is None:
+            self.terminal_error = error
+        self.terminal_event.set()
+
+    def abort(self) -> None:
+        self.signal_terminal(BrowserShuttingDownError("Browser request aborted during engine shutdown"))
+        if self.request_task and not self.request_task.done():
+            self.request_task.cancel()
 
 
 @dataclass(frozen=True)
@@ -133,6 +148,7 @@ class BrowserRequestExecutor:
                 page_lease = None
                 observer_task = None
                 state = PlaywrightRequestState(request_id=request_id, start_time=start_time)
+                state.request_task = asyncio.current_task()
 
                 def on_close(_page):
                     if state.cleanup_started:
@@ -141,6 +157,9 @@ class BrowserRequestExecutor:
                     state.page_poisoned = True
                     if state.active_tab:
                         state.active_tab.invalidate()
+                    state.signal_terminal(
+                        BrowserDisconnectedError("Browser page closed during active request")
+                    )
 
                 def on_crash(_page):
                     if state.cleanup_started:
@@ -149,6 +168,9 @@ class BrowserRequestExecutor:
                     state.page_poisoned = True
                     if state.active_tab:
                         state.active_tab.invalidate()
+                    state.signal_terminal(
+                        BrowserDisconnectedError("Browser page crashed during active request")
+                    )
 
                 state.on_close_handler = on_close
                 state.on_crash_handler = on_crash
@@ -159,6 +181,14 @@ class BrowserRequestExecutor:
                         request_id=state.request_id,
                     )
                     state.permit_acquired = True
+                    register_request_abort = getattr(session, "register_request_abort", None)
+                    if register_request_abort and not inspect.iscoroutinefunction(register_request_abort):
+                        register_request_abort(
+                            state.request_id,
+                            state.signal_terminal,
+                            state.abort,
+                        )
+                        state.request_registered = True
                     page = page_lease.page
 
                     page.on("close", on_close)
@@ -407,7 +437,7 @@ class BrowserRequestExecutor:
                 try:
                     await self._register_conversation_if_available(page, state, session, lease)
 
-                    payload = await asyncio.wait_for(queue.get(), timeout=self.config.chunk_timeout)
+                    payload = await self._wait_for_payload(queue, state, self.config.chunk_timeout)
                     if payload.get("type") == "done":
                         break
 
@@ -473,7 +503,7 @@ class BrowserRequestExecutor:
                         raise QueueOverflowError("Event queue saturated")
                     await self._register_conversation_if_available(page, state, session, lease)
 
-                    payload = await queue.get()
+                    payload = await self._wait_for_payload(queue, state)
                     if payload.get("type") == "done":
                         break
 
@@ -567,6 +597,39 @@ class BrowserRequestExecutor:
                     state.request_id if state else "unknown",
                     e,
                 )
+            finally:
+                unregister_request_abort = getattr(session, "unregister_request_abort", None)
+                if state.request_registered and unregister_request_abort:
+                    unregister_request_abort(state.request_id)
+                    state.request_registered = False
+
+    async def _wait_for_payload(
+        self,
+        queue: asyncio.Queue,
+        state: PlaywrightRequestState,
+        timeout: Optional[float] = None,
+    ):
+        if state.terminal_event.is_set():
+            raise state.terminal_error or BrowserDisconnectedError("Browser request terminated")
+
+        queue_task = asyncio.create_task(queue.get())
+        terminal_task = asyncio.create_task(state.terminal_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                (queue_task, terminal_task),
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise asyncio.TimeoutError
+            if state.terminal_event.is_set():
+                raise state.terminal_error or BrowserDisconnectedError("Browser request terminated")
+            return queue_task.result()
+        finally:
+            for task in (queue_task, terminal_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(queue_task, terminal_task, return_exceptions=True)
 
     def _validate_tab_generation(self, tab: Any, current_generation: int, message: Optional[str] = None):
         if tab:

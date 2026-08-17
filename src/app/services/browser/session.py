@@ -5,13 +5,13 @@ import os
 import time
 import weakref
 from collections import OrderedDict
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
+from typing import Optional, Dict, Any, List, TYPE_CHECKING, Callable
 from playwright.async_api import Error as PlaywrightError, Page, BrowserContext
 
 from app.logger import logger
 from app.config import CONFIG, get_default_auth_state_dir
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
-from app.services.browser.errors import BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
+from app.services.browser.errors import BrowserDisconnectedError, BrowserShuttingDownError, LeaseInvalidatedError, SessionNotAliveError, ConversationBusyError
 
 if TYPE_CHECKING:
     from app.services.browser.engine import BrowserEngine
@@ -56,6 +56,7 @@ class ProviderSession:
         self._orphan_cleanup_tasks = set()
         self.active_orphans = weakref.WeakSet()
         self._intentional_context_closes = weakref.WeakValueDictionary()
+        self._active_request_handles: Dict[str, tuple[Callable[[BaseException], None], Callable[[], None]]] = {}
         
         # Persistent state
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
@@ -81,6 +82,25 @@ class ProviderSession:
     @property
     def application_shutdown_requested(self) -> bool:
         return getattr(self.engine, "shutdown_requested", False) is True
+
+    def register_request_abort(
+        self,
+        request_id: str,
+        signal_terminal: Callable[[BaseException], None],
+        abort: Callable[[], None],
+    ) -> None:
+        self._active_request_handles[request_id] = (signal_terminal, abort)
+
+    def unregister_request_abort(self, request_id: str) -> None:
+        self._active_request_handles.pop(request_id, None)
+
+    def signal_active_requests(self, error_factory: Callable[[], BaseException]) -> None:
+        for signal_terminal, _ in tuple(self._active_request_handles.values()):
+            signal_terminal(error_factory())
+
+    def abort_active_requests(self) -> None:
+        for _, abort in tuple(self._active_request_handles.values()):
+            abort()
 
     @property
     def metrics(self) -> dict:
@@ -785,6 +805,16 @@ class ProviderSession:
     async def _on_context_closed(self, context: BrowserContext, generation: int):
         """Handler for BrowserContext.on('close')."""
         if self.engine.is_shutting_down:
+            if (
+                not self._consume_intentional_context_close(context)
+                and generation == self.engine.browser_generation
+                and self.context is context
+            ):
+                self.signal_active_requests(
+                    lambda: BrowserDisconnectedError(
+                        "Browser context closed during active request"
+                    )
+                )
             return
 
         if self._consume_intentional_context_close(context):
@@ -796,6 +826,11 @@ class ProviderSession:
             return
 
         if self.application_shutdown_requested:
+            self.signal_active_requests(
+                lambda: BrowserDisconnectedError(
+                    "Browser context closed during application shutdown"
+                )
+            )
             logger.info(
                 "ProviderSession(%s): Ignoring context close during application shutdown.",
                 self.name,
@@ -819,6 +854,9 @@ class ProviderSession:
             return
         
         logger.warning(f"ProviderSession({self.name}): Context closed (Window manually closed or crash).")
+        self.signal_active_requests(
+            lambda: BrowserDisconnectedError("Browser context closed during active request")
+        )
         # Delegate terminal shutdown to engine
         self.engine._on_browser_disconnected()
 

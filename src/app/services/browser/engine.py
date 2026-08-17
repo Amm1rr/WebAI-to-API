@@ -12,6 +12,7 @@ from playwright.async_api import async_playwright, Playwright, BrowserContext, P
 from app.logger import logger
 from app.config import CONFIG, get_default_playwright_cache_dir
 
+from app.services.browser.errors import BrowserDisconnectedError
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
 
 from app.services.browser.session import ProviderSession
@@ -141,6 +142,10 @@ class BrowserEngine:
 
     def _on_browser_disconnected(self):
         """Internal handler for Playwright's disconnected event."""
+        self._signal_active_requests(
+            lambda: BrowserDisconnectedError("Browser transport disconnected during active request")
+        )
+
         if self.is_shutting_down or self._disconnect_handled:
             return
 
@@ -170,6 +175,18 @@ class BrowserEngine:
     def active_pages(self) -> int:
         """Counts current active leases (semaphore slots)."""
         return sum(s.active_lease_count for s in self.sessions.values())
+
+    def _signal_active_requests(self, error_factory) -> None:
+        for session in tuple(self.sessions.values()):
+            session.signal_active_requests(error_factory)
+
+    def _abort_active_requests(self) -> None:
+        for session in tuple(self.sessions.values()):
+            session.abort_active_requests()
+
+    async def _wait_for_active_requests_to_release(self) -> None:
+        while self.active_pages > 0:
+            await asyncio.sleep(0)
 
     @property
     def total_page_count(self) -> int:
@@ -267,6 +284,23 @@ class BrowserEngine:
                 except Exception as e:
                     logger.error(f"BrowserEngine: Exception during active pages drain: {e}", exc_info=True)
                     raise
+
+                if self.active_pages > 0:
+                    logger.warning(
+                        "BrowserEngine: Aborting active requests after drain deadline.",
+                        extra={"generation": self.browser_generation},
+                    )
+                    self._abort_active_requests()
+                    try:
+                        await asyncio.wait_for(
+                            self._wait_for_active_requests_to_release(),
+                            timeout=1.0,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "BrowserEngine: Active requests did not release before teardown continued.",
+                            extra={"active_pages": self.active_pages, "generation": self.browser_generation},
+                        )
                 
                 logger.info(f"BrowserEngine: Closing {len(self.sessions)} provider session(s)...", extra={"generation": self.browser_generation})
                 for session in list(self.sessions.values()):

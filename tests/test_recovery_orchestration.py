@@ -2,7 +2,7 @@ import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from app.services.browser.session import ProviderSession
-from app.services.browser.errors import TransientSessionError
+from app.services.browser.errors import BrowserDisconnectedError, TransientSessionError
 from app.services.browser.engine import BrowserEngine
 from app.services.providers.gemini.provider import GeminiProvider
 from app.schemas.request import OpenAIChatRequest
@@ -249,6 +249,28 @@ async def test_application_shutdown_context_close_does_not_trigger_crash_shutdow
     await session._on_context_closed(context, mock_engine.browser_generation)
 
     mock_engine._on_browser_disconnected.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_context_close_during_engine_shutdown_signals_active_requests(tmp_path):
+    mock_engine = MagicMock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = True
+    mock_engine.shutdown_requested = False
+
+    session = ProviderSession(mock_engine, "test_provider")
+    context = MagicMock()
+    session.context = context
+    signal_terminal = Mock()
+    session.register_request_abort("request-1", signal_terminal, Mock())
+
+    await session._on_context_closed(context, mock_engine.browser_generation)
+
+    signal_terminal.assert_called_once()
+    error = signal_terminal.call_args.args[0]
+    assert isinstance(error, BrowserDisconnectedError)
 
 
 @pytest.mark.asyncio

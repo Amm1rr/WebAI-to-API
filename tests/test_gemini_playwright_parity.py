@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.auth_types import AuthStatus
+from app.services.browser.errors import BrowserDisconnectedError
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.playwright_adapter import (
     GeminiPlaywrightAdapter,
@@ -173,6 +174,114 @@ async def test_stream_started_confirms_submission_without_emitting_content(monke
     assert isinstance(response, StreamingResponse)
     chunks = await collect_stream_chunks(response)
     assert chunks == ["data: [DONE]\n\n"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_request_fails_promptly_when_page_closes(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    close_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "close")
+
+    close_handler(page)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await request_task
+
+    assert exc_info.value.status_code == 502
+    assert "timed out" not in str(exc_info.value.detail).lower()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_buffered_request_abort_cancels_task_and_releases_lease(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    request_task = asyncio.create_task(provider.chat_completions(make_request(stream=False)))
+    await state_ready.wait()
+    state_ref["state"].abort()
+
+    with pytest.raises(asyncio.CancelledError):
+        await request_task
+
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_fails_promptly_when_page_crashes(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ready = asyncio.Event()
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        state_ready.set()
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    original_wait = provider.playwright_adapter.executor._wait_for_payload
+    wait_started = asyncio.Event()
+
+    async def wait_for_payload(*args, **kwargs):
+        wait_started.set()
+        return await original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(provider.playwright_adapter.executor, "_wait_for_payload", wait_for_payload)
+    stream_task = asyncio.create_task(collect_stream_chunks(response))
+    await wait_started.wait()
+    crash_handler = next(call.args[1] for call in page.on.call_args_list if call.args[0] == "crash")
+
+    crash_handler(page)
+
+    with pytest.raises(BrowserDisconnectedError):
+        await stream_task
+
+    lease.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

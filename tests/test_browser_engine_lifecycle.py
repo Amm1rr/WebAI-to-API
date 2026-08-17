@@ -1,5 +1,6 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -94,6 +95,89 @@ async def test_shutdown_requested_rejects_new_page_admission():
 
     with pytest.raises(BrowserShuttingDownError):
         await engine.get_page("gemini")
+
+
+@pytest.mark.asyncio
+async def test_shutdown_aborts_active_requests_after_drain_deadline(mocker):
+    engine = BrowserEngine(headless=True)
+    session = MagicMock()
+    session.name = "gemini"
+    session.active_lease_count = 1
+    session.close_resources = AsyncMock()
+
+    def abort_requests():
+        session.active_lease_count = 0
+
+    session.abort_active_requests.side_effect = abort_requests
+    engine.sessions = {"gemini": session}
+    clock_values = iter((0.0, 16.0))
+    real_monotonic = time.monotonic
+    mocker.patch(
+        "app.services.browser.engine.time.monotonic",
+        side_effect=lambda: next(clock_values, real_monotonic()),
+    )
+
+    await engine.close()
+
+    session.abort_active_requests.assert_called_once_with()
+    session.close_resources.assert_awaited_once_with(save_state=True)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_abort_request_that_releases_during_grace(mocker):
+    engine = BrowserEngine(headless=True)
+    session = MagicMock()
+    session.name = "gemini"
+    session.active_lease_count = 1
+    session.close_resources = AsyncMock()
+
+    async def release_during_grace(_delay):
+        session.active_lease_count = 0
+
+    session.abort_active_requests = Mock()
+    mocker.patch("app.services.browser.engine.asyncio.sleep", side_effect=release_during_grace)
+    engine.sessions = {"gemini": session}
+
+    await engine.close()
+
+    session.abort_active_requests.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_browser_disconnect_signals_all_active_requests(mocker):
+    engine = BrowserEngine(headless=True)
+    session = MagicMock()
+    engine.sessions = {"gemini": session}
+    engine.close = AsyncMock()
+    scheduled = []
+    loop = MagicMock()
+    loop.create_task.side_effect = lambda coroutine: scheduled.append(coroutine)
+    mocker.patch("app.services.browser.engine.asyncio.get_running_loop", return_value=loop)
+
+    engine._on_browser_disconnected()
+
+    session.signal_active_requests.assert_called_once()
+    assert engine.shutdown_source == "browser-disconnect"
+    assert len(scheduled) == 1
+    scheduled.pop().close()
+
+
+@pytest.mark.asyncio
+async def test_browser_disconnect_during_shutdown_signals_without_rescheduling(mocker):
+    engine = BrowserEngine(headless=True)
+    engine.is_shutting_down = True
+    session = MagicMock()
+    engine.sessions = {"gemini": session}
+    engine.close = AsyncMock()
+    loop = MagicMock()
+    loop.create_task = Mock()
+    mocker.patch("app.services.browser.engine.asyncio.get_running_loop", return_value=loop)
+
+    engine._on_browser_disconnected()
+
+    session.signal_active_requests.assert_called_once()
+    loop.create_task.assert_not_called()
+    engine.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
