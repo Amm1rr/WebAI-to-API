@@ -30,7 +30,7 @@ SNAPSHOT_SCHEMA_VERSION = 1
 RETENTION_PERIOD_DAYS = int(os.getenv("CONVERSATION_RETENTION_DAYS", "90"))
 
 class SessionManager:
-    def __init__(self, client, client_generation: int = 0):
+    def __init__(self, client, client_generation: int):
         self.client = client
         self.client_generation = client_generation
         self.session_generation = None
@@ -338,13 +338,11 @@ class SessionRegistry:
         async with self._lock:
             self._update_client_locked(client, generation=generation)
 
-    async def reopen(self, client, *, generation: Optional[int] = None) -> None:
+    async def reopen(self, client, *, generation: int) -> None:
         """Reopen registry for a committed Gemini lifecycle generation."""
         async with self._lock:
             if self._closed and self._restore_tasks:
                 raise RuntimeError("Cannot reopen SessionRegistry with pending restore tasks.")
-            if generation is None:
-                raise RuntimeError("SessionRegistry reopen requires a registered generation.")
             self._update_client_locked(client, generation=generation)
             self._closed = False
 

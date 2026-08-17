@@ -593,12 +593,12 @@ async def test_registry_reopen_same_client_rejects_invalid_generation(mocker, in
 
 
 @pytest.mark.asyncio
-async def test_registry_reopen_requires_generation_without_implicit_registration(mocker, install_registry_generation):
+async def test_registry_reopen_requires_generation_in_signature(mocker, install_registry_generation):
     client = mocker.Mock()
     generation = install_registry_generation(client)
     registry = SessionRegistry(client, generation=generation)
     await registry.shutdown()
-    with pytest.raises(RuntimeError, match="requires a registered generation"):
+    with pytest.raises(TypeError):
         await registry.reopen(client)
 
     assert registry._closed is True

@@ -93,7 +93,7 @@ async def test_session_manager_get_response_passes_temporary_flag(mocker):
     mock_client = mocker.Mock()
     mock_client.start_chat = mocker.Mock(return_value=mock_session)
 
-    manager = SessionManager(mock_client)
+    manager = SessionManager(mock_client, client_generation=0)
 
     response = await manager.get_response(
         "gemini-3-flash",
