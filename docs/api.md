@@ -41,6 +41,32 @@ OpenAI-compatible chat completion endpoint.
 }
 ```
 
+#### Gemini Playwright Extended Thinking
+
+Gemini Playwright requests may control Gemini Web UI Extended thinking through typed provider options:
+
+```json
+{
+  "model": "playwright/gemini-3.5-flash",
+  "messages": [
+    {"role": "user", "content": "Solve this problem"}
+  ],
+  "provider_options": {
+    "gemini": {
+      "extended_thinking": true
+    }
+  }
+}
+```
+
+`extended_thinking` defaults to `false` for every request. The Playwright adapter normalizes UI state before each prompt, so omitted options force Extended thinking off instead of inheriting state from a persistent tab. The option is unsupported by Gemini WebAPI and Atlas and returns HTTP 400. Unknown provider namespaces/options and invalid types return HTTP 422. This UI toggle is not equivalent to `reasoning_effort`.
+
+Do not use this form. `extended_thinking` must be nested under `provider_options.gemini`; a top-level `extended_thinking` field is not part of the API contract and may be ignored.
+
+```json
+{"extended_thinking": true}
+```
+
 #### File Inputs
 
 For Gemini WebAPI requests, `messages[].content` may be either:

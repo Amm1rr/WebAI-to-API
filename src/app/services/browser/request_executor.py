@@ -100,6 +100,7 @@ class BrowserRequestExecutorHooks:
     extract_conversation_id: Callable[[str], Optional[str]]
     convert_to_openai_format: Callable[[str, str, bool], dict]
     orchestrate_model_selection: Callable[[Any, Page, str, PlaywrightRequestState], Awaitable[None]]
+    configure_request_options: Callable[[Any, Page, OpenAIChatRequest, PlaywrightRequestState], Awaitable[None]]
 
 
 class BrowserRequestExecutor:
@@ -309,6 +310,7 @@ class BrowserRequestExecutor:
             async with session.submit_lock:
                 self._validate_tab_generation(state.active_tab, engine.browser_generation)
                 await self.hooks.orchestrate_model_selection(browser_adapter, page, request.model, state)
+                await self.hooks.configure_request_options(browser_adapter, page, request, state)
                 confirmed = await browser_adapter.submit_prompt(page, prompt, state)
 
             if not confirmed:

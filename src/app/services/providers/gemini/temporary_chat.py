@@ -61,6 +61,12 @@ def _resolve_temporary_chat_model(request: OpenAIChatRequest, gemini_client) -> 
             detail="Only the Gemini provider is supported on the temporary chat endpoint.",
         )
 
+    if request.provider_options and request.provider_options.gemini is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="provider_options.gemini is not supported by the Gemini WebAPI backend.",
+        )
+
     model = request.model or CONFIG["Gemini"].get("default_model", "gemini-3-flash")
     model = model.strip()
 
