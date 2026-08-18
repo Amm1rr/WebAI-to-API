@@ -74,7 +74,7 @@ class ProviderSession:
         return (
             self.context is not None and 
             self.engine.browser is not None and 
-            self.engine.browser.is_connected() and
+            self.engine.runtime.is_browser_connected(self.engine.browser) and
             self.keepalive_page is not None and
             not self.keepalive_page.is_closed() and
             self.last_browser_generation == self.engine.browser_generation

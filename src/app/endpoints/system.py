@@ -58,7 +58,7 @@ async def ready():
         return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
         
     # 3. Browser must be connected
-    if not engine.browser or not engine.browser.is_connected():
+    if not engine.browser or not engine.runtime.is_browser_connected(engine.browser):
         return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
         
     # 4. At least one session must be structurally alive
@@ -98,7 +98,7 @@ async def runtime_status():
     status_payload = {
         "engine": {
             "status": "SHUTTING_DOWN" if engine.is_shutting_down else "RUNNING",
-            "browser_connected": engine.browser.is_connected() if engine.browser else False,
+            "browser_connected": engine.runtime.is_browser_connected(engine.browser) if engine.browser else False,
             "browser_generation": engine.browser_generation,
             "is_bootstrap": engine.is_bootstrap
         },
