@@ -32,11 +32,27 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 
 The `/v1/chat/completions` endpoint is the authoritative API surface of the project. All maintainers must prioritize its stability and feature parity with the OpenAI Chat Completion spec.
 
-- **Schema**: Strictly follows the OpenAI request/response format.
+- **Schema**: Follows the OpenAI request/response format plus documented provider-scoped request options.
 - **Streaming**: Supported via Server-Sent Events (SSE).
 - **Provider Routing**: Requests are routed through the `ProviderFactory`.
 - **Persistence**: Provider/backend-dependent. The selected provider and adapter define whether `conversation_id` maps to local snapshots, provider-side conversation URLs, or no persisted state.
 - **Isolation**: Every request is isolated by its `conversation_id`.
+
+### Provider Options
+
+Requests may use typed provider-scoped options:
+
+```json
+{
+  "provider_options": {
+    "gemini": {
+      "extended_thinking": true
+    }
+  }
+}
+```
+
+`gemini.extended_thinking` applies only to Gemini Playwright models. Effective value is normalized on every request: omitted provider options, omitted Gemini options, and omitted `extended_thinking` all mean `false`. This prevents state leakage across persistent Playwright tabs. Gemini WebAPI and non-Gemini providers reject the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Gemini Web UI Extended thinking is a provider UI toggle and is not declared equivalent to `reasoning_effort`.
 
 ### 3.1 Multimodal Content Parts
 

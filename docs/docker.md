@@ -184,6 +184,8 @@ curl -X POST http://localhost:6969/v1/chat/completions \
   }'
 ```
 
+Gemini Playwright also supports request-scoped Extended Thinking through `provider_options.gemini`; see [API Documentation](api.md) for the request fragment and semantics.
+
 ---
 
 ## Configuration & Persistence

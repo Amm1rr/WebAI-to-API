@@ -163,6 +163,14 @@ async def configure_playwright_success(
         "app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.check_authentication",
         check_authentication,
     )
+
+    async def configure_request_options(_self, *_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.set_extended_thinking",
+        configure_request_options,
+    )
     async def submit_prompt_bound(_self, *args, **kwargs):
         return await submit_side_effect(*args, **kwargs)
 
@@ -678,6 +686,45 @@ async def test_stream_done_terminates_with_done_chunk(monkeypatch, caplog):
     assert chunks == ["data: [DONE]\n\n"]
     request_id = state_ref["state"].request_id
     assert any(record.message == "Stream completed: " + request_id for record in caplog.records)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.asyncio
+async def test_request_options_configure_after_model_selection_before_submit(monkeypatch, stream):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    events = []
+
+    async def submit_prompt(_page, _prompt, _state):
+        events.append("submit")
+        await emit_bridge_event(page, {"type": "done"})
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    hooks = replace(
+        provider.playwright_adapter.executor.hooks,
+        orchestrate_model_selection=lambda *_args: _record_event(events, "model"),
+        configure_request_options=lambda *_args: _record_event(events, "options"),
+    )
+    provider.playwright_adapter.executor.hooks = hooks
+
+    response = await provider.chat_completions(make_request(stream=stream))
+    if stream:
+        await collect_stream_chunks(response)
+
+    assert events == ["model", "options", "submit"]
+
+
+async def _record_event(events, value):
+    events.append(value)
 
 
 @pytest.mark.asyncio

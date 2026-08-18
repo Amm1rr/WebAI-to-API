@@ -26,6 +26,11 @@ class AtlasProvider(BaseProvider):
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
         # Atlas logic currently splitting model name occurs in Factory, 
         # so we just need to ensure the request is mapped correctly.
+        if request.provider_options and request.provider_options.gemini is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="provider_options.gemini is not supported by the Atlas provider.",
+            )
         try:
             normalized = normalize_openai_chat_messages(
                 request.messages,

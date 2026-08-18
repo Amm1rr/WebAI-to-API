@@ -8,6 +8,18 @@ from app.services.providers.gemini.provider import GeminiProvider
 from app.schemas.request import OpenAIChatRequest
 from fastapi import HTTPException
 
+
+@pytest.fixture(autouse=True)
+def mock_extended_thinking_configuration(monkeypatch):
+    async def configure(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.providers.gemini.playwright_adapter.GeminiProviderAdapter.set_extended_thinking",
+        configure,
+    )
+
+
 @pytest.mark.asyncio
 async def test_recovery_orchestration_atomic_non_blocking(tmp_path):
     # 1. Mock BrowserEngine

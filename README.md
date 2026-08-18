@@ -187,6 +187,8 @@ WebAI-to-API uses model prefixes to route requests to specific backends.
 > [!TIP]
 > Model prefixes force backend selection and override the default Gemini backend configured in `config.conf`. Use `playwright/...` model prefixes to force the Playwright backend explicitly.
 
+Gemini Playwright Extended Thinking is available through `provider_options.gemini.extended_thinking`; see [API Documentation](docs/api.md).
+
 ---
 
 ## Documentation

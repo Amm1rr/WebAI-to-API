@@ -32,6 +32,23 @@ CHAT_COMPLETIONS_REQUEST_EXAMPLES = {
             ],
         },
     },
+    "playwrightExtendedThinking": {
+        "summary": "Gemini Playwright request with Extended thinking",
+        "value": {
+            "model": "playwright/gemini-3.5-flash",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Solve this problem.",
+                }
+            ],
+            "provider_options": {
+                "gemini": {
+                    "extended_thinking": True,
+                }
+            },
+        },
+    },
 }
 
 

@@ -53,6 +53,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                 extract_conversation_id=self._extract_conversation_id,
                 convert_to_openai_format=convert_to_openai_format,
                 orchestrate_model_selection=self._orchestrate_model_selection,
+                configure_request_options=self._configure_request_options,
             ),
         )
 
@@ -121,6 +122,22 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         stop_button = page.locator(SELECTORS["STOP_BUTTON"]).first
         if await stop_button.is_visible():
             await stop_button.click()
+
+    async def _configure_request_options(
+        self,
+        browser_adapter: GeminiProviderAdapter,
+        page: Page,
+        request,
+        state: PlaywrightRequestState,
+    ) -> None:
+        provider_options = getattr(request, "provider_options", None)
+        gemini_options = getattr(provider_options, "gemini", None) if provider_options else None
+        extended_thinking = bool(getattr(gemini_options, "extended_thinking", False))
+
+        try:
+            await browser_adapter.set_extended_thinking(page, extended_thinking, state)
+        except (ModelNotFoundError, GatedModelError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     def _extract_conversation_id(self, url: str):
         return GeminiProviderAdapter().extract_conversation_id(url)

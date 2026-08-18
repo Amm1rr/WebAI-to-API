@@ -105,6 +105,91 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 
         return confirmed
 
+    async def set_extended_thinking(self, page: Page, enabled: bool, state: Optional[Any] = None) -> None:
+        """Normalize Gemini mode-picker Extended thinking state for one request."""
+        await self._open_mode_menu(page)
+        item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+        try:
+            await item.wait_for(state="visible", timeout=1000)
+        except PlaywrightTimeoutError as error:
+            if not enabled:
+                verification_error = None
+                try:
+                    picker = await self._find_model_picker(page)
+                    label = await picker.get_attribute("aria-label") if picker else None
+                except Exception as exc:
+                    picker = None
+                    label = None
+                    verification_error = exc
+                finally:
+                    try:
+                        await page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+
+                if not picker or label is None:
+                    raise TransientSessionError(
+                        "Gemini Extended thinking state could not be verified off."
+                    ) from (verification_error or error)
+                if re.search(r"\bExtended\b", label, re.I):
+                    raise TransientSessionError(
+                        "Gemini Extended thinking state could not be normalized off."
+                    )
+                return
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            raise ModelNotFoundError("Gemini Extended thinking control is unavailable.") from error
+
+        aria_disabled = await item.get_attribute("aria-disabled")
+        selected = "selected" in (await item.get_attribute("class") or "").split()
+        if selected == enabled:
+            await page.keyboard.press("Escape")
+            return
+        if aria_disabled == "true":
+            await page.keyboard.press("Escape")
+            raise GatedModelError("Gemini Extended thinking is disabled for this model or account.")
+
+        await item.click()
+
+        for _ in range(12):
+            picker = await self._find_model_picker(page)
+            label = await picker.get_attribute("aria-label") if picker else None
+            label_enabled = bool(label and re.search(r"\bExtended\b", label, re.I))
+            if label_enabled == enabled:
+                await self._open_mode_menu(page)
+                verified_item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+                try:
+                    await verified_item.wait_for(state="visible", timeout=1000)
+                except PlaywrightTimeoutError:
+                    await page.keyboard.press("Escape")
+                    raise TransientSessionError("Gemini Extended thinking state verification failed.")
+                verified = "selected" in (await verified_item.get_attribute("class") or "").split()
+                await page.keyboard.press("Escape")
+                if verified == enabled:
+                    return
+            await asyncio.sleep(0.25)
+
+        raise TransientSessionError("Gemini Extended thinking state transition could not be verified.")
+
+    async def _open_mode_menu(self, page: Page) -> Any:
+        picker = await self._find_model_picker(page)
+        if not picker:
+            raise TransientSessionError("Gemini mode picker is unavailable while configuring Extended thinking.")
+
+        await picker.click()
+        menu = page.locator('[role="menu"][data-test-id="gem-mode-menu"]').first
+        try:
+            await menu.wait_for(state="visible", timeout=3000)
+        except PlaywrightTimeoutError as error:
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            raise TransientSessionError("Gemini mode picker menu failed to render.") from error
+        return menu
+
     async def _find_model_picker(self, page: Page) -> Optional[Any]:
         """
         Locate the model picker button using primary and fallback selectors.

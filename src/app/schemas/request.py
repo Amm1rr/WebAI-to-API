@@ -1,7 +1,7 @@
 # src/app/schemas/request.py
 from typing import Any, Annotated, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 class GeminiRequest(BaseModel):
     message: str
@@ -72,6 +72,22 @@ class OpenAIChatMessage(BaseModel):
     name: Optional[str] = None
 
 
+class GeminiProviderOptions(BaseModel):
+    """Gemini-specific request options."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extended_thinking: StrictBool = False
+
+
+class ProviderOptions(BaseModel):
+    """Provider-scoped options for OpenAI-compatible requests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    gemini: Optional[GeminiProviderOptions] = None
+
+
 class OpenAIChatRequest(BaseModel):
     """OpenAI-compatible chat request. Gemini WebAPI supports multimodal file content parts; supported formats are documented in docs/api.md."""
 
@@ -83,6 +99,7 @@ class OpenAIChatRequest(BaseModel):
     tool_choice: Optional[Any] = None
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
     conversation_id: Optional[str] = Field(default=None, description="ID to continue an existing browser conversation.")
+    provider_options: Optional[ProviderOptions] = None
 
 class Part(BaseModel):
     text: Optional[str] = None
