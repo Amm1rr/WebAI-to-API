@@ -52,7 +52,9 @@ Requests may use typed provider-scoped options:
 }
 ```
 
-`gemini.extended_thinking` applies only to Gemini Playwright models. Effective value is normalized on every request: an explicit request value takes precedence over `[GeminiPlaywright].extended_thinking`, which falls back to `false` when the section or key is missing. Omitted request options do not inherit UI state from a reused `PersistentTab`. Gemini WebAPI and non-Gemini providers reject the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Gemini Web UI Extended thinking is a provider UI toggle and is not declared equivalent to `reasoning_effort`.
+`gemini.extended_thinking` applies to Gemini WebAPI and Playwright models. Effective value is resolved on every request: an explicit request value takes precedence over `[Gemini].extended_thinking`, which falls back to `false` when the key is missing. The value accepts only case-insensitive, trimmed `true` or `false`; config stores canonical lowercase values. The option is request-scoped and is not part of session identity or persisted snapshots, so reused conversations may switch values between turns. Omitted Playwright request options do not inherit UI state from a reused `PersistentTab`. Atlas rejects the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Extended thinking is not declared equivalent to `reasoning_effort`.
+
+For Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
 
 ### 3.1 Multimodal Content Parts
 

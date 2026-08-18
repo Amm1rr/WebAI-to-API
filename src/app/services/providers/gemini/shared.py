@@ -3,6 +3,7 @@ import time
 from typing import Optional, List, Any, Union
 from pathlib import Path
 from fastapi import HTTPException
+from app.config import CONFIG
 from app.logger import logger
 from .webapi_client import resolve_model_name
 
@@ -10,6 +11,15 @@ from .webapi_client import resolve_model_name
 UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
     "1097",
 }
+
+def resolve_extended_thinking(request: Any) -> bool:
+    """Resolve request-scoped extended_thinking: provider override > [Gemini] config > false."""
+    provider_options = getattr(request, "provider_options", None)
+    gemini_options = getattr(provider_options, "gemini", None) if provider_options else None
+    requested = getattr(gemini_options, "extended_thinking", None) if gemini_options else None
+    if requested is not None:
+        return requested
+    return CONFIG.getboolean("Gemini", "extended_thinking", fallback=False)
 
 def is_unknown_model_error(error: ValueError) -> bool:
     """Check if the error is due to an unknown model name."""

@@ -45,14 +45,9 @@ runtime = playwright
 [Gemini]
 backend = webapi
 default_model = gemini-3-flash
+extended_thinking = false
 __Secure-1PSID =
 __Secure-1PSIDTS =
-
-# --- Gemini Playwright Configuration ---
-# Browser-native Gemini-specific defaults.
-# Request provider_options.gemini.extended_thinking takes precedence.
-[GeminiPlaywright]
-extended_thinking = false
 
 # --- Legacy Cookie Support (DEPRECATED) ---
 # For backward compatibility only. Please migrate to [Gemini] section.

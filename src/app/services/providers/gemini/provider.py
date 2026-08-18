@@ -60,12 +60,6 @@ class GeminiProvider(BaseProvider):
         # Select adapter to determine target backend
         adapter = self._get_adapter(request.model)
         is_playwright = isinstance(adapter, GeminiPlaywrightAdapter)
-        gemini_options = getattr(request.provider_options, "gemini", None) if request.provider_options else None
-        if gemini_options is not None and not is_playwright:
-            raise HTTPException(
-                status_code=400,
-                detail="provider_options.gemini is supported only by the Gemini Playwright backend.",
-            )
         
         if cid:
             if len(cid) > 128:

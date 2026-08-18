@@ -11,33 +11,67 @@ def write_config(tmp_path: Path, content: str) -> str:
     return str(path)
 
 
-def test_gemini_playwright_section_defaults_when_missing(tmp_path):
+def test_gemini_extended_thinking_defaults_when_missing(tmp_path):
     config = load_config(write_config(tmp_path, "[Gemini]\nbackend = webapi\n"))
 
-    assert config["GeminiPlaywright"]["extended_thinking"] == "false"
-    assert config.getboolean("GeminiPlaywright", "extended_thinking") is False
+    assert config["Gemini"]["extended_thinking"] == "false"
+    assert config.getboolean("Gemini", "extended_thinking") is False
 
 
-def test_gemini_playwright_key_defaults_when_section_exists(tmp_path):
-    config = load_config(write_config(tmp_path, "[GeminiPlaywright]\n"))
+def test_gemini_extended_thinking_key_defaults_when_section_exists(tmp_path):
+    config = load_config(write_config(tmp_path, "[Gemini]\n"))
 
-    assert config["GeminiPlaywright"]["extended_thinking"] == "false"
+    assert config["Gemini"]["extended_thinking"] == "false"
 
 
 @pytest.mark.parametrize(
     "value, expected",
-    [("true", "true"), ("false", "false"), ("TRUE", "true"), ("False", "false")],
+    [("true", "true"), ("false", "false"), ("TRUE", "true"), ("False", "false"), ("  true  ", "true")],
 )
-def test_gemini_playwright_boolean_values_are_validated_and_normalized(tmp_path, value, expected):
-    config = load_config(write_config(tmp_path, f"[GeminiPlaywright]\nextended_thinking = {value}\n"))
+def test_gemini_extended_thinking_boolean_values_are_validated_and_normalized(tmp_path, value, expected):
+    config = load_config(write_config(tmp_path, f"[Gemini]\nextended_thinking = {value}\n"))
 
-    assert config["GeminiPlaywright"]["extended_thinking"] == expected
+    assert config["Gemini"]["extended_thinking"] == expected
 
 
 @pytest.mark.parametrize("value", ["yes", "no", "1", "0", "on", "off", "foo", ""])
-def test_gemini_playwright_invalid_value_fails_during_load(tmp_path, value):
-    with pytest.raises(ValueError, match=r"Invalid GeminiPlaywright extended_thinking value"):
-        load_config(write_config(tmp_path, f"[GeminiPlaywright]\nextended_thinking = {value}\n"))
+def test_gemini_extended_thinking_invalid_value_fails_during_load(tmp_path, value):
+    with pytest.raises(ValueError, match=r"Invalid Gemini extended_thinking value"):
+        load_config(write_config(tmp_path, f"[Gemini]\nextended_thinking = {value}\n"))
+
+
+def test_legacy_gemini_playwright_section_has_no_effect(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            "[Gemini]\nbackend = webapi\n\n[GeminiPlaywright]\nextended_thinking = true\n",
+        )
+    )
+
+    assert config["Gemini"]["extended_thinking"] == "false"
+    assert config["GeminiPlaywright"]["extended_thinking"] == "true"
+
+
+def test_legacy_gemini_playwright_key_does_not_satisfy_gemini_default(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            "[Gemini]\nbackend = webapi\n\n[GeminiPlaywright]\nextended_thinking = true\n",
+        )
+    )
+
+    assert config.getboolean("Gemini", "extended_thinking") is False
+
+
+def test_legacy_gemini_playwright_value_is_not_validated(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            "[Gemini]\nbackend = webapi\n\n[GeminiPlaywright]\nextended_thinking = yes\n",
+        )
+    )
+
+    assert config.getboolean("Gemini", "extended_thinking") is False
 
 
 def test_gemini_backend_validation_remains_unchanged(tmp_path):

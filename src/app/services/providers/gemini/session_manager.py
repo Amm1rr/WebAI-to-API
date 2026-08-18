@@ -124,10 +124,12 @@ class SessionManager:
         files=None,
         gem=None,
         lease=None,
+        extended_thinking: bool = False,
     ):
         """
         Thread-safe stateful response execution.
         Resolves whether to reuse or bootstrap the session within the lock.
+        extended_thinking is request-scoped and never part of session identity.
         """
         async with self.lock:
             owns_lease = lease is None
@@ -154,7 +156,11 @@ class SessionManager:
                     conversation_parts = transform_messages(messages, tools_prompt)
                     prompt = "\n\n".join(conversation_parts)
                 
-                response = await self.session.send_message(prompt=prompt, files=files)
+                response = await self.session.send_message(
+                    prompt=prompt,
+                    files=files,
+                    extended_thinking=extended_thinking,
+                )
                 return response, is_reused
             except Exception as e:
                 logger.error(f"Error in stateful session get_response: {e}", exc_info=True)
@@ -172,10 +178,12 @@ class SessionManager:
         files=None,
         gem=None,
         lease=None,
+        extended_thinking: bool = False,
     ) -> AsyncGenerator[Any, None]:
         """
         Thread-safe stateful progressive streaming response execution.
         Safely increments active streams and yields chunks with locked timeout protection.
+        extended_thinking is request-scoped and never part of session identity.
         """
         self.active_streams += 1
         interrupted_sent = False
@@ -208,7 +216,11 @@ class SessionManager:
                 
                 try:
                     async with asyncio.timeout(MAX_GENERATION_DURATION):
-                        async for chunk in self.session.send_message_stream(prompt=prompt, files=files):
+                        async for chunk in self.session.send_message_stream(
+                            prompt=prompt,
+                            files=files,
+                            extended_thinking=extended_thinking,
+                        ):
                             final_response = chunk
                             yield {
                                 "type": "chunk",

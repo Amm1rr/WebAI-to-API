@@ -26,7 +26,7 @@ class _FakeChatSession:
     def metadata(self, value):
         self._ChatSession__metadata = value
 
-    async def send_message(self, prompt, files=None, temporary=False):
+    async def send_message(self, prompt, files=None, temporary=False, extended_thinking=False):
         self.calls.append((prompt, files, temporary))
         return SimpleNamespace(text="ok")
 
