@@ -205,7 +205,7 @@ Interactive API documentation is available through Swagger UI when the server is
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Amm1rr/WebAI-to-API\&type=Date)](https://www.star-history.com/#Amm1rr/WebAI-to-API&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=Amm1rr/WebAI-to-API\&type=Date)](https://star-history.dera.page/#Amm1rr/WebAI-to-API&Date)
 
 ---
 
