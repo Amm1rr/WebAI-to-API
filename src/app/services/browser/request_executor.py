@@ -27,7 +27,7 @@ from app.services.browser.tab import ManagedPage
 
 
 @dataclass(frozen=True)
-class PlaywrightAdapterConfig:
+class BrowserRequestConfig:
     """Consolidated configuration for browser-native request execution."""
     navigation_timeout: int
     ui_wait_timeout: int
@@ -35,7 +35,7 @@ class PlaywrightAdapterConfig:
     total_request_timeout: int
 
     @classmethod
-    def load(cls) -> "PlaywrightAdapterConfig":
+    def load(cls) -> "BrowserRequestConfig":
         return cls(
             navigation_timeout=CONFIG["Playwright"].getint("navigation_timeout", 30000),
             ui_wait_timeout=CONFIG["Playwright"].getint("ui_wait_timeout", 15000),
@@ -45,7 +45,7 @@ class PlaywrightAdapterConfig:
 
 
 @dataclass
-class PlaywrightRequestState:
+class BrowserRequestState:
     """Shared state for a single browser-native request lifecycle."""
     request_id: str
     start_time: float
@@ -92,15 +92,15 @@ class BrowserRequestExecutorHooks:
     get_browser_engine: Callable[[], Awaitable[Any]]
     sleep: Callable[[float], Awaitable[None]]
     timeout: Callable[[float], Any]
-    navigate: Callable[[Page, PlaywrightRequestState, OpenAIChatRequest, PlaywrightAdapterConfig], Awaitable[None]]
-    wait_for_ready_ui: Callable[[Page, PlaywrightRequestState, PlaywrightAdapterConfig], Awaitable[None]]
+    navigate: Callable[[Page, BrowserRequestState, OpenAIChatRequest, BrowserRequestConfig], Awaitable[None]]
+    wait_for_ready_ui: Callable[[Page, BrowserRequestState, BrowserRequestConfig], Awaitable[None]]
     start_observer: Callable[[Page, str, str], Awaitable[Any]]
     stop_observer: Callable[[Page, str], Awaitable[None]]
     stop_generation: Callable[[Page], Awaitable[None]]
     extract_conversation_id: Callable[[str], Optional[str]]
     convert_to_openai_format: Callable[[str, str, bool], dict]
-    orchestrate_model_selection: Callable[[Any, Page, str, PlaywrightRequestState], Awaitable[None]]
-    configure_request_options: Callable[[Any, Page, OpenAIChatRequest, PlaywrightRequestState], Awaitable[None]]
+    orchestrate_model_selection: Callable[[Any, Page, str, BrowserRequestState], Awaitable[None]]
+    configure_request_options: Callable[[Any, Page, OpenAIChatRequest, BrowserRequestState], Awaitable[None]]
 
 
 class BrowserRequestExecutor:
@@ -110,7 +110,7 @@ class BrowserRequestExecutor:
     Provider-specific DOM behavior remains delegated through hooks.
     """
 
-    def __init__(self, config: PlaywrightAdapterConfig, hooks: BrowserRequestExecutorHooks):
+    def __init__(self, config: BrowserRequestConfig, hooks: BrowserRequestExecutorHooks):
         self.config = config
         self.hooks = hooks
 
@@ -148,7 +148,7 @@ class BrowserRequestExecutor:
             for attempt in range(1, max_retries + 1):
                 page_lease = None
                 observer_task = None
-                state = PlaywrightRequestState(request_id=request_id, start_time=start_time)
+                state = BrowserRequestState(request_id=request_id, start_time=start_time)
                 state.request_task = asyncio.current_task()
 
                 def on_close(_page):
@@ -423,7 +423,7 @@ class BrowserRequestExecutor:
         queue: asyncio.Queue,
         model: str,
         page: Page,
-        state: PlaywrightRequestState,
+        state: BrowserRequestState,
         observer_task: Optional[asyncio.Task],
         engine: Any,
         session: Any,
@@ -534,7 +534,7 @@ class BrowserRequestExecutor:
         queue: asyncio.Queue,
         model: str,
         page: Page,
-        state: PlaywrightRequestState,
+        state: BrowserRequestState,
         observer_task: Optional[asyncio.Task],
         engine: Any,
         session: Any,
@@ -568,7 +568,7 @@ class BrowserRequestExecutor:
         finally:
             await self._cleanup(observer_task, state, lease, session)
 
-    async def _register_conversation_if_available(self, page: Page, state: PlaywrightRequestState, session: Any, lease: ManagedPage):
+    async def _register_conversation_if_available(self, page: Page, state: BrowserRequestState, session: Any, lease: ManagedPage):
         if state.conversation_id or state.active_tab:
             return
         async with state.lock:
@@ -579,7 +579,7 @@ class BrowserRequestExecutor:
                 state.conversation_id = conversation_id
                 state.active_tab = await session.register_conversation(conversation_id, lease)
 
-    async def _cleanup(self, observer_task: Optional[asyncio.Task], state: Optional[PlaywrightRequestState], lease: Optional[ManagedPage], session: Any):
+    async def _cleanup(self, observer_task: Optional[asyncio.Task], state: Optional[BrowserRequestState], lease: Optional[ManagedPage], session: Any):
         if not state and not lease and not observer_task:
             return
         await asyncio.shield(self._do_cleanup(observer_task, state, lease, session))
@@ -651,7 +651,7 @@ class BrowserRequestExecutor:
     async def _wait_for_payload(
         self,
         queue: asyncio.Queue,
-        state: PlaywrightRequestState,
+        state: BrowserRequestState,
         timeout: Optional[float] = None,
     ):
         if state.terminal_event.is_set():

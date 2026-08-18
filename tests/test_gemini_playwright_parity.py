@@ -20,7 +20,7 @@ from app.services.browser.errors import (
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.playwright_adapter import (
     GeminiPlaywrightAdapter,
-    PlaywrightRequestState,
+    BrowserRequestState,
 )
 from app.services.providers.gemini.provider import GeminiProvider
 
@@ -1308,7 +1308,7 @@ async def test_cleanup_is_idempotent_for_repeated_invocation():
     provider = GeminiProvider()
     adapter = provider.playwright_adapter
     page = make_mock_page()
-    request_state = PlaywrightRequestState(request_id="req_1", start_time=0.0)
+    request_state = BrowserRequestState(request_id="req_1", start_time=0.0)
     page._gemini_callbacks = {request_state.request_id: AsyncMock()}
     request_state.on_close_handler = MagicMock()
     request_state.on_crash_handler = MagicMock()

@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi import HTTPException
 from app.services.providers.gemini.browser_adapter import GeminiProviderAdapter
 from app.services.providers.gemini.playwright_adapter import (
-    GeminiPlaywrightAdapter, 
-    PlaywrightRequestState, 
-    PlaywrightAdapterConfig
+    GeminiPlaywrightAdapter,
+    BrowserRequestState,
+    BrowserRequestConfig
 )
 from app.services.providers.gemini.shared import PLAYWRIGHT_GEMINI_MODEL_UI_LABELS, get_gemini_models
 from app.schemas.request import OpenAIChatRequest
@@ -303,7 +303,7 @@ async def test_orchestrate_model_selection_versioned_aliases():
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_browser_adapter.select_model = AsyncMock()
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     mock_state.active_tab = MagicMock()
     
     # Verified Models
@@ -329,7 +329,7 @@ async def test_orchestrate_model_selection_browser_namespace_aliases():
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_browser_adapter.select_model = AsyncMock()
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     mock_state.active_tab = MagicMock()
 
     await adapter._orchestrate_model_selection(
@@ -349,7 +349,7 @@ async def test_orchestrate_model_selection_unsupported_aliases_fail():
     adapter = GeminiPlaywrightAdapter(MagicMock())
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     
     unsupported = [
         "playwright/gemini-3-pro",
@@ -373,7 +373,7 @@ async def test_orchestrate_model_selection_unknown_model_fails_400():
     adapter = GeminiPlaywrightAdapter(MagicMock())
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     
     with pytest.raises(HTTPException) as excinfo:
         await adapter._orchestrate_model_selection(
@@ -395,7 +395,7 @@ async def test_orchestrate_model_selection_gated_model_maps_403():
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_browser_adapter.select_model = AsyncMock(side_effect=GatedModelError("Paywall"))
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     mock_state.active_tab = MagicMock()
     
     with pytest.raises(HTTPException) as excinfo:
@@ -416,7 +416,7 @@ async def test_orchestrate_model_selection_not_found_maps_400():
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_browser_adapter.select_model = AsyncMock(side_effect=ModelNotFoundError("Not in menu"))
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     mock_state.active_tab = MagicMock()
     
     with pytest.raises(HTTPException) as excinfo:
@@ -437,7 +437,7 @@ async def test_orchestrate_model_selection_success():
     mock_browser_adapter = MagicMock(spec=GeminiProviderAdapter)
     mock_browser_adapter.select_model = AsyncMock()
     mock_page = MagicMock()
-    mock_state = MagicMock(spec=PlaywrightRequestState)
+    mock_state = MagicMock(spec=BrowserRequestState)
     mock_state.active_tab = MagicMock()
     
     await adapter._orchestrate_model_selection(
