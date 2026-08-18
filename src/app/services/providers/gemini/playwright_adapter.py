@@ -5,8 +5,8 @@ from fastapi import HTTPException
 from playwright.async_api import Error as PlaywrightError, Page, TimeoutError as PlaywrightTimeoutError
 
 from app.services.browser.engine import get_browser_engine
-from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
-from app.services.browser.adapters.scripts.gemini_scripts import (
+from app.services.providers.gemini.browser_adapter import GeminiProviderAdapter
+from app.services.providers.gemini.scripts.gemini_scripts import (
     SELECTORS,
     STOP_OBSERVER_SCRIPT,
     STREAM_EXTRACTOR_SCRIPT,

@@ -105,7 +105,7 @@ class GeminiAuthStrategy:
         """
         Orchestrate the headful login workflow for Gemini.
         """
-        from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
+        from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS
         
         # Robust selectors for verification
         SIGN_IN_SELECTORS = [

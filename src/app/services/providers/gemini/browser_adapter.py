@@ -3,7 +3,7 @@ import re
 from typing import Optional, Any
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 from app.services.browser.base_adapter import BaseProviderAdapter
-from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS, MODEL_PICKER_FALLBACK_SELECTORS
+from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS, MODEL_PICKER_FALLBACK_SELECTORS
 from app.logger import logger
 from app.services.browser.errors import TransientSessionError, ModelNotFoundError, GatedModelError
 

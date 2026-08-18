@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from app.main import app
 from app.schemas.request import OpenAIChatRequest
-from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
+from app.services.providers.gemini.browser_adapter import GeminiProviderAdapter
 from app.services.browser.errors import GatedModelError, ModelNotFoundError, TransientSessionError
 from app.services.providers.atlas.provider import AtlasProvider
 from app.services.providers.gemini.provider import GeminiProvider

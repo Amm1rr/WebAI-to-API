@@ -1,4 +1,4 @@
-# src/app/services/browser/adapters/scripts/gemini_scripts.py
+# src/app/services/providers/gemini/scripts/gemini_scripts.py
 
 """
 Javascript snippets for Playwright's page.evaluate to interact with Gemini Web.
