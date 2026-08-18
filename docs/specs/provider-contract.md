@@ -31,7 +31,7 @@ Authentication ownership is split by responsibility:
 Each auth strategy owns its own `provider_name` and may contribute provider-specific status reporting. The registry, not Gemini-specific code, determines which strategy is active for a given provider.
 
 ### Forbidden Behaviors:
-- Providers/Adapters must never close the Browser directly and must not close BrowserContext directly. ProviderSession lifecycle cleanup is the authorized BrowserContext owner; BrowserEngine owns Browser and Playwright teardown.
+- Providers/Adapters must never close the Browser directly and must not close BrowserContext directly. ProviderSession lifecycle cleanup is the authorized BrowserContext owner; BrowserEngine owns Browser teardown and executes it through the `BrowserRuntime` boundary (`runtime.close_browser()`, `runtime.stop()`).
 - Providers/Adapters must NEVER recreate `BrowserContext` or sessions directly; they must escalate to the authoritative session layer.
 - Browser-native Adapters must NEVER bypass `ProviderSession.acquire_lease()` to obtain pages.
 - Providers/Adapters must NEVER manipulate `is_shutting_down` or other engine state flags.

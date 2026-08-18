@@ -25,9 +25,9 @@ This document specifies the browser lifecycle, state transitions, and self-heali
 Unhealthy-browser replacement runs under `BrowserEngine.management_lock`:
 
 1. Clean ProviderSessions bound to old lifecycle/resources and wait for active cleanup.
-2. Close or skip old Browser.
-3. Stop old Playwright.
-4. Launch new Playwright and Browser.
+2. Close or skip old Browser through the runtime (`runtime.close_browser()`).
+3. Stop the driver through the runtime (`runtime.stop()`).
+4. Start the driver and launch a new Browser through the runtime (`runtime.start()`, `runtime.launch_browser()`).
 5. Publish the successful launch by incrementing `browser_generation`.
 6. Set up ProviderSession contexts.
 
@@ -48,9 +48,9 @@ Application shutdown follows:
 3. FastAPI lifespan calls `BrowserEngine.close(source="application")`.
 4. Existing requests receive up to 15 seconds to finish; remaining requests receive request-owned abort callbacks.
 5. ProviderSession lifecycle tasks are cancelled/drained and ProviderSession resources close.
-6. Browser closes or is skipped, then Playwright stops.
+6. Browser closes or is skipped, then the driver stops — both executed through the `BrowserRuntime` boundary (`runtime.close_browser()`, `runtime.stop()`).
 
-ProviderSession resources always close before Browser, and Browser before Playwright. Runtime terminal cleanup uses `save_state=False`; bootstrap/manual auth cleanup may use `save_state=True`.
+ProviderSession resources always close before Browser, and Browser before the driver stops. `BrowserEngine` owns this ordering and all shutdown/recovery decisions; the runtime only executes the mechanics. Runtime terminal cleanup uses `save_state=False`; bootstrap/manual auth cleanup may use `save_state=True`.
 
 **Shutdown Invariant**: Once shutdown intent exists, no new recovery or admission may begin. Workers recheck shutdown state after acquiring `init_lock` and before cleanup. Existing recovery may be cancelled and awaited during terminal cleanup.
 

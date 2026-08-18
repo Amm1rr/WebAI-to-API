@@ -50,7 +50,7 @@ The pipeline is designed to handle providers that "rewrite" the full response te
 - **Capacity**: The queue is **bounded** (typically `maxsize=100`) to prevent unbounded memory growth.
 - **Overflow Contract**: Queue saturation is considered a **terminal request-stream failure**. 
     - **No Silent Drops**: Bridge callbacks MUST NEVER silently drop `chunk` or `rewrite` events, as this corrupts the stream state.
-    - **Fatal Termination**: If enqueue fails, the request stream must transition into a failed state and terminate immediately.
+    - **Fatal Termination**: If enqueue fails, the request stream must transition into a failed state and terminate immediately. The generator rechecks the overflow state on its loop so an overflow surfaced after stream start still terminates the stream as `QueueOverflowError` rather than stalling or completing.
     - **Isolation**: The affected `request_id` is invalidated, but the broader `ProviderSession` must remain healthy.
 
 ### 5.2 Non-Blocking Callbacks
@@ -68,11 +68,11 @@ The pipeline is designed to handle providers that "rewrite" the full response te
 - **Format**: All events are normalized to OpenAI-compatible Server-Sent Events (SSE).
 - **Finalization**: Every successful stream MUST terminate with a literal `data: [DONE]` chunk.
 
-### 7.2 Terminal Browser Conditions
+### 7.2 Post-Header Terminal Conditions
 - **Before response start**: The request executor owns terminal browser loss and applies normal HTTP error policy. `BrowserDisconnectedError` retains its existing HTTP 502 mapping.
-- **After response start**: Once SSE status 200 and headers are sent, HTTP status cannot be rewritten. The SSE body iterator owns expected terminal browser conditions.
-- **Expected terminal conditions**: `BrowserDisconnectedError` and `BrowserShuttingDownError` terminate the iterator internally and MUST NOT escape into Starlette/AnyIO. No new SSE error event or schema is emitted.
-- **Terminal truncation**: A browser/page/context loss or forced shutdown ends the stream without `data: [DONE]` and logs `Stream terminated`, not `Stream completed`. Absence of `[DONE]` means the stream did not complete successfully; clients MUST NOT interpret it as successful completion.
+- **After response start**: Once SSE status 200 and headers are sent, HTTP status cannot be rewritten. The SSE body iterator owns expected terminal request conditions.
+- **Expected terminal conditions**: `BrowserDisconnectedError`, `BrowserShuttingDownError`, `BrowserGenerationMismatchError`, `QueueOverflowError`, and `ConversationBusyError` terminate the iterator internally and MUST NOT escape into Starlette/AnyIO. No new SSE error event or schema is emitted.
+- **Terminal truncation**: A browser/page/context loss, forced shutdown, generation mismatch, queue overflow, or conversation contention ends the stream without `data: [DONE]` and logs `Stream terminated`, not `Stream completed`. Absence of `[DONE]` means the stream did not complete successfully; clients MUST NOT interpret it as successful completion.
 
 Successful completion remains:
 

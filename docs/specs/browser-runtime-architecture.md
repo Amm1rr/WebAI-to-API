@@ -25,17 +25,36 @@ The `BrowserEngine` operates according to a strict state machine. Transitions in
 
 The runtime follows a strict ownership hierarchy. Resource cleanup must cascade down this chain.
 
-1. **BrowserEngine**: Global singleton. Owns the Playwright instance, Browser process, browser generation, shutdown intent/source, provider-session registry, and terminal lifecycle orchestration.
-2. **ProviderSession**: Created per provider. Owns the `BrowserContext`, `keepalive_page`, `PersistentTab` pages, lifecycle tasks, and active-request abort/signal handles.
+1. **BrowserEngine**: Global singleton. Owns the active `BrowserRuntime`, the Browser handle, browser generation, shutdown intent/source, provider-session registry, and terminal lifecycle orchestration.
+2. **BrowserRuntime**: Browser-process launch mechanics only. Owns the concrete driver instance and executes browser-process launch, connection, and close mechanics. Selected through `create_browser_runtime()` based on `[Browser] runtime`; the only supported value is `playwright`, producing `PlaywrightChromiumRuntime`. `BrowserRuntime` must NOT own lifecycle/recovery/shutdown policy.
+3. **ProviderSession**: Created per provider. Owns the `BrowserContext`, `keepalive_page`, `PersistentTab` pages, lifecycle tasks, and active-request abort/signal handles.
    - **Page Ownership**: `ProviderSession` is solely responsible for the creation, monitoring, and cleanup of its `keepalive_page`.
    - **Separation of Concerns**: `BrowserEngine` must not manipulate the `keepalive_page` directly outside of session teardown orchestration.
-3. **ManagedPage**: Request-scoped lease. Owns exactly one semaphore permit and potentially one `PersistentTab` lease.
-4. **PersistentTab**: Long-lived browser page. Owns its individual `_lock` and state.
-5. **BrowserRequestExecutor**: Owns one request lifecycle state, terminal event/error, request task, observer/queue tasks, and lease release through request cleanup.
+4. **ManagedPage**: Request-scoped lease. Owns exactly one semaphore permit and potentially one `PersistentTab` lease.
+5. **PersistentTab**: Long-lived browser page. Owns its individual `_lock` and state.
+6. **BrowserRequestExecutor**: Owns one request lifecycle state, terminal event/error, request task, observer/queue tasks, and lease release through request cleanup.
 
-### Authority Rules:
-- **Teardown Authority**: `BrowserEngine.close()` is the ONLY authoritative entry point for terminal shutdown. 
-- **Parent-Child Teardown**: ProviderSession resources close before the parent Browser, and the Browser closes before Playwright stops, during both replacement and terminal shutdown.
+### 2.1 BrowserRuntime Contract
+
+`BrowserRuntime` is the launch-mechanics boundary between `BrowserEngine` and the concrete browser driver. It exposes:
+
+- `start()`: initialize the underlying browser driver.
+- `launch_browser()`: launch a fresh browser instance and return its handle.
+- `bind_disconnect()`: register a callback for unexpected browser disconnect.
+- `is_browser_connected()`: report whether the browser transport is still connected.
+- `close_browser()`: best-effort, never-raising close of a browser instance.
+- `stop()`: tear down the driver; best-effort and idempotent.
+
+Ownership invariants:
+
+- **Mechanics Only**: A `BrowserRuntime` never initiates recovery or shutdown. Lifecycle authority (generation, shutdown, session coordination) stays with `BrowserEngine`.
+- **Current Implementation**: `PlaywrightChromiumRuntime` is the sole implementation, selected by `create_browser_runtime()` when `[Browser] runtime = playwright`. No other runtime value is supported; configuring one raises `ValueError`.
+- **Not an API Abstraction**: `BrowserRuntime` does NOT abstract page, context, or `PersistentTab` APIs. `ProviderSession` continues to own `BrowserContext` creation/closure, page/session resources, `storage_state` persistence, and conversation/session state. Runtime selection does not change that boundary.
+
+### 2.2 Authority Rules
+- **Teardown Authority**: `BrowserEngine.close()` is the ONLY authoritative entry point for terminal shutdown.
+- **Parent-Child Teardown**: ProviderSession resources close before the parent Browser, and the Browser closes before the runtime stops the driver, during both replacement and terminal shutdown.
+- **Runtime Delegation**: `BrowserEngine` performs browser-process lifecycle decisions but executes the mechanics through the `BrowserRuntime` boundary (e.g., `runtime.stop()`, `runtime.start()`, `runtime.launch_browser()`, `runtime.close_browser()`, `runtime.bind_disconnect()`). It does not drive Playwright launch/stop mechanics directly.
 - **Context Closure Authority**: Arbitrary callers and provider adapters must not close the context directly. ProviderSession lifecycle cleanup is the authorized BrowserContext owner.
 - **Cleanup Ownership**: `ManagedPage` is responsible for releasing its own permits and leases, even during request cancellation (must be wrapped in `asyncio.shield`).
 
@@ -84,8 +103,8 @@ Unhealthy-browser replacement follows this order:
 
 1. Detect unhealthy Browser under `management_lock`.
 2. Clean ProviderSessions bound to old lifecycle/resources and wait for in-progress cleanup.
-3. Close or skip old Browser, then stop old Playwright.
-4. Launch new Playwright and Browser.
+3. Close or skip old Browser via the runtime, then stop the driver via the runtime.
+4. Start the driver and launch a new Browser through the runtime.
 5. Increment `browser_generation` only after successful Browser launch.
 6. Set up ProviderSession contexts against the new generation.
 
@@ -109,10 +128,10 @@ Failed launch leaves the generation unchanged. ProviderSessions observe and stor
 
 ## 8. Terminal Browser Cleanup
 
-- If public Browser state confirms disconnection, explicit `browser.close()` is skipped.
+- If public Browser state confirms disconnection, explicit browser close is skipped.
 - A public Playwright close error is benign only when state confirms disconnection afterward.
 - If Browser remains connected, close failure remains a warning; generic non-Playwright close exceptions remain visible regardless of connection state.
-- Browser cleanup always precedes Playwright stop and uses no private Playwright exception or API.
+- Browser cleanup always precedes driver stop and uses no private Playwright exception or API. Both are executed through the `BrowserRuntime` boundary (`close_browser()`, `stop()`).
 
 ## 9. AI Agent Rules
 

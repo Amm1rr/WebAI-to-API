@@ -26,11 +26,12 @@ This document specifies the architectural governance, runtime contracts, and ope
 The system operates according to a strict ownership hierarchy and state machine.
 
 ### 2.1 Component Hierarchy
-1. **BrowserEngine**: Global singleton. Authoritative owner of Playwright, Browser, browser generation, shutdown intent/source, provider-session registry, and terminal orchestration.
-2. **ProviderSession**: Created per provider (Gemini, etc.). Authoritative owner of the `BrowserContext`, `keepalive_page`, PersistentTabs/pages, lifecycle tasks, active-request abort/signal handles, and session-scoped recovery logic.
-3. **AuthManager**: Provider-agnostic orchestrator for authentication lifecycle, concurrency locks, and background login tasks.
-4. **ManagedPage**: Request-scoped resource container. Authoritatively owns exactly one semaphore permit and one `PersistentTab` lease.
-5. **PersistentTab**: Long-lived browser page in the session registry. Owns its individual `_lock` and internal state.
+1. **BrowserEngine**: Global singleton. Authoritative owner of the active `BrowserRuntime`, Browser handle, browser generation, shutdown intent/source, provider-session registry, and terminal orchestration.
+2. **BrowserRuntime**: Browser-process launch mechanics only (start, launch, disconnect binding, connection checks, browser close, driver stop). Selected by `create_browser_runtime()` via `[Browser] runtime`; only `playwright` is supported (`PlaywrightChromiumRuntime`). Never owns recovery, session, or shutdown policy. It does not abstract Page/Context APIs.
+3. **ProviderSession**: Created per provider (Gemini, etc.). Authoritative owner of the `BrowserContext`, `keepalive_page`, PersistentTabs/pages, lifecycle tasks, active-request abort/signal handles, and session-scoped recovery logic.
+4. **AuthManager**: Provider-agnostic orchestrator for authentication lifecycle, concurrency locks, and background login tasks.
+5. **ManagedPage**: Request-scoped resource container. Authoritatively owns exactly one semaphore permit and one `PersistentTab` lease.
+6. **PersistentTab**: Long-lived browser page in the session registry. Owns its individual `_lock` and internal state.
 
 ### 2.2 Lifecycle & Ownership
 - **Generation Invalidation**: Tracks browser process generations to automatically invalidate stale contexts, `PersistentTab` objects, active leases, cached references, and request-scoped bridge state after a browser generation rollover or fatal disconnect.
@@ -73,7 +74,7 @@ Providers must implement:
 - **Ordered Processing**: Bridge events for a single `request_id` must be processed in strict FIFO order.
 - **Failure Isolation**: Bounded queue overflow or request-level errors result in terminal request failure but must not poison the broader `ProviderSession`.
 - **Bridge Cleanup**: Request-scoped bridge state MUST be deterministically removed after stream termination.
-- **Post-Header Terminal Streams**: Expected `BrowserDisconnectedError` and `BrowserShuttingDownError` must be handled inside the stream iterator after SSE headers are sent; do not let them escape to ASGI or emit `[DONE]` for terminal truncation.
+- **Post-Header Terminal Streams**: Expected terminal conditions (`BrowserDisconnectedError`, `BrowserShuttingDownError`, `BrowserGenerationMismatchError`, `QueueOverflowError`, `ConversationBusyError`) must be handled inside the stream iterator after SSE headers are sent; do not let them escape to ASGI or emit `[DONE]` for terminal truncation.
 
 ---
 
@@ -91,6 +92,7 @@ Providers must implement:
 Authoritative technical invariants and behavioral guarantees are codified in the following specifications. **If any summary in this guide conflicts with a detailed contract document, the contract document takes precedence.**
 
 - **[Concurrency Model](docs/specs/concurrency-model.md)**: Governs lock hierarchy, semaphore ownership, lease invalidation, cancellation safety, and background loop authority.
+- **[Browser Runtime Architecture](docs/specs/browser-runtime-architecture.md)**: Governs engine state machine, BrowserRuntime launch mechanics boundary, zombie Chromium/window liveness, and terminal browser cleanup.
 - **[Lifecycle and Recovery](docs/specs/lifecycle-and-recovery.md)**: Governs engine state machine, terminal shutdown invariants, generation rollover semantics, and authoritative recovery boundaries.
 - **[Provider Contract](docs/specs/provider-contract.md)**: Governs provider adapter responsibilities, page poisoning rules, page ownership boundaries, and escalation semantics.
 - **[Streaming Pipeline](docs/specs/streaming-pipeline.md)**: Governs SSE ordering guarantees, rewrite-resilient normalization, bridge callback lifecycle, and queue overflow semantics.
@@ -120,6 +122,7 @@ AI Agents working on this runtime MUST adhere to these strict constraints:
 
 ### 8.1 Key Directory Structure
 - `src/app/services/browser/`: Core engine, session, and tab management.
+- `src/app/services/browser/runtime/`: Browser launch mechanics (`BrowserRuntime`, `PlaywrightChromiumRuntime`, `create_browser_runtime()`).
 - `src/app/services/providers/`: Provider-specific implementation logic.
 - `docs/`: authoritative runtime contracts (normative specs).
 

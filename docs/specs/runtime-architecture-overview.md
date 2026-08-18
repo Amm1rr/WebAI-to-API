@@ -22,6 +22,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 
 ### 2. Browser Engine (`BrowserEngine`)
 - **Active Lifecycle Orchestration:** A global singleton managing the active Chromium process and coordinating cross-provider synchronization. Recovery is valid only within an active engine lifecycle; it is NOT a resurrection authority after terminal shutdown begins.
+- **Runtime Boundary:** Browser-process launch mechanics are delegated to a `BrowserRuntime` (`PlaywrightChromiumRuntime`, selected via `create_browser_runtime()` with `[Browser] runtime = playwright`). The engine owns lifecycle ordering and decisions; the runtime executes start/launch/close/stop mechanics. See [Browser Runtime Architecture](browser-runtime-architecture.md).
 - **Generation Invalidation:** Tracks browser process generations to automatically invalidate stale contexts, `PersistentTab` objects, active leases, cached page references, and request-scoped bridge state after a process restart or fatal disconnect. Newly created sessions are not associated with any generation until their first successful context initialization.
 - **Terminal Shutdown Authority:** The authoritative coordinator for irreversible shutdown. It ensures all background activity is halted and requests are drained before process termination.
 
@@ -88,6 +89,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 This document provides a high-level strategic overview. Detailed behavioral guarantees and implementation invariants are codified in the following specifications. **The runtime contracts are authoritative; if this overview conflicts with a detailed contract, the specific contract document takes precedence.**
 
 - **[Concurrency Model](concurrency-model.md)**: Semaphore ownership, lock hierarchy, and cancellation safety.
+- **[Browser Runtime Architecture](browser-runtime-architecture.md)**: Engine state machine and the BrowserRuntime launch-mechanics boundary.
 - **[Provider Contract](provider-contract.md)**: Ownership boundaries for logical providers and their technical adapters, poisoning rules, and escalation semantics.
 - **[Streaming Pipeline](streaming-pipeline.md)**: Event flow, normalization, and rewrite-resilience.
 - **[Error Policy](error-policy.md)**: Runtime error semantics, classification boundaries, and recovery authority.
