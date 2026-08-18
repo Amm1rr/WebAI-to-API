@@ -33,6 +33,16 @@ This document specifies the concurrency contracts, resource ownership, and synch
     - Engine shutdown is initiated.
 - **Enforcement**: Operations on invalid leases MUST fail fast.
 
+### 1.6 Browser Conversation Ownership
+
+This contract governs `conversation_id` ownership for browser-native requests (e.g., Gemini Playwright). It is independent of the Gemini WebAPI `SessionManager.lock` semantics in [Section 6](#6-gemini-conversation-sessions).
+
+- **Single Owner Invariant**: An active browser conversation has exactly one request owner at any time. The owner is recorded in the session's `active_conversations` map, guarded by `conversation_lock`.
+- **Competing Registration**: A request that registers an already-owned active `conversation_id` is rejected with `ConversationBusyError`. Pre-header this maps to HTTP 409; post-header it terminates the stream internally (see [Error Policy](error-policy.md)).
+- **Winner Preservation**: When a collision occurs, the current winner remains the owner. The winner's registry entry and tab are never mutated or displaced by the losing request.
+- **Conditional Release**: Ownership release must be conditional on request identity. A cleanup path only removes the ownership entry if it still maps to its own request id; it must never unregister or mutate another request's ownership.
+- **Losing-Request Cleanup**: A losing request's cleanup must not unregister the winner's ownership or alter the winner's `PersistentTab`/registry state.
+
 ## 2. Lock Hierarchy & Deadlock Prevention
 
 Locks MUST be acquired in the following order. Acquiring out-of-order is strictly **forbidden** and results in deterministic deadlocks.

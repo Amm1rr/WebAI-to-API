@@ -43,6 +43,8 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     # Set default sections and values if they don't exist
     if "Browser" not in config:
         config["Browser"] = {"name": "chrome"}
+    if "runtime" not in config["Browser"]:
+        config["Browser"]["runtime"] = "playwright"
     if "Cookies" not in config:
         config["Cookies"] = {}
     if "Proxy" not in config:

@@ -46,7 +46,7 @@ except ImportError as exc:
     raise
 
 from app.services.browser.engine import get_browser_engine
-from app.services.browser.adapters.scripts.gemini_scripts import SELECTORS
+from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS
 from app.logger import logger
 
 

@@ -55,10 +55,15 @@ Failures are formally classified into four levels of impact:
 ### 3.5 Browser Resource Loss During a Request
 - `BrowserDisconnectedError` represents terminal browser/page/context loss for the active request. The terminal signal wakes request waits immediately and preserves the existing HTTP 502 mapping.
 - Before streaming response headers are sent, this error is mapped through the normal HTTP 502 policy. After SSE status 200 is sent, the status cannot be rewritten; the stream iterator terminates cleanly instead.
-- Post-header `BrowserDisconnectedError` and `BrowserShuttingDownError` must not escape into Starlette/AnyIO as an ASGI application error and must not emit `[DONE]`.
-- If a request already recorded that terminal state, it takes precedence over a later raw Playwright close error caused by the same resource loss.
+- Post-header `BrowserDisconnectedError`, `BrowserShuttingDownError`, `BrowserGenerationMismatchError`, `QueueOverflowError`, and `ConversationBusyError` must not escape into Starlette/AnyIO as an ASGI application error and must not emit `[DONE]`.
+- If a request already recorded a terminal `BrowserDisconnectedError` or `BrowserShuttingDownError`, that recorded terminal state takes precedence over a later raw Playwright close error caused by the same resource loss during lazy conversation registration.
 - Raw Playwright errors without recorded terminal browser-disconnect state retain existing classification, including the existing 503 mapping for a closed page/context.
 - A true timeout remains a timeout and maps through existing timeout policy; browser death is not a timeout fallback.
+
+### 3.6 Conversation Contention
+- A competing request registering the same `conversation_id` as an already-owned active conversation is rejected with `ConversationBusyError`.
+- **Pre-header**: `ConversationBusyError` maps to HTTP 409 Conflict before streaming headers are sent.
+- **Post-header**: `ConversationBusyError` is an expected terminal request condition handled inside the stream iterator; the stream terminates without `[DONE]` and without escaping to ASGI.
 
 ---
 
@@ -93,6 +98,7 @@ The runtime implements a dedicated, minimal, lifecycle-scoped exception hierarch
   - `RequestError`: Base exception for request-scoped failures.
     - `LeaseInvalidatedError`: Raised when attempting to operate on an invalidated or stale tab lease.
     - `QueueOverflowError`: Raised when the request-scoped event buffer reaches saturation limit during bridge enqueuing.
+    - `ConversationBusyError`: Raised when a competing request registers the same active `conversation_id` that already has an owner.
 
 **Invariant**: Exception classification MUST reflect the runtime scope and recovery authority boundaries. Exception hierarchy is strictly scoped to lifecycle and resource-management concerns; it does not model domain-level or business-level failures.
 

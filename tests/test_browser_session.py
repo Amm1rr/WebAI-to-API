@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from playwright.async_api import Error as PlaywrightError
 
-from app.services.browser.errors import BrowserDisconnectedError
+from app.services.browser.errors import BrowserDisconnectedError, ConversationBusyError
 from app.services.browser.session import ProviderSession
 from app.services.browser.tab import TabStatus
 from app.services.providers.gemini.auth_selector import GeminiAuthCandidate
@@ -411,3 +411,19 @@ async def test_close_resources_logs_unexpected_context_close_error(caplog):
 
     assert session.context is None
     assert "Failed to close browser context: unexpected close failure" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_acquire_lease_pre_header_busy_conversation_rejected():
+    """Verifies pre-header rejection: acquiring a lease for a conversation that
+    is already active under a different request raises ConversationBusyError.
+    """
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "test_provider")
+    session.active_conversations["existing_cid"] = "req_owner"
+
+    with pytest.raises(ConversationBusyError) as excinfo:
+        await session.acquire_lease(conversation_id="existing_cid", request_id="req_new")
+
+    assert "busy" in str(excinfo.value)
+    assert session.active_conversations["existing_cid"] == "req_owner"

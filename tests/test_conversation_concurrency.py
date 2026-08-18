@@ -110,6 +110,92 @@ async def test_stale_cleanup_ownership_overwrite_protection(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_register_collision_preserves_winner(tmp_path):
+    """Verifies that when Request B attempts to lazily register a conversation
+    already actively owned by Request A, B fails with ConversationBusyError and
+    A's ownership plus registry tab remain fully intact.
+    """
+    mock_engine = Mock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+
+    session = ProviderSession(mock_engine, "test_provider")
+    session.last_browser_generation = 1
+    session.ensure_healthy = AsyncMock()
+    mock_page = Mock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate = AsyncMock()
+    session.context = Mock()
+    session.context.new_page = AsyncMock(return_value=mock_page)
+    session.engine.enforce_soft_cap = AsyncMock()
+
+    cid = "shared_conversation"
+    req_a = "req_a"
+    req_b = "req_b"
+
+    # Request A acquires and registers the conversation
+    lease_a = await session.acquire_lease(conversation_id=cid, request_id=req_a)
+    tab_a = await session.register_conversation(cid, lease_a)
+    assert session.active_conversations[cid] == req_a
+    assert session.conversation_registry[cid] is tab_a
+
+    # Request B (fresh, lazy) attempts to register the same conversation
+    lease_b = await session.acquire_lease(request_id=req_b)
+    with pytest.raises(ConversationBusyError) as excinfo:
+        await session.register_conversation(cid, lease_b)
+
+    assert "busy" in str(excinfo.value)
+    # Winner A remains owner; winner tab/registry intact
+    assert session.active_conversations[cid] == req_a
+    assert session.conversation_registry[cid] is tab_a
+
+
+@pytest.mark.asyncio
+async def test_loser_cleanup_does_not_unregister_winner(tmp_path):
+    """Verifies that a losing request's cleanup (post failed lazy registration)
+    cannot clear or mutate the winner's conversation ownership or registry tab.
+    """
+    mock_engine = Mock()
+    mock_engine.max_pages = 5
+    mock_engine.user_data_dir = str(tmp_path)
+    mock_engine.browser_generation = 1
+    mock_engine.is_shutting_down = False
+
+    session = ProviderSession(mock_engine, "test_provider")
+    session.last_browser_generation = 1
+    session.ensure_healthy = AsyncMock()
+    mock_page = Mock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate = AsyncMock()
+    mock_page.close = AsyncMock()
+    session.context = Mock()
+    session.context.new_page = AsyncMock(return_value=mock_page)
+    session.engine.enforce_soft_cap = AsyncMock()
+
+    cid = "shared_conversation"
+    req_a = "req_a"
+    req_b = "req_b"
+
+    # Request A owns the conversation
+    lease_a = await session.acquire_lease(conversation_id=cid, request_id=req_a)
+    tab_a = await session.register_conversation(cid, lease_a)
+
+    # Request B fails lazy registration
+    lease_b = await session.acquire_lease(request_id=req_b)
+    with pytest.raises(ConversationBusyError):
+        await session.register_conversation(cid, lease_b)
+
+    # Losing request cleanup: close its temporary lease
+    await lease_b.close()
+
+    # Winner ownership and registry tab must remain present
+    assert session.active_conversations[cid] == req_a
+    assert session.conversation_registry[cid] is tab_a
+
+
+@pytest.mark.asyncio
 async def test_lock_separation_and_deadlock_prevention(tmp_path):
     """Verifies that ownership rollback/finalization paths do not require registry access,
     do not acquire registry_lock, and cannot deadlock with registry operations.

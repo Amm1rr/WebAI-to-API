@@ -120,6 +120,7 @@ The browser runtime manages browser-backed execution.
 Responsibilities:
 
 * `BrowserEngine`: browser process lifecycle, generation invalidation, terminal shutdown
+* `BrowserRuntime`: browser-process launch mechanics (start, launch, disconnect binding, connection checks, browser close, driver stop); current implementation `PlaywrightChromiumRuntime`, selected via `create_browser_runtime()` with `[Browser] runtime = playwright`
 * `ProviderSession`: browser context lifecycle, keepalive page ownership, provider-scoped recovery
 * `BrowserRequestExecutor`: request-scoped execution, bridge lifecycle, streaming integration, cleanup
 * `AuthManager`: status caching and orchestration
@@ -218,6 +219,7 @@ Provider auth strategies own selection and fallback policy.
 Detailed runtime guarantees are documented separately:
 
 * [Runtime Architecture Overview](specs/runtime-architecture-overview.md)
+* [Browser Runtime Architecture](specs/browser-runtime-architecture.md)
 * [Provider Contract](specs/provider-contract.md)
 * [Concurrency Model](specs/concurrency-model.md)
 * [Streaming Pipeline](specs/streaming-pipeline.md)

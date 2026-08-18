@@ -13,7 +13,7 @@ def make_session():
     engine.is_shutting_down = False
     engine.max_pages = 2
     engine.browser = MagicMock()
-    engine.browser.is_connected.return_value = True
+    engine.runtime.is_browser_connected.return_value = True
 
     session = ProviderSession(engine, "test_provider")
     session.lease_timeout = 0.1

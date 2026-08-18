@@ -3,7 +3,7 @@ import pytest_asyncio
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
-from app.services.browser.adapters.scripts.gemini_scripts import (
+from app.services.providers.gemini.scripts.gemini_scripts import (
     STOP_OBSERVER_SCRIPT,
     STREAM_EXTRACTOR_SCRIPT,
 )

@@ -27,7 +27,7 @@ conversation_snapshots.db-wal
 conversation_snapshots.db-shm
 
 # Runtime state
-runtime/
+/runtime/
 
 # Legacy auth directory (backward compatibility)
 auth_state/

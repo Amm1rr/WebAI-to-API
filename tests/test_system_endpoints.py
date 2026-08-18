@@ -12,7 +12,7 @@ def mock_engine_instance():
         engine = MagicMock()
         engine.is_shutting_down = False
         engine.browser = MagicMock()
-        engine.browser.is_connected.return_value = True
+        engine.runtime.is_browser_connected.return_value = True
         engine.browser_generation = 1
         engine.is_bootstrap = False
         engine.sessions = {}
@@ -80,7 +80,7 @@ def test_ready_503_session_dead(mock_engine_instance):
     assert response.status_code == 503
 
 def test_ready_503_browser_disconnected(mock_engine_instance):
-    mock_engine_instance.browser.is_connected.return_value = False
+    mock_engine_instance.runtime.is_browser_connected.return_value = False
     
     # Even if session is alive, if browser is disconnected, it's not ready
     mock_session = MagicMock()

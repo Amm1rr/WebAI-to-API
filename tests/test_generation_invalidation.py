@@ -14,6 +14,7 @@ def make_engine(generation=1):
     engine = MagicMock()
     engine.max_pages = 3
     engine.browser = browser
+    engine.runtime.is_browser_connected.return_value = True
     engine.browser_generation = generation
     engine.is_shutting_down = False
     engine.management_lock = asyncio.Lock()

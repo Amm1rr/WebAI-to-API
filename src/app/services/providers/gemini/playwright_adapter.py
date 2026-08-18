@@ -5,8 +5,8 @@ from fastapi import HTTPException
 from playwright.async_api import Error as PlaywrightError, Page, TimeoutError as PlaywrightTimeoutError
 
 from app.services.browser.engine import get_browser_engine
-from app.services.browser.adapters.gemini_adapter import GeminiProviderAdapter
-from app.services.browser.adapters.scripts.gemini_scripts import (
+from app.services.providers.gemini.browser_adapter import GeminiProviderAdapter
+from app.services.providers.gemini.scripts.gemini_scripts import (
     SELECTORS,
     STOP_OBSERVER_SCRIPT,
     STREAM_EXTRACTOR_SCRIPT,
@@ -15,8 +15,8 @@ from app.services.browser.errors import GatedModelError, ModelNotFoundError, Tra
 from app.services.browser.request_executor import (
     BrowserRequestExecutor,
     BrowserRequestExecutorHooks,
-    PlaywrightAdapterConfig,
-    PlaywrightRequestState,
+    BrowserRequestConfig,
+    BrowserRequestState,
 )
 from app.services.browser.tab import TabStatus
 from app.config import CONFIG
@@ -33,7 +33,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
     def __init__(self, provider):
         self.provider = provider
-        self.config = PlaywrightAdapterConfig.load()
+        self.config = BrowserRequestConfig.load()
         self.executor = BrowserRequestExecutor(
             config=self.config,
             hooks=BrowserRequestExecutorHooks(
@@ -73,7 +73,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
     def _timeout(self, delay: float):
         return asyncio.timeout(delay)
 
-    async def _navigate(self, page: Page, state: PlaywrightRequestState, request, config: PlaywrightAdapterConfig) -> None:
+    async def _navigate(self, page: Page, state: BrowserRequestState, request, config: BrowserRequestConfig) -> None:
         if state.reused_conversation:
             target_url = f"https://gemini.google.com/app/{state.conversation_id}"
             if page.url != target_url:
@@ -100,7 +100,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
                 if state.active_tab:
                     state.active_tab.heartbeat("navigation_end")
 
-    async def _wait_for_ready_ui(self, page: Page, state: PlaywrightRequestState, config: PlaywrightAdapterConfig) -> None:
+    async def _wait_for_ready_ui(self, page: Page, state: BrowserRequestState, config: BrowserRequestConfig) -> None:
         input_locator = page.locator(SELECTORS["INPUT"]).first
         if state.active_tab:
             state.active_tab.heartbeat("input_wait")
@@ -129,7 +129,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
         browser_adapter: GeminiProviderAdapter,
         page: Page,
         request,
-        state: PlaywrightRequestState,
+        state: BrowserRequestState,
     ) -> None:
         provider_options = getattr(request, "provider_options", None)
         gemini_options = getattr(provider_options, "gemini", None) if provider_options else None
@@ -151,7 +151,7 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
     async def _cleanup(self, observer_task, state, lease, session):
         await self.executor._cleanup(observer_task, state, lease, session)
 
-    async def _orchestrate_model_selection(self, browser_adapter: GeminiProviderAdapter, page: Page, model_id: str, state: PlaywrightRequestState):
+    async def _orchestrate_model_selection(self, browser_adapter: GeminiProviderAdapter, page: Page, model_id: str, state: BrowserRequestState):
         if not model_id:
             return
 
