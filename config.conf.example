@@ -8,6 +8,9 @@
 # Supported options: chrome, firefox, brave, edge, safari
 [Browser]
 name = chrome
+# Browser runtime backend used by the runtime engine.
+# Supported options: playwright
+runtime = playwright
 
 # --- Authentication Methods ---
 # WebAI-to-API supports multiple authentication approaches:

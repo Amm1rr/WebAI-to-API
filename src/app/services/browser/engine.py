@@ -1,21 +1,14 @@
-import os
 import asyncio
-import json
 import time
-import re
-import uuid
-import weakref
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from collections import OrderedDict
-from playwright.async_api import async_playwright, Playwright, BrowserContext, Page, Browser, Error as PlaywrightError
+from typing import Optional, Dict, Any
 from app.logger import logger
-from app.config import CONFIG, get_default_playwright_cache_dir
+from app.config import CONFIG
 
 from app.services.browser.errors import BrowserDisconnectedError
 from app.services.browser.tab import TabStatus, PersistentTab, ManagedPage
 
 from app.services.browser.session import ProviderSession
+from app.services.browser.runtime import BrowserRuntime, create_browser_runtime
 
 class BrowserEngine:
     """
@@ -26,19 +19,17 @@ class BrowserEngine:
     _SHUTDOWN_SOURCES = {"application", "browser-disconnect", "manual/internal"}
 
     def __init__(self, headless: Optional[bool] = None, is_bootstrap: bool = False):
-        self.playwright: Optional[Playwright] = None
-        self.browser: Optional[Browser] = None
+        self.browser: Optional[Any] = None
         self.browser_generation = 0
         self.sessions: Dict[str, ProviderSession] = {}
         self.sessions_lock = asyncio.Lock()
         self.management_lock = asyncio.Lock()
-        self.user_data_dir = get_default_playwright_cache_dir()
-        os.makedirs(self.user_data_dir, exist_ok=True)
         self.is_bootstrap = is_bootstrap
         if headless is not None:
             self.headless = headless
         else:
             self.headless = CONFIG["Playwright"].getboolean("headless", False)
+        self.runtime: BrowserRuntime = create_browser_runtime(headless=self.headless)
         self.max_pages = CONFIG["Playwright"].getint("max_concurrent_pages", 5)
         self.max_total_tabs = CONFIG["Playwright"].getint("max_total_tabs", 50)
         self.is_shutting_down = False
@@ -102,64 +93,6 @@ class BrowserEngine:
             )
             await session.close_resources(save_state=False)
 
-    async def _close_browser_best_effort(self, phase: str) -> None:
-        if not self.browser:
-            return
-
-        browser = self.browser
-        try:
-            connected = browser.is_connected()
-        except Exception as inspection_error:
-            logger.warning(
-                "BrowserEngine: Failed to inspect browser connection before close: %s",
-                inspection_error,
-                exc_info=True,
-                extra={"phase": phase, "generation": self.browser_generation},
-            )
-            connected = True
-
-        if not connected:
-            logger.debug(
-                "BrowserEngine: Skipping browser close; transport already disconnected.",
-                extra={"phase": phase, "generation": self.browser_generation},
-            )
-            return
-
-        try:
-            await browser.close()
-        except PlaywrightError as close_error:
-            try:
-                connected_after_error = browser.is_connected()
-            except Exception as inspection_error:
-                logger.warning(
-                    "BrowserEngine: Browser close failed (%s); post-close connection inspection failed: %s",
-                    close_error,
-                    inspection_error,
-                    exc_info=(type(close_error), close_error, close_error.__traceback__),
-                    extra={"phase": phase, "generation": self.browser_generation},
-                )
-                return
-
-            if connected_after_error:
-                logger.warning(
-                    "BrowserEngine: Error closing browser: %s",
-                    close_error,
-                    exc_info=True,
-                    extra={"phase": phase, "generation": self.browser_generation},
-                )
-            else:
-                logger.debug(
-                    "BrowserEngine: Browser transport disconnected during close.",
-                    extra={"phase": phase, "generation": self.browser_generation},
-                )
-        except Exception as close_error:
-            logger.warning(
-                "BrowserEngine: Error closing browser: %s",
-                close_error,
-                exc_info=(type(close_error), close_error, close_error.__traceback__),
-                extra={"phase": phase, "generation": self.browser_generation},
-            )
-
     def _track_disconnect_close_task(self, task: asyncio.Task) -> None:
         self._disconnect_close_task = task
 
@@ -192,29 +125,22 @@ class BrowserEngine:
             logger.debug("BrowserEngine: Initialization skipped - engine is shutting down.", extra={"generation": self.browser_generation})
             return
 
-        if not self.playwright or not self.browser or not self.browser.is_connected():
+        if not self.browser or not self.runtime.is_browser_connected(self.browser):
             logger.info("BrowserEngine: Initializing Browser...", extra={"generation": self.browser_generation})
 
             await self._close_sessions_before_browser_replacement()
             
             if self.browser:
-                await self._close_browser_best_effort("replacement")
-            if self.playwright:
-                try: 
-                    await self.playwright.stop()
-                except Exception as e:
-                    logger.debug(f"BrowserEngine: Best-effort playwright stop failed: {e}", extra={"generation": self.browser_generation})
+                await self.runtime.close_browser(self.browser, "replacement")
+            await self.runtime.stop()
             
             try:
-                self.playwright = await async_playwright().start()
-                self.browser = await self.playwright.chromium.launch(
-                    headless=self.headless,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-                )
+                await self.runtime.start()
+                self.browser = await self.runtime.launch_browser()
                 
                 # Bind disconnect listener for manual closure detection
                 self._disconnect_handled = False
-                self.browser.on("disconnected", lambda b: self._on_browser_disconnected())
+                self.runtime.bind_disconnect(self.browser, lambda: self._on_browser_disconnected())
                 
                 self.browser_generation += 1
                 logger.info("BrowserEngine: New generation active.", extra={"generation": self.browser_generation})
@@ -399,23 +325,14 @@ class BrowserEngine:
                 
                 if self.browser:
                     logger.info("BrowserEngine: Closing browser process.", extra={"generation": self.browser_generation})
-                    await self._close_browser_best_effort("terminal")
+                    await self.runtime.close_browser(self.browser, "terminal")
                 else:
                     logger.info("BrowserEngine: No browser process to close.", extra={"generation": self.browser_generation})
                 
-                if self.playwright:
-                    try: 
-                        logger.info("BrowserEngine: Stopping playwright.", extra={"generation": self.browser_generation})
-                        await self.playwright.stop()
-                        logger.info("BrowserEngine: Playwright instance stopped successfully.", extra={"generation": self.browser_generation})
-                    except Exception as e:
-                        logger.warning(f"BrowserEngine: Error stopping playwright: {e}", exc_info=True, extra={"generation": self.browser_generation})
-                else:
-                    logger.info("BrowserEngine: No playwright instance to stop.", extra={"generation": self.browser_generation})
+                await self.runtime.stop()
                 
                 self.sessions.clear()
                 self.browser = None
-                self.playwright = None
                 logger.info("BrowserEngine: Shutdown complete.", extra={"generation": self.browser_generation})
         except Exception as e:
             logger.error(f"BrowserEngine: Shutdown failed midway: {e}", exc_info=True)
