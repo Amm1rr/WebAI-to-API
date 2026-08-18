@@ -3,6 +3,7 @@ import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from types import SimpleNamespace
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from playwright.async_api import Error as PlaywrightError
@@ -17,7 +18,10 @@ from app.services.browser.errors import GatedModelError, ModelNotFoundError, Tra
 from app.services.providers.atlas.provider import AtlasProvider
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.temporary_chat import _resolve_temporary_chat_model
-from app.services.providers.gemini import playwright_adapter as playwright_module
+from app.services.providers.gemini import shared as shared_module
+from app.services.providers.gemini.session_manager import SessionRegistry, SessionManager
+from app.services.providers.gemini.persistence import serialize_session_state
+from app.services.providers.gemini.client import GeminiGenerationUnavailableError
 
 
 def make_request(**kwargs):
@@ -62,8 +66,8 @@ def test_provider_options_schema_accepts_extended_thinking_and_defaults_off():
 async def test_extended_thinking_config_precedence(monkeypatch, config_value, request_value, expected):
     config = configparser.ConfigParser()
     if config_value is not None:
-        config["GeminiPlaywright"] = {"extended_thinking": config_value}
-    monkeypatch.setattr(playwright_module, "CONFIG", config)
+        config["Gemini"] = {"extended_thinking": config_value}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
 
     provider = GeminiProvider()
     browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
@@ -79,24 +83,28 @@ async def test_extended_thinking_config_precedence(monkeypatch, config_value, re
 
 
 @pytest.mark.asyncio
-async def test_gemini_playwright_config_does_not_affect_webapi(monkeypatch):
+async def test_missing_gemini_config_key_defaults_off(monkeypatch):
     config = configparser.ConfigParser()
-    config["GeminiPlaywright"] = {"extended_thinking": "true"}
-    monkeypatch.setattr(playwright_module, "CONFIG", config)
+    config["Gemini"] = {}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
 
     provider = GeminiProvider()
-    provider.webapi_adapter.chat_completions = AsyncMock(return_value={"ok": True})
-    result = await provider.chat_completions(make_request(model="gemini-3-flash"))
+    browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
+    await provider.playwright_adapter._configure_request_options(
+        browser_adapter,
+        object(),
+        make_request(),
+        None,
+    )
 
-    assert result == {"ok": True}
-    provider.webapi_adapter.chat_completions.assert_awaited_once()
+    assert browser_adapter.set_extended_thinking.await_args.args[1] is False
 
 
 @pytest.mark.asyncio
-async def test_missing_gemini_playwright_config_key_defaults_off(monkeypatch):
+async def test_legacy_gemini_playwright_config_has_no_effect(monkeypatch):
     config = configparser.ConfigParser()
-    config["GeminiPlaywright"] = {}
-    monkeypatch.setattr(playwright_module, "CONFIG", config)
+    config["GeminiPlaywright"] = {"extended_thinking": "true"}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
 
     provider = GeminiProvider()
     browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
@@ -125,17 +133,6 @@ async def test_http_schema_errors_are_422():
             assert response.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_gemini_webapi_rejects_playwright_options():
-    provider = GeminiProvider()
-    provider.webapi_adapter.chat_completions = AsyncMock()
-    with pytest.raises(HTTPException) as error:
-        await provider.chat_completions(
-            make_request(model="gemini-3-flash", provider_options={"gemini": {"extended_thinking": True}})
-        )
-    assert error.value.status_code == 400
-
-
 def test_gemini_temporary_webapi_rejects_playwright_options():
     with pytest.raises(HTTPException) as error:
         _resolve_temporary_chat_model(
@@ -143,6 +140,231 @@ def test_gemini_temporary_webapi_rejects_playwright_options():
             MagicMock(),
         )
     assert error.value.status_code == 400
+
+
+def _make_webapi_mocks(mocker, registry=None):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
+    if registry is None:
+        registry = mocker.Mock(spec=SessionRegistry)
+    mock_registry = registry
+    mock_manager = mocker.Mock(spec=SessionManager)
+    mock_manager.get_response_stateful = mocker.AsyncMock(
+        return_value=(SimpleNamespace(text="response"), True)
+    )
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+    return mock_client, mock_registry, mock_manager
+
+
+def _make_webapi_request(**kwargs):
+    from app.schemas.request import OpenAIChatRequest
+    defaults = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "model": "gemini-3-flash",
+        "conversation_id": "test_token_XYZ",
+        "stream": False,
+    }
+    defaults.update(kwargs)
+    return OpenAIChatRequest(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_webapi_buffered_request_override_true(mocker, install_gemini_client):
+    mock_client, mock_registry, mock_manager = _make_webapi_mocks(mocker)
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    result = await provider.chat_completions(
+        _make_webapi_request(provider_options={"gemini": {"extended_thinking": True}})
+    )
+
+    assert result["choices"][0]["message"]["content"] == "response"
+    mock_manager.get_response_stateful.assert_awaited_once()
+    assert mock_manager.get_response_stateful.await_args.kwargs["extended_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_webapi_buffered_request_override_false(mocker, install_gemini_client, monkeypatch):
+    config = configparser.ConfigParser()
+    config["Gemini"] = {"extended_thinking": "true"}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
+
+    mock_client, mock_registry, mock_manager = _make_webapi_mocks(mocker)
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    await provider.chat_completions(
+        _make_webapi_request(provider_options={"gemini": {"extended_thinking": False}})
+    )
+
+    assert mock_manager.get_response_stateful.await_args.kwargs["extended_thinking"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("config_value", "expected"),
+    [("true", True), ("false", False)],
+)
+async def test_webapi_buffered_fallback_to_shared_config(mocker, install_gemini_client, monkeypatch, config_value, expected):
+    config = configparser.ConfigParser()
+    config["Gemini"] = {"extended_thinking": config_value}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
+
+    mock_client, mock_registry, mock_manager = _make_webapi_mocks(mocker)
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    await provider.chat_completions(_make_webapi_request())
+
+    assert mock_manager.get_response_stateful.await_args.kwargs["extended_thinking"] is expected
+
+
+@pytest.mark.asyncio
+async def test_webapi_progressive_streaming_propagation(mocker, install_gemini_client):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+
+    received = {}
+
+    async def mock_generator(*args, **kwargs):
+        received.update(kwargs)
+        yield {"type": "chunk", "text_delta": "delta", "is_reused": True}
+        yield {
+            "type": "final",
+            "response": SimpleNamespace(text="response", images=[], videos=[], media=[], thoughts="hidden"),
+            "is_reused": True,
+        }
+
+    mock_manager.get_streaming_response_stateful = mock_generator
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(
+        _make_webapi_request(
+            stream=True,
+            provider_options={"gemini": {"extended_thinking": True}},
+        )
+    )
+    assert response is not None
+    async for _ in response.body_iterator:
+        pass
+    assert received["extended_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_session_manager_progressive_passes_extended_thinking_to_upstream(mocker, install_registry_generation):
+    client = mocker.Mock()
+    session = mocker.Mock()
+    received = {}
+
+    async def send_message_stream(**kwargs):
+        received.update(kwargs)
+        yield SimpleNamespace(text_delta="delta")
+
+    session.send_message_stream = send_message_stream
+    client.start_chat.return_value = session
+    generation = install_registry_generation(client)
+    manager = SessionManager(client, generation)
+
+    async for _ in manager.get_streaming_response_stateful(
+        "model",
+        [{"content": "hello"}],
+        "",
+        extended_thinking=True,
+    ):
+        pass
+
+    assert received["extended_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_webapi_tool_call_buffered_path_propagation(mocker, install_gemini_client):
+    mock_client, mock_registry, mock_manager = _make_webapi_mocks(mocker)
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(
+        _make_webapi_request(
+            stream=True,
+            tools=[{"type": "function", "function": {"name": "lookup", "description": "look up"}}],
+            provider_options={"gemini": {"extended_thinking": True}},
+        )
+    )
+    assert response is not None
+    mock_manager.get_response_stateful.assert_awaited_once()
+    assert mock_manager.get_response_stateful.await_args.kwargs["extended_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_webapi_generation_retry_preserves_extended_thinking(mocker, install_gemini_client):
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
+    mock_registry = mocker.Mock(spec=SessionRegistry)
+    mock_manager = mocker.Mock(spec=SessionManager)
+    mock_manager.get_response_stateful = mocker.AsyncMock(
+        side_effect=[GeminiGenerationUnavailableError("generation retired"), (SimpleNamespace(text="response"), True)]
+    )
+    mock_registry.get_session = mocker.AsyncMock(return_value=mock_manager)
+    mock_registry.save_session_snapshot = mocker.AsyncMock()
+
+    install_gemini_client(mock_client)
+    mocker.patch("app.services.providers.gemini.webapi_adapter.get_gemini_chat_registry", return_value=mock_registry)
+
+    provider = GeminiProvider()
+    result = await provider.chat_completions(
+        _make_webapi_request(provider_options={"gemini": {"extended_thinking": True}})
+    )
+
+    assert result["choices"][0]["message"]["content"] == "response"
+    calls = mock_manager.get_response_stateful.await_args_list
+    assert len(calls) == 2
+    assert all(call.kwargs["extended_thinking"] is True for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_reused_session_switches_extended_thinking_without_rebuild(mocker, install_registry_generation):
+    client = mocker.Mock()
+    session = mocker.Mock()
+    received = []
+    session.send_message = mocker.AsyncMock(side_effect=lambda **kwargs: received.append(kwargs.get("extended_thinking")) or SimpleNamespace(text="ok"))
+    client.start_chat.return_value = session
+    generation = install_registry_generation(client)
+    registry = SessionRegistry(client, generation=generation)
+    manager = await registry.get_session("reused-conversation")
+
+    await manager.get_response_stateful("model", [{"content": "first"}], "", extended_thinking=True)
+    await manager.get_response_stateful("model", [{"content": "second"}], "", extended_thinking=False)
+
+    assert received == [True, False]
+    client.start_chat.assert_called_once_with(model="model", gem=None)
+    assert manager.session is session
+
+
+def test_session_snapshot_state_has_no_extended_thinking():
+    session = SimpleNamespace(
+        gem=None,
+        model="gemini-3-flash",
+        metadata=["cid", "rid", "rcid", "context"],
+    )
+    payload = serialize_session_state(session)
+    assert "extended_thinking" not in payload
+
+    manager = SessionManager(None, client_generation=0)
+    assert not hasattr(manager, "extended_thinking")
 
 
 @pytest.mark.asyncio
@@ -352,8 +574,8 @@ async def test_failed_extended_thinking_verification_is_explicit(extended_page):
 @pytest.mark.asyncio
 async def test_request_option_normalization_forces_off_when_omitted_or_false(monkeypatch):
     config = configparser.ConfigParser()
-    config["GeminiPlaywright"] = {"extended_thinking": "false"}
-    monkeypatch.setattr(playwright_module, "CONFIG", config)
+    config["Gemini"] = {"extended_thinking": "false"}
+    monkeypatch.setattr(shared_module, "CONFIG", config)
 
     provider = GeminiProvider()
     browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()

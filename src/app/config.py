@@ -88,13 +88,16 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     if "Gemini" not in config:
         config["Gemini"] = {
             "backend": "webapi",
-            "default_model": legacy_gemini_model or "gemini-3-flash"
+            "default_model": legacy_gemini_model or "gemini-3-flash",
+            "extended_thinking": "false",
         }
     else:
         if "backend" not in config["Gemini"]:
             config["Gemini"]["backend"] = "webapi"
         if "default_model" not in config["Gemini"]:
             config["Gemini"]["default_model"] = legacy_gemini_model or "gemini-3-flash"
+        if "extended_thinking" not in config["Gemini"]:
+            config["Gemini"]["extended_thinking"] = "false"
 
     # Validate Gemini backend
     gemini_backend = config["Gemini"].get("backend", "webapi").lower().strip()
@@ -103,18 +106,14 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     
     config["Gemini"]["backend"] = gemini_backend
 
-    if "GeminiPlaywright" not in config:
-        config["GeminiPlaywright"] = {"extended_thinking": "false"}
-    elif "extended_thinking" not in config["GeminiPlaywright"]:
-        config["GeminiPlaywright"]["extended_thinking"] = "false"
-
-    raw_value = config["GeminiPlaywright"].get("extended_thinking", "false")
+    # Validate Gemini extended_thinking (strict boolean, canonical lowercase)
+    raw_value = config["Gemini"].get("extended_thinking", "false")
     normalized = raw_value.strip().lower()
     if normalized not in ("true", "false"):
         raise ValueError(
-            f"Invalid GeminiPlaywright extended_thinking value '{raw_value}'. Expected true/false."
+            f"Invalid Gemini extended_thinking value '{raw_value}'. Expected true/false."
         )
-    config["GeminiPlaywright"]["extended_thinking"] = normalized
+    config["Gemini"]["extended_thinking"] = normalized
 
     return config
 

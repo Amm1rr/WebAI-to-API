@@ -26,6 +26,7 @@ from app.services.providers.gemini.shared import (
     convert_to_openai_format,
     ensure_gemini_client_ready,
     parse_tool_call,
+    resolve_extended_thinking,
     validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
 )
@@ -383,6 +384,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             raise
 
         is_stream = request.stream if request.stream is not None else False
+        extended_thinking = resolve_extended_thinking(request)
 
         try:
             # 2. Progressive Streaming Path (only if no tools are used)
@@ -397,6 +399,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                             files=files,
                             gem=request.gem,
                             lease=lease,
+                            extended_thinking=extended_thinking,
                         ):
                             if chunk.get("type") == "chunk" and chunk.get("text_delta"):
                                 openai_chunk = convert_to_openai_format(
@@ -448,6 +451,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                     files=files,
                     gem=request.gem,
                     lease=lease,
+                    extended_thinking=extended_thinking,
                 )
             except GeminiGenerationUnavailableError:
                 await lease.release()
@@ -475,6 +479,7 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                     files=files,
                     gem=request.gem,
                     lease=lease,
+                    extended_thinking=extended_thinking,
                 )
             await registry.save_session_snapshot(cid, self.provider, session_manager)
             
