@@ -175,7 +175,8 @@ The following keys are accepted for manual cookie configuration:
 
 | Option | Description                       |
 | ------ | --------------------------------- |
-| `name` | Browser used for cookie discovery |
+| `name` | Host browser used for local cookie discovery (`chrome`, `firefox`, `brave`, `edge`, `safari`). Does not select the browser automation runtime. |
+| `runtime` | Browser automation runtime backend. Supported value: `playwright`. |
 
 ### Proxy
 

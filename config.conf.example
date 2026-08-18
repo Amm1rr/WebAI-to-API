@@ -3,13 +3,12 @@
 # ⚠️ Note: This file is *only* used by the WebAI-to-API server.
 
 # --- Browser Settings ---
-# Set the browser that will be used for any required operations.
-# Only modify this section in most use cases.
-# Supported options: chrome, firefox, brave, edge, safari
+# name: Host browser used for local cookie discovery (chrome, firefox, brave, edge, safari).
+#       This does NOT select the browser automation runtime.
+# runtime: Browser automation runtime backend.
+#       Supported options: playwright
 [Browser]
 name = chrome
-# Browser runtime backend used by the runtime engine.
-# Supported options: playwright
 runtime = playwright
 
 # --- Authentication Methods ---
