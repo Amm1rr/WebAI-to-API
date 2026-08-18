@@ -449,7 +449,15 @@ class BrowserRequestExecutor:
                 raise QueueOverflowError("Event queue saturated")
 
             while True:
-                await self._register_conversation_if_available(page, state, session, lease)
+                try:
+                    await self._register_conversation_if_available(page, state, session, lease)
+                except PlaywrightError:
+                    if isinstance(
+                        state.terminal_error,
+                        (BrowserDisconnectedError, BrowserShuttingDownError),
+                    ):
+                        raise state.terminal_error
+                    raise
 
                 try:
                     payload = await self._wait_for_payload(queue, state, self.config.chunk_timeout)

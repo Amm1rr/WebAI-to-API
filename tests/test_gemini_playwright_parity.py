@@ -52,6 +52,43 @@ def make_mock_page(url: str = "https://gemini.google.com/app") -> MagicMock:
     return page
 
 
+class CrashablePage(MagicMock):
+    """MagicMock page whose url raises a raw PlaywrightError once crashed flag is set."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.crashed = False
+        self._crashable_url = "https://gemini.google.com/app"
+        self._gemini_callbacks = {}
+
+    @property
+    def url(self):
+        if self.crashed:
+            raise PlaywrightError("Target page, context or browser has been closed")
+        return self._crashable_url
+
+    @url.setter
+    def url(self, value):
+        self._crashable_url = value
+
+
+def make_crashable_page() -> CrashablePage:
+    page = CrashablePage()
+    page.goto = AsyncMock()
+    page.evaluate = AsyncMock()
+    page.on = MagicMock()
+    page.remove_listener = MagicMock()
+    page.is_closed.return_value = False
+
+    input_locator = AsyncMock()
+    input_locator.wait_for = AsyncMock()
+
+    generic_locator = MagicMock()
+    generic_locator.first = input_locator
+    page.locator.return_value = generic_locator
+    return page
+
+
 def make_mock_lease(page: MagicMock, persistent_tab=None) -> MagicMock:
     lease = MagicMock()
     lease.page = page
@@ -418,6 +455,118 @@ async def test_stream_ends_without_done_when_page_crashes(monkeypatch, caplog):
         and record.reason == "BrowserDisconnectedError"
         for record in caplog.records
     )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_header_raw_playwright_error_restores_recorded_disconnected(monkeypatch, caplog):
+    page = make_crashable_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    state = state_ref["state"]
+
+    await emit_bridge_event(page, {"type": "chunk", "delta": "Hello"})
+
+    gen = response.body_iterator
+    first = await gen.__anext__()
+    assert "Hello" in first
+
+    page.crashed = True
+    state.signal_terminal(BrowserDisconnectedError("Browser page crashed during active request"))
+
+    with pytest.raises(StopAsyncIteration):
+        await gen.__anext__()
+
+    assert any(
+        record.message == "Stream terminated: " + state.request_id
+        and record.reason == "BrowserDisconnectedError"
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_header_raw_playwright_error_restores_recorded_shutting_down(monkeypatch, caplog):
+    page = make_crashable_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    state = state_ref["state"]
+
+    await emit_bridge_event(page, {"type": "chunk", "delta": "Hello"})
+
+    gen = response.body_iterator
+    first = await gen.__anext__()
+    assert "Hello" in first
+
+    page.crashed = True
+    state.signal_terminal(BrowserShuttingDownError("Browser request aborted during engine shutdown"))
+
+    with pytest.raises(StopAsyncIteration):
+        await gen.__anext__()
+
+    assert any(
+        record.message == "Stream terminated: " + state.request_id
+        and record.reason == "BrowserShuttingDownError"
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_header_raw_playwright_error_without_terminal_state_propagates(monkeypatch):
+    page = make_crashable_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+
+    async def submit_prompt(_page, _prompt, _state):
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+
+    page.crashed = True
+
+    gen = response.body_iterator
+    with pytest.raises(PlaywrightError):
+        await gen.__anext__()
+
     lease.close.assert_awaited_once()
 
 
