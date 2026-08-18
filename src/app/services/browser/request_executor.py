@@ -500,6 +500,7 @@ class BrowserRequestExecutor:
             BrowserShuttingDownError,
             BrowserGenerationMismatchError,
             QueueOverflowError,
+            ConversationBusyError,
         ) as error:
             stream_terminated = True
             logger.info(

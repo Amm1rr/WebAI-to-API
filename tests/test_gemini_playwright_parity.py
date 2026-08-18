@@ -1124,11 +1124,50 @@ async def test_post_header_generation_mismatch_terminates_without_done(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_post_header_conversation_busy_error_remains_visible(monkeypatch):
+async def test_post_header_conversation_busy_error_terminates_without_done(monkeypatch, caplog):
     page = make_mock_page(url="https://gemini.google.com/app/abc123")
     lease = make_mock_lease(page)
     session = make_mock_session(lease)
     session.register_conversation = AsyncMock(
+        side_effect=ConversationBusyError("Conversation abc123 is busy with another active request.")
+    )
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+
+    gen = response.body_iterator
+    with pytest.raises(StopAsyncIteration):
+        await gen.__anext__()
+
+    request_id = state_ref["state"].request_id
+    assert any(
+        record.message == "Stream terminated: " + request_id
+        and record.reason == "ConversationBusyError"
+        for record in caplog.records
+    )
+    assert not any("data: [DONE]" in c for c in (await collect_stream_chunks(response)))
+    session.handle_session_failure.assert_not_called()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pre_header_conversation_busy_returns_409(monkeypatch):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    session.acquire_lease = AsyncMock(
         side_effect=ConversationBusyError("Conversation abc123 is busy with another active request.")
     )
 
@@ -1143,13 +1182,11 @@ async def test_post_header_conversation_busy_error_remains_visible(monkeypatch):
     )
 
     provider = GeminiProvider()
-    response = await provider.chat_completions(make_request(stream=True))
+    with pytest.raises(HTTPException) as excinfo:
+        await provider.chat_completions(make_request(stream=True, conversation_id="abc123"))
 
-    gen = response.body_iterator
-    with pytest.raises(ConversationBusyError):
-        await gen.__anext__()
-
-    lease.close.assert_awaited_once()
+    assert excinfo.value.status_code == 409
+    session.handle_session_failure.assert_not_called()
 
 
 @pytest.mark.asyncio
