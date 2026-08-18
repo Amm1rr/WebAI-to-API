@@ -10,7 +10,13 @@ from playwright.async_api import Error as PlaywrightError
 
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.auth_types import AuthStatus
-from app.services.browser.errors import BrowserDisconnectedError, BrowserShuttingDownError
+from app.services.browser.errors import (
+    BrowserDisconnectedError,
+    BrowserGenerationMismatchError,
+    BrowserShuttingDownError,
+    ConversationBusyError,
+    QueueOverflowError,
+)
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.playwright_adapter import (
     GeminiPlaywrightAdapter,
@@ -980,12 +986,14 @@ async def test_buffered_chunk_timeout_remains_total_timeout_504(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stream_queue_overflow_fails_request_without_session_poisoning(monkeypatch):
+async def test_stream_queue_overflow_fails_request_without_session_poisoning(monkeypatch, caplog):
     page = make_mock_page()
     lease = make_mock_lease(page)
     session = make_mock_session(lease)
+    state_ref = {}
 
-    async def submit_prompt(_page, _prompt, _state):
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
         async def emit_events():
             await asyncio.sleep(0)
             await emit_bridge_event(page, {"type": "started"})
@@ -1007,11 +1015,140 @@ async def test_stream_queue_overflow_fails_request_without_session_poisoning(mon
     response = await provider.chat_completions(make_request(stream=True))
     await asyncio.sleep(0.05)
 
-    with pytest.raises(Exception) as exc_info:
-        await collect_stream_chunks(response)
+    chunks = await collect_stream_chunks(response)
 
-    assert "Event queue saturated" in str(exc_info.value)
+    assert chunks == []
+    assert not any("data: [DONE]" in c for c in chunks)
+    request_id = state_ref["state"].request_id
+    assert any(
+        record.message == "Stream terminated: " + request_id
+        and record.reason == "QueueOverflowError"
+        for record in caplog.records
+    )
     session.handle_session_failure.assert_not_called()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mid_stream_queue_overflow_terminates_without_done(monkeypatch, caplog):
+    page = make_mock_page()
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    state = state_ref["state"]
+
+    await emit_bridge_event(page, {"type": "chunk", "delta": "Hello"})
+
+    gen = response.body_iterator
+    first = await gen.__anext__()
+    assert "Hello" in first
+    assert "data: [DONE]" not in first
+
+    state.queue_overflow = True
+
+    with pytest.raises(StopAsyncIteration):
+        await gen.__anext__()
+
+    request_id = state.request_id
+    assert any(
+        record.message == "Stream terminated: " + request_id
+        and record.reason == "QueueOverflowError"
+        for record in caplog.records
+    )
+    assert not any(
+        record.message == "Stream completed: " + request_id
+        for record in caplog.records
+    )
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_header_generation_mismatch_terminates_without_done(monkeypatch, caplog):
+    persistent_tab = MagicMock(browser_generation=1)
+    page = make_mock_page()
+    lease = make_mock_lease(page, persistent_tab=persistent_tab)
+    session = make_mock_session(lease)
+    state_ref = {}
+
+    async def submit_prompt(_page, _prompt, state):
+        state_ref["state"] = state
+        return True
+
+    engine = await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+    state = state_ref["state"]
+    assert state.active_tab is persistent_tab
+
+    await emit_bridge_event(page, {"type": "chunk", "delta": "Hello"})
+
+    gen = response.body_iterator
+    first = await gen.__anext__()
+    assert "Hello" in first
+
+    engine.browser_generation = 2
+    await emit_bridge_event(page, {"type": "chunk", "delta": "World"})
+
+    with pytest.raises(StopAsyncIteration):
+        await gen.__anext__()
+
+    request_id = state.request_id
+    assert any(
+        record.message == "Stream terminated: " + request_id
+        and record.reason == "BrowserGenerationMismatchError"
+        for record in caplog.records
+    )
+    assert not any("data: [DONE]" in c for c in (first,))
+    session.handle_session_failure.assert_not_called()
+    lease.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_header_conversation_busy_error_remains_visible(monkeypatch):
+    page = make_mock_page(url="https://gemini.google.com/app/abc123")
+    lease = make_mock_lease(page)
+    session = make_mock_session(lease)
+    session.register_conversation = AsyncMock(
+        side_effect=ConversationBusyError("Conversation abc123 is busy with another active request.")
+    )
+
+    async def submit_prompt(_page, _prompt, _state):
+        return True
+
+    await configure_playwright_success(
+        monkeypatch,
+        page=page,
+        session=session,
+        submit_side_effect=submit_prompt,
+    )
+
+    provider = GeminiProvider()
+    response = await provider.chat_completions(make_request(stream=True))
+
+    gen = response.body_iterator
+    with pytest.raises(ConversationBusyError):
+        await gen.__anext__()
+
     lease.close.assert_awaited_once()
 
 

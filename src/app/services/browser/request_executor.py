@@ -459,6 +459,9 @@ class BrowserRequestExecutor:
                         raise state.terminal_error
                     raise
 
+                if state.queue_overflow:
+                    raise QueueOverflowError("Event queue saturated")
+
                 try:
                     payload = await self._wait_for_payload(queue, state, self.config.chunk_timeout)
                 except asyncio.TimeoutError:
@@ -492,7 +495,12 @@ class BrowserRequestExecutor:
             if not stream_terminated:
                 yield await get_done_chunk()
 
-        except (BrowserDisconnectedError, BrowserShuttingDownError) as error:
+        except (
+            BrowserDisconnectedError,
+            BrowserShuttingDownError,
+            BrowserGenerationMismatchError,
+            QueueOverflowError,
+        ) as error:
             stream_terminated = True
             logger.info(
                 f"Stream terminated: {request_id}",
