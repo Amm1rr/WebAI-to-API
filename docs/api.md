@@ -59,7 +59,7 @@ Gemini Playwright requests may control Gemini Web UI Extended thinking through t
 }
 ```
 
-`extended_thinking` defaults to `false` for every request. The Playwright adapter normalizes UI state before each prompt, so omitted options force Extended thinking off instead of inheriting state from a persistent tab. The option is unsupported by Gemini WebAPI and Atlas and returns HTTP 400. Unknown provider namespaces/options and invalid types return HTTP 422. This UI toggle is not equivalent to `reasoning_effort`.
+When request option is omitted, effective value comes from `[GeminiPlaywright].extended_thinking`; missing config section/key falls back to `false`. Explicit `true` or `false` overrides config. The Playwright adapter normalizes UI state before each prompt, so requests do not inherit prior persistent-tab state. The option is unsupported by Gemini WebAPI and Atlas and returns HTTP 400. Unknown provider namespaces/options and invalid types return HTTP 422. This UI toggle is not equivalent to `reasoning_effort`.
 
 Do not use this form. `extended_thinking` must be nested under `provider_options.gemini`; a top-level `extended_thinking` field is not part of the API contract and may be ignored.
 

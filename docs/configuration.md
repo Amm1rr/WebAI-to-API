@@ -119,6 +119,9 @@ Example:
 backend = webapi
 default_model = gemini-3-flash
 
+[GeminiPlaywright]
+extended_thinking = false
+
 [EnabledAI]
 gemini = true
 
@@ -139,6 +142,14 @@ http_proxy =
 | --------------- | -------------------------------------------- |
 | `backend`       | Execution backend (`webapi` or `playwright`) |
 | `default_model` | Default Gemini model                         |
+
+### Gemini Playwright
+
+| Option | Description |
+| --- | --- |
+| `extended_thinking` | Boolean `true`/`false` default Extended Thinking state for Gemini Playwright requests when request-scoped `provider_options.gemini.extended_thinking` is omitted. |
+
+Precedence is request option, then `[GeminiPlaywright]` default, then `false` when the section or key is missing. This setting applies only to Gemini Playwright; Gemini WebAPI and Atlas are unaffected.
 
 #### Supported Cookie Keys (in `[Gemini]` section)
 

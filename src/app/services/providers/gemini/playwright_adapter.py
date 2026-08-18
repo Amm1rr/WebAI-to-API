@@ -19,6 +19,7 @@ from app.services.browser.request_executor import (
     PlaywrightRequestState,
 )
 from app.services.browser.tab import TabStatus
+from app.config import CONFIG
 from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
 from app.services.providers.gemini.shared import PLAYWRIGHT_GEMINI_MODEL_UI_LABELS, convert_to_openai_format
 
@@ -132,7 +133,12 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
     ) -> None:
         provider_options = getattr(request, "provider_options", None)
         gemini_options = getattr(provider_options, "gemini", None) if provider_options else None
-        extended_thinking = bool(getattr(gemini_options, "extended_thinking", False))
+        requested = getattr(gemini_options, "extended_thinking", None) if gemini_options else None
+        extended_thinking = (
+            requested
+            if requested is not None
+            else CONFIG.getboolean("GeminiPlaywright", "extended_thinking", fallback=False)
+        )
 
         try:
             await browser_adapter.set_extended_thinking(page, extended_thinking, state)

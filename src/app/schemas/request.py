@@ -77,7 +77,7 @@ class GeminiProviderOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    extended_thinking: StrictBool = False
+    extended_thinking: Optional[StrictBool] = None
 
 
 class ProviderOptions(BaseModel):

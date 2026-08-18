@@ -1,3 +1,4 @@
+import configparser
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock
@@ -16,6 +17,7 @@ from app.services.browser.errors import GatedModelError, ModelNotFoundError, Tra
 from app.services.providers.atlas.provider import AtlasProvider
 from app.services.providers.gemini.provider import GeminiProvider
 from app.services.providers.gemini.temporary_chat import _resolve_temporary_chat_model
+from app.services.providers.gemini import playwright_adapter as playwright_module
 
 
 def make_request(**kwargs):
@@ -43,7 +45,69 @@ def test_provider_options_schema_accepts_extended_thinking_and_defaults_off():
     request = make_request(provider_options={"gemini": {"extended_thinking": True}})
     assert request.provider_options.gemini.extended_thinking is True
     assert make_request().provider_options is None
-    assert make_request(provider_options={"gemini": {}}).provider_options.gemini.extended_thinking is False
+    assert make_request(provider_options={"gemini": {}}).provider_options.gemini.extended_thinking is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("config_value", "request_value", "expected"),
+    [
+        ("false", None, False),
+        ("true", None, True),
+        ("true", False, False),
+        ("false", True, True),
+        (None, None, False),
+    ],
+)
+async def test_extended_thinking_config_precedence(monkeypatch, config_value, request_value, expected):
+    config = configparser.ConfigParser()
+    if config_value is not None:
+        config["GeminiPlaywright"] = {"extended_thinking": config_value}
+    monkeypatch.setattr(playwright_module, "CONFIG", config)
+
+    provider = GeminiProvider()
+    browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
+    provider_options = None if request_value is None else {"gemini": {"extended_thinking": request_value}}
+    await provider.playwright_adapter._configure_request_options(
+        browser_adapter,
+        object(),
+        make_request(provider_options=provider_options),
+        None,
+    )
+
+    assert browser_adapter.set_extended_thinking.await_args.args[1] is expected
+
+
+@pytest.mark.asyncio
+async def test_gemini_playwright_config_does_not_affect_webapi(monkeypatch):
+    config = configparser.ConfigParser()
+    config["GeminiPlaywright"] = {"extended_thinking": "true"}
+    monkeypatch.setattr(playwright_module, "CONFIG", config)
+
+    provider = GeminiProvider()
+    provider.webapi_adapter.chat_completions = AsyncMock(return_value={"ok": True})
+    result = await provider.chat_completions(make_request(model="gemini-3-flash"))
+
+    assert result == {"ok": True}
+    provider.webapi_adapter.chat_completions.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_missing_gemini_playwright_config_key_defaults_off(monkeypatch):
+    config = configparser.ConfigParser()
+    config["GeminiPlaywright"] = {}
+    monkeypatch.setattr(playwright_module, "CONFIG", config)
+
+    provider = GeminiProvider()
+    browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
+    await provider.playwright_adapter._configure_request_options(
+        browser_adapter,
+        object(),
+        make_request(),
+        None,
+    )
+
+    assert browser_adapter.set_extended_thinking.await_args.args[1] is False
 
 
 @pytest.mark.asyncio
@@ -286,7 +350,11 @@ async def test_failed_extended_thinking_verification_is_explicit(extended_page):
 
 
 @pytest.mark.asyncio
-async def test_request_option_normalization_forces_off_when_omitted_or_false():
+async def test_request_option_normalization_forces_off_when_omitted_or_false(monkeypatch):
+    config = configparser.ConfigParser()
+    config["GeminiPlaywright"] = {"extended_thinking": "false"}
+    monkeypatch.setattr(playwright_module, "CONFIG", config)
+
     provider = GeminiProvider()
     browser_adapter = type("Adapter", (), {"set_extended_thinking": AsyncMock()})()
 

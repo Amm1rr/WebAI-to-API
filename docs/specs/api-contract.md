@@ -52,7 +52,7 @@ Requests may use typed provider-scoped options:
 }
 ```
 
-`gemini.extended_thinking` applies only to Gemini Playwright models. Effective value is normalized on every request: omitted provider options, omitted Gemini options, and omitted `extended_thinking` all mean `false`. This prevents state leakage across persistent Playwright tabs. Gemini WebAPI and non-Gemini providers reject the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Gemini Web UI Extended thinking is a provider UI toggle and is not declared equivalent to `reasoning_effort`.
+`gemini.extended_thinking` applies only to Gemini Playwright models. Effective value is normalized on every request: an explicit request value takes precedence over `[GeminiPlaywright].extended_thinking`, which falls back to `false` when the section or key is missing. Omitted request options do not inherit UI state from a reused `PersistentTab`. Gemini WebAPI and non-Gemini providers reject the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Gemini Web UI Extended thinking is a provider UI toggle and is not declared equivalent to `reasoning_effort`.
 
 ### 3.1 Multimodal Content Parts
 

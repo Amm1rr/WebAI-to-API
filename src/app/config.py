@@ -93,13 +93,26 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
             config["Gemini"]["backend"] = "webapi"
         if "default_model" not in config["Gemini"]:
             config["Gemini"]["default_model"] = legacy_gemini_model or "gemini-3-flash"
-    
+
     # Validate Gemini backend
     gemini_backend = config["Gemini"].get("backend", "webapi").lower().strip()
     if gemini_backend not in ("webapi", "playwright"):
         raise ValueError(f"Invalid Gemini backend configured: '{gemini_backend}'. Supported values: 'webapi', 'playwright'.")
     
     config["Gemini"]["backend"] = gemini_backend
+
+    if "GeminiPlaywright" not in config:
+        config["GeminiPlaywright"] = {"extended_thinking": "false"}
+    elif "extended_thinking" not in config["GeminiPlaywright"]:
+        config["GeminiPlaywright"]["extended_thinking"] = "false"
+
+    raw_value = config["GeminiPlaywright"].get("extended_thinking", "false")
+    normalized = raw_value.strip().lower()
+    if normalized not in ("true", "false"):
+        raise ValueError(
+            f"Invalid GeminiPlaywright extended_thinking value '{raw_value}'. Expected true/false."
+        )
+    config["GeminiPlaywright"]["extended_thinking"] = normalized
 
     return config
 
@@ -127,4 +140,3 @@ def resolve_logging_config(
     resolved_disable_access = cli_disable_access_logs or env_disable_access or conf_disable_access
 
     return resolved_level, resolved_disable_access
-
