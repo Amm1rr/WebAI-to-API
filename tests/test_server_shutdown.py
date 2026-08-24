@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -333,3 +334,149 @@ async def test_health_endpoint_uses_canonical_accessor(mocker, monkeypatch):
 
     assert response.status_code == 200
     initializer.assert_not_called()
+
+
+# --- Thread-safety of the shutdown transition (Phase 4) ----------------------
+
+
+def test_concurrent_programmatic_requests_exactly_one_accepted(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    server = started_server()
+    barrier = threading.Barrier(8)
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            barrier.wait()
+            results.append(server.request_shutdown("ipc"))
+        except Exception as error:  # pragma: no cover
+            errors.append(error)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert sorted(results, reverse=True) == [True] + [False] * 7
+    assert server.should_exit is True
+
+
+def test_concurrent_requests_mark_engine_intent_exactly_once(mocker):
+    intent_calls = []
+    mocker.patch(
+        "app.services.browser.engine.request_application_shutdown",
+        side_effect=lambda: intent_calls.append(1),
+    )
+    server = started_server()
+    barrier = threading.Barrier(8)
+    threads = [
+        threading.Thread(
+            target=lambda: (
+                barrier.wait(),
+                server.request_shutdown("ipc"),
+            )
+        )
+        for _ in range(8)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(intent_calls) == 1
+
+
+def test_signal_and_programmatic_race_marks_intent_once(mocker):
+    intent_calls = mocker.patch(
+        "app.services.browser.engine.request_application_shutdown",
+    )
+    uvicorn_exit = mocker.patch.object(
+        uvicorn.Server, "handle_exit", autospec=True
+    )
+    server = started_server()
+    start = threading.Event()
+
+    def signal_worker():
+        start.wait()
+        server.handle_exit(15, None)
+
+    def ipc_worker():
+        start.wait()
+        server.request_shutdown("ipc")
+
+    threads = [
+        threading.Thread(target=signal_worker),
+        threading.Thread(target=ipc_worker),
+    ]
+    for thread in threads:
+        thread.start()
+    start.set()
+    for thread in threads:
+        thread.join()
+
+    assert intent_calls.call_count == 1
+    assert server._shutdown_intent_marked is True
+    assert uvicorn_exit.call_count == 1  # real signal still reaches Uvicorn
+
+
+def test_real_signal_always_delegates_to_uvicorn_even_when_intent_exists(
+    mocker,
+):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    uvicorn_exit = mocker.patch.object(
+        uvicorn.Server, "handle_exit", autospec=True
+    )
+    server = make_server()
+    server.handle_exit(15, None)
+    server.handle_exit(2, None)  # second real signal
+
+    assert uvicorn_exit.call_count == 2
+
+
+# --- run_server Windows wiring (Phase 4) -------------------------------------
+
+
+def test_windows_branch_starts_stops_listener_around_run(mocker):
+    listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
+    mocker.patch("sys.platform", new="win32")
+    config = MagicMock()
+    fake_server = mocker.patch("run.ApplicationServer").return_value
+
+    run_server(config)
+
+    listener_cls.assert_called_once_with(
+        callback=fake_server.request_shutdown,
+        control_file=mocker.ANY,
+    )
+    assert str(listener_cls.call_args.kwargs["control_file"]).endswith(
+        "shutdown-control.json"
+    )
+    listener_instance = listener_cls.return_value
+    listener_instance.start.assert_called_once_with()
+    listener_instance.stop.assert_called_once_with()
+
+
+def test_listener_stopped_when_run_raises_on_windows(mocker):
+    listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
+    mocker.patch("sys.platform", new="win32")
+    fake_server = mocker.patch("run.ApplicationServer").return_value
+    fake_server.run.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_server(MagicMock())
+
+    listener_cls.return_value.stop.assert_called_once_with()
+
+
+def test_non_windows_branch_never_instantiates_listener(mocker):
+    listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
+    mocker.patch("sys.platform", new="linux")
+    fake_server = mocker.patch("run.ApplicationServer").return_value
+
+    run_server(MagicMock())
+
+    listener_cls.assert_not_called()
+    fake_server.run.assert_called_once_with()
