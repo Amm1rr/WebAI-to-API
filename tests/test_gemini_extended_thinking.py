@@ -387,7 +387,7 @@ async def extended_page():
         page = await context.new_page()
         await page.set_content(
             """
-            <button id="picker" aria-label="Open mode picker, currently Flash"></button>
+            <button id="picker" data-test-id="bard-mode-menu-button" aria-label="Open mode picker, currently Flash"></button>
             <div id="menu" role="menu" data-test-id="gem-mode-menu" hidden>
               <gem-menu-item role="menuitem" aria-disabled="false">Extended thinking</gem-menu-item>
             </div>
@@ -441,6 +441,9 @@ async def test_picker_missing_fails_for_false_and_true(extended_page):
 
 @pytest.mark.asyncio
 async def test_missing_item_after_menu_render_false_succeeds_true_fails(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => element.setAttribute('data-mode-id', 'decoy')"
+    )
     picker = MagicMock()
     picker.click = AsyncMock()
     picker.get_attribute = AsyncMock(return_value="Open mode picker, currently Flash")
@@ -459,6 +462,9 @@ async def test_missing_item_after_menu_render_false_succeeds_true_fails(extended
 
 @pytest.mark.asyncio
 async def test_missing_item_with_extended_label_succeeds_off(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => element.setAttribute('data-mode-id', 'decoy')"
+    )
     picker = MagicMock()
     picker.click = AsyncMock()
     picker.get_attribute = AsyncMock(return_value="Open mode picker, currently Flash Extended")
@@ -475,6 +481,9 @@ async def test_missing_item_with_extended_label_succeeds_off(extended_page):
 
 @pytest.mark.asyncio
 async def test_missing_item_succeeds_off_without_secondary_picker_verification(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => element.setAttribute('data-mode-id', 'decoy')"
+    )
     item = MagicMock()
     item.first = item
     item.wait_for = AsyncMock(side_effect=PlaywrightTimeoutError("missing"))
@@ -499,6 +508,9 @@ async def test_absent_control_false_succeeds_true_capability_error(extended_page
 
 @pytest.mark.asyncio
 async def test_playwright_failure_during_control_check_still_fails(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => element.setAttribute('data-mode-id', 'decoy')"
+    )
     item = MagicMock()
     item.first = item
     item.wait_for = AsyncMock(side_effect=PlaywrightError("Target closed"))
@@ -619,3 +631,72 @@ async def test_request_option_normalization_forces_off_when_omitted_or_false(mon
     )
 
     assert [call.args[1] for call in browser_adapter.set_extended_thinking.await_args_list] == [True, False, False]
+
+
+@pytest.mark.asyncio
+async def test_mode_picker_found_via_test_id_without_english_label(extended_page):
+    await extended_page.locator("#picker").evaluate("element => element.removeAttribute('aria-label')")
+    assert await GeminiProviderAdapter()._find_model_picker(extended_page) is not None
+
+
+@pytest.mark.asyncio
+async def test_structural_detection_toggles_without_english_text(extended_page):
+    await extended_page.evaluate(
+        """
+        () => {
+            const menu = document.querySelector('#menu');
+            const item = document.querySelector('gem-menu-item');
+            item.textContent = 'Erweitertes Denken';
+            const picker = document.querySelector('#picker');
+            picker.setAttribute('aria-label', 'Modusauswahl, derzeit Flash');
+            item.onclick = () => {
+                item.classList.toggle('selected');
+                menu.hidden = true;
+            };
+        }
+        """
+    )
+    adapter = GeminiProviderAdapter()
+    item = extended_page.locator("gem-menu-item")
+
+    await adapter.set_extended_thinking(extended_page, True)
+    assert "selected" in ((await item.get_attribute("class")) or "").split()
+
+    await adapter.set_extended_thinking(extended_page, False)
+    assert "selected" not in ((await item.get_attribute("class")) or "").split()
+
+
+@pytest.mark.asyncio
+async def test_multiple_modeless_items_rejected_structural_uses_english_fallback(extended_page):
+    await extended_page.evaluate(
+        """
+        () => {
+            const menu = document.querySelector('#menu');
+            const decoy = document.createElement('gem-menu-item');
+            decoy.setAttribute('role', 'menuitem');
+            decoy.textContent = 'Anderer Modus';
+            menu.append(decoy);
+        }
+        """
+    )
+    real = extended_page.locator("gem-menu-item").first
+
+    await GeminiProviderAdapter().set_extended_thinking(extended_page, True)
+    assert "selected" in ((await real.get_attribute("class")) or "").split()
+
+    await GeminiProviderAdapter().set_extended_thinking(extended_page, False)
+    assert "selected" not in ((await real.get_attribute("class")) or "").split()
+
+
+@pytest.mark.asyncio
+async def test_no_modeless_candidate_uses_english_fallback(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => element.setAttribute('data-mode-id', 'decoy')"
+    )
+
+    # false + present-but-off succeeds via fallback; true would toggle it.
+    await GeminiProviderAdapter().set_extended_thinking(extended_page, False)
+    await GeminiProviderAdapter().set_extended_thinking(extended_page, True)
+    assert "selected" in (
+        (await extended_page.locator("gem-menu-item").get_attribute("class")) or ""
+    ).split()

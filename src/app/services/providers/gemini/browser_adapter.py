@@ -105,14 +105,31 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 
         return confirmed
 
+    async def _resolve_extended_thinking_item(self, page: Page) -> Any:
+        """
+        Identify the Extended Thinking menu item without relying on UI text.
+
+        Structural signal: inside [data-test-id="gem-mode-menu"], Extended
+        Thinking is the only gem-menu-item lacking a data-mode-id (model modes
+        own one; the toggle is a mode modifier). When zero or multiple
+        candidates match, fall back to the English role/name matcher.
+        """
+        menu = page.locator('[role="menu"][data-test-id="gem-mode-menu"]').first
+        structural = menu.locator('gem-menu-item[role="menuitem"]:not([data-mode-id])')
+        if await structural.count() == 1:
+            return structural.first
+        return page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+
     async def set_extended_thinking(self, page: Page, enabled: bool, state: Optional[Any] = None) -> None:
         """Normalize Gemini mode-picker Extended thinking state for one request.
 
-        An absent control after the mode menu opened means the feature is
-        unavailable for this session/model; that satisfies a requested OFF state.
+        Detection is language-independent when possible (structural item lookup,
+        English fallback). An absent control after the mode menu opened means the
+        feature is unavailable; that satisfies a requested OFF state. Capability
+        gating uses aria-disabled; ON/OFF state lives in the `selected` class.
         """
         await self._open_mode_menu(page)
-        item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+        item = await self._resolve_extended_thinking_item(page)
         try:
             await item.wait_for(state="visible", timeout=1000)
         except PlaywrightTimeoutError as error:
@@ -136,21 +153,20 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         await item.click()
 
         for _ in range(12):
-            picker = await self._find_model_picker(page)
-            label = await picker.get_attribute("aria-label") if picker else None
-            label_enabled = bool(label and re.search(r"\bExtended\b", label, re.I))
-            if label_enabled == enabled:
+            try:
                 await self._open_mode_menu(page)
-                verified_item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
-                try:
-                    await verified_item.wait_for(state="visible", timeout=1000)
-                except PlaywrightTimeoutError:
-                    await page.keyboard.press("Escape")
-                    raise TransientSessionError("Gemini Extended thinking state verification failed.")
+                verified_item = await self._resolve_extended_thinking_item(page)
+                await verified_item.wait_for(state="visible", timeout=1000)
                 verified = "selected" in (await verified_item.get_attribute("class") or "").split()
                 await page.keyboard.press("Escape")
-                if verified == enabled:
-                    return
+            except PlaywrightTimeoutError:
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                raise TransientSessionError("Gemini Extended thinking state verification failed.")
+            if verified == enabled:
+                return
             await asyncio.sleep(0.25)
 
         raise TransientSessionError("Gemini Extended thinking state transition could not be verified.")
