@@ -74,7 +74,11 @@ def test_dead_pid_is_not_alive():
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork required")
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX zombie semantics")
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="Linux /proc zombie detection; macOS kill(0) fallback may "
+           "report zombies alive until reaped (accepted latency nuance)",
+)
 def test_zombie_child_counts_as_dead():
     pid = os.fork()
     if pid == 0:
@@ -197,3 +201,70 @@ def test_flock_close_failure_does_not_mask_primary_error(
     assert excinfo.value.phase == "flock"
     assert excinfo.value.original_error.errno == errno.EIO
     assert "Simulated I/O error" in str(excinfo.value)
+
+
+# --- Updater Python contract guard ------------------------------------------
+
+
+def _guard_source_and_prefix():
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts", "update.py",
+    )
+    with open(path, encoding="utf-8") as handle:
+        source = handle.read()
+    return path, source
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_ok"),
+    [
+        ((3, 10), False),
+        ((3, 11), True),
+        ((3, 12), True),
+        ((3, 13), False),
+    ],
+)
+def test_updater_python_contract_predicate(version, expected_ok):
+    import importlib.util
+
+    path, _ = _guard_source_and_prefix()
+    spec = importlib.util.spec_from_file_location("update_guard", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # supported interpreter: loads fully
+    assert module._python_version_supported(version + (0, 0, "final")) is expected_ok
+
+
+def test_unsupported_python_gets_clean_exit_before_heavy_imports(monkeypatch):
+    """Execute only the guarded prefix as Python 3.10 would reach it."""
+    import types
+
+    path, source = _guard_source_and_prefix()
+    prefix = source.split("import json", 1)[0]
+    # Ordering pinned: the SystemExit guard must precede any 3.11-dependent
+    # import (the docstring may mention tomllib; only real imports matter).
+    assert "import tomllib" not in prefix
+
+    fake_stderr = types.SimpleNamespace()
+    fake_stderr.buffer_write = []
+    written = []
+
+    class StdErr:
+        def write(self, text):
+            written.append(text)
+
+    monkeypatch.setattr(sys, "stderr", StdErr())
+    monkeypatch.setattr(sys, "version_info", (3, 10, 0, "final", "final"))
+
+    namespace = {"__name__": "update_guarded_prefix"}
+    code = compile(prefix, path, "exec")
+    try:
+        exec(code, namespace)
+    except SystemExit as exit_error:
+        assert exit_error.code == 1
+    else:
+        raise AssertionError("guard did not exit on unsupported Python")
+
+    output = "".join(written)
+    assert ">=3.11,<3.13" in output
+    assert "3.10" in output

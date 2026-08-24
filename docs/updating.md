@@ -11,6 +11,10 @@ Contract: the `[project].version` field in the tracked `pyproject.toml` is
 the update trigger; Git is the transport. If the remote version equals the
 local version, nothing happens.
 
+> On macOS, ensure `python3` resolves to Python 3.11 or 3.12 before running
+> the updater (e.g., via Homebrew or pyenv). Official multi-platform support
+> status is pending validation.
+
 ## Version bump discipline
 
 **Every deploy-worthy merge to `master` must bump `[project].version`.**

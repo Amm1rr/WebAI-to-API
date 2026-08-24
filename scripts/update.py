@@ -11,12 +11,32 @@ Rollback covers code and dependencies only; persistent-state schema changes
 introduced by a newer version are not reverted.
 """
 
+import sys
+
+# Python contract guard. Must run before imports that require the supported
+# interpreter (e.g. stdlib tomllib, 3.11+), so unsupported Pythons get a
+# clean updater error instead of a raw import traceback.
+SUPPORTED_PYTHON_RANGE_TEXT = ">=3.11,<3.13"
+
+
+def _python_version_supported(version_info):
+    return (3, 11) <= version_info[:2] < (3, 13)
+
+
+if not _python_version_supported(sys.version_info):
+    print(
+        "ERROR: WebAI-to-API updater requires Python "
+        f"{SUPPORTED_PYTHON_RANGE_TEXT}. "
+        f"Current version is {sys.version_info[0]}.{sys.version_info[1]}.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
 import json
 import os
 import shlex
 import stat
 import subprocess
-import sys
 import time
 import tomllib
 import urllib.request
