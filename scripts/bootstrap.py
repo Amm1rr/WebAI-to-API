@@ -16,8 +16,14 @@ except ImportError:
         return None, "Unknown", False
 
 # Constants
-REQUIRED_PYTHON_VERSION = (3, 10)
+# Must mirror pyproject.toml requires-python (">=3.11,<3.13").
+# Guarded by tests/test_version_alignment.py::test_python_version_contract_alignment.
+REQUIRED_PYTHON_VERSION = (3, 11)
 MAX_PYTHON_VERSION = (3, 13)
+SUPPORTED_RANGE_TEXT = (
+    f"{REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to "
+    f"<{MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]}"
+)
 CONFIG_FILE = "config.conf"
 CONFIG_EXAMPLE = "config.conf.example"
 ENV_FILE = ".env"
@@ -38,13 +44,15 @@ def print_error(message):
 def check_python_version():
     current_version = sys.version_info[:2]
     if current_version < REQUIRED_PYTHON_VERSION:
-        print_error(f"Python version {REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} or newer is required.")
+        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
         print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
         return False
-    
+
     if current_version >= MAX_PYTHON_VERSION:
-        print(f"--> WARNING: Python {current_version[0]}.{current_version[1]} is newer than the tested range ({REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to {MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]-1}); continuing.")
-    
+        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
+        print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
+        return False
+
     return True
 
 def check_poetry():

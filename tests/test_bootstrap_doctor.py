@@ -4,7 +4,16 @@ import shutil
 import unittest
 import tempfile
 import json
-from pathlib import Path
+import importlib.util
+import pytest
+
+
+def _load_bootstrap_module():
+    path = os.path.abspath("scripts/bootstrap.py")
+    spec = importlib.util.spec_from_file_location("bootstrap_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 class TestBootstrapDoctor(unittest.TestCase):
     def setUp(self):
@@ -155,6 +164,28 @@ class TestBootstrapDoctor(unittest.TestCase):
         res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
         self.assertIn("WARN", res.stdout)
         self.assertIn("No Gemini auth material found", res.stdout)
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_ok"),
+    [
+        ((3, 10), False),
+        ((3, 11), True),
+        ((3, 12), True),
+        ((3, 13), False),
+    ],
+)
+def test_check_python_version_matches_pyproject_contract(monkeypatch, capsys, version, expected_ok):
+    bootstrap = _load_bootstrap_module()
+    monkeypatch.setattr(bootstrap.sys, "version_info", version + (0, 0, "final"))
+
+    result = bootstrap.check_python_version()
+
+    assert result is expected_ok
+    if not expected_ok:
+        captured = capsys.readouterr()
+        assert "3.11 to <3.13 is required." in captured.err
+        assert f"Current version is {version[0]}.{version[1]}." in captured.err
 
 if __name__ == "__main__":
     unittest.main()
