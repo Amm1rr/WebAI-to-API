@@ -105,14 +105,31 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 
         return confirmed
 
+    async def _resolve_extended_thinking_item(self, page: Page) -> Any:
+        """
+        Identify the Extended Thinking menu item without relying on UI text.
+
+        Structural signal: inside [data-test-id="gem-mode-menu"], Extended
+        Thinking is the only gem-menu-item lacking a data-mode-id (model modes
+        own one; the toggle is a mode modifier). When zero or multiple
+        candidates match, fall back to the English role/name matcher.
+        """
+        menu = page.locator('[role="menu"][data-test-id="gem-mode-menu"]').first
+        structural = menu.locator('gem-menu-item[role="menuitem"]:not([data-mode-id])')
+        if await structural.count() == 1:
+            return structural.first
+        return page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+
     async def set_extended_thinking(self, page: Page, enabled: bool, state: Optional[Any] = None) -> None:
         """Normalize Gemini mode-picker Extended thinking state for one request.
 
-        An absent control after the mode menu opened means the feature is
-        unavailable for this session/model; that satisfies a requested OFF state.
+        Detection is language-independent when possible (structural item lookup,
+        English fallback). An absent control after the mode menu opened means the
+        feature is unavailable; that satisfies a requested OFF state. Capability
+        gating uses aria-disabled; ON/OFF state lives in the `selected` class.
         """
         await self._open_mode_menu(page)
-        item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
+        item = await self._resolve_extended_thinking_item(page)
         try:
             await item.wait_for(state="visible", timeout=1000)
         except PlaywrightTimeoutError as error:
@@ -136,21 +153,20 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         await item.click()
 
         for _ in range(12):
-            picker = await self._find_model_picker(page)
-            label = await picker.get_attribute("aria-label") if picker else None
-            label_enabled = bool(label and re.search(r"\bExtended\b", label, re.I))
-            if label_enabled == enabled:
+            try:
                 await self._open_mode_menu(page)
-                verified_item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
-                try:
-                    await verified_item.wait_for(state="visible", timeout=1000)
-                except PlaywrightTimeoutError:
-                    await page.keyboard.press("Escape")
-                    raise TransientSessionError("Gemini Extended thinking state verification failed.")
+                verified_item = await self._resolve_extended_thinking_item(page)
+                await verified_item.wait_for(state="visible", timeout=1000)
                 verified = "selected" in (await verified_item.get_attribute("class") or "").split()
                 await page.keyboard.press("Escape")
-                if verified == enabled:
-                    return
+            except PlaywrightTimeoutError:
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                raise TransientSessionError("Gemini Extended thinking state verification failed.")
+            if verified == enabled:
+                return
             await asyncio.sleep(0.25)
 
         raise TransientSessionError("Gemini Extended thinking state transition could not be verified.")
@@ -331,7 +347,8 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 "index": i,
                 "label": label,
                 "score": score,
-                "locator": opt
+                "locator": opt,
+                "mode_id": await opt.get_attribute("data-mode-id"),
             })
 
         if not candidates:
@@ -355,10 +372,56 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         # Sort candidates by score (descending)
         candidates.sort(key=lambda x: x["score"], reverse=True)
         target_option = candidates[0]["locator"]
+        target_mode_id = candidates[0]["mode_id"]
 
         await target_option.click()
-        
-        # 4. Verify Selection (polling with short timeout)
+
+        if target_mode_id:
+            await self._verify_selection_by_mode_id(page, requested_model_label, target_mode_id, state)
+        else:
+            await self._verify_selection_by_label(page, requested_model_label, state)
+
+        logger.info(f"Gemini model successfully switched to '{requested_model_label}'", extra={"request_id": getattr(state, "request_id", "unknown")})
+
+    async def _verify_selection_by_mode_id(self, page: Page, requested_model_label: str, mode_id: str, state: Optional[Any] = None) -> None:
+        """
+        Verify the clicked option via its session-captured data-mode-id: after
+        reopening the menu exactly one item must carry that id and the `selected`
+        class. `data-active`/`active` are focus artifacts and never count.
+        The id is re-read from the same DOM moments after the click, so it cannot
+        go stale like a hardcoded mapping would.
+        """
+        verification_timeout = 3.0
+        poll_interval = 0.5
+        elapsed = 0.0
+
+        while elapsed < verification_timeout:
+            await self._open_mode_menu(page)
+            matches = page.locator(f'gem-menu-item[data-mode-id="{mode_id}"]')
+            match_count = await matches.count()
+            if match_count != 1:
+                await page.keyboard.press("Escape")
+                raise TransientSessionError(
+                    f"Gemini model selection verification is ambiguous. Requested: '{requested_model_label}', "
+                    f"matching options for id '{mode_id}': {match_count}"
+                )
+            selected_class = (await matches.nth(0).get_attribute("class")) or ""
+            if "selected" in selected_class.split():
+                await page.keyboard.press("Escape")
+                return
+            # Close the menu before backoff so the next poll's picker click
+            # reopens it instead of toggling a still-open menu shut.
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TransientSessionError(
+            f"Gemini model selection verification failed. Requested: '{requested_model_label}', "
+            f"option '{mode_id}' never became selected."
+        )
+
+    async def _verify_selection_by_label(self, page: Page, requested_model_label: str, state: Optional[Any] = None) -> None:
+        """Legacy text-based verification fallback when no data-mode-id exists."""
         verification_timeout = 3.0
         poll_interval = 0.5
         elapsed = 0.0
@@ -378,5 +441,3 @@ class GeminiProviderAdapter(BaseProviderAdapter):
             raise TransientSessionError(
                 f"Gemini model selection verification failed. Requested: '{requested_model_label}', Found: '{last_found}'"
             )
-        
-        logger.info(f"Gemini model successfully switched to '{last_found}'", extra={"request_id": getattr(state, "request_id", "unknown")})

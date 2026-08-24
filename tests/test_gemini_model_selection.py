@@ -9,6 +9,7 @@ from app.services.providers.gemini.playwright_adapter import (
     BrowserRequestConfig
 )
 from app.services.providers.gemini.shared import PLAYWRIGHT_GEMINI_MODEL_UI_LABELS, get_gemini_models
+from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS
 from app.schemas.request import OpenAIChatRequest
 from app.services.browser.errors import TransientSessionError, GatedModelError, ModelNotFoundError
 from app.services.browser.auth_types import AuthStatus
@@ -132,9 +133,11 @@ async def test_select_model_success(adapter, mock_page):
     
     opt_flash = MagicMock()
     opt_flash.inner_text = AsyncMock(return_value="3.5 Flash")
-    
+    opt_flash.get_attribute = AsyncMock(return_value=None)
+
     opt_pro = MagicMock()
     opt_pro.inner_text = AsyncMock(return_value="3.1 Pro")
+    opt_pro.get_attribute = AsyncMock(return_value=None)
     opt_pro.click = AsyncMock()
     
     mock_options.nth.side_effect = [opt_flash, opt_pro]
@@ -237,10 +240,12 @@ async def test_select_model_collision_prevention_flash_vs_lite(adapter, mock_pag
     
     opt_lite = MagicMock()
     opt_lite.inner_text = AsyncMock(return_value="Gemini 1.5 Flash-Lite")
+    opt_lite.get_attribute = AsyncMock(return_value=None)
     opt_lite.click = AsyncMock()
-    
+
     opt_flash = MagicMock()
     opt_flash.inner_text = AsyncMock(return_value="Gemini 1.5 Flash")
+    opt_flash.get_attribute = AsyncMock(return_value=None)
     opt_flash.click = AsyncMock()
     
     mock_options.nth.side_effect = [opt_lite, opt_flash, opt_lite, opt_flash]
@@ -262,6 +267,260 @@ async def test_select_model_collision_prevention_flash_vs_lite(adapter, mock_pag
     # Verify '3.5 Flash' (opt_flash) was clicked, NOT 'Flash-Lite'
     assert opt_flash.click.call_count == 1
     assert opt_lite.click.call_count == 0
+
+
+GEM_MENU_SEL = '[role="menu"][data-test-id="gem-mode-menu"]'
+
+
+def _build_mode_selection_page(options, id_item_classes=None, id_match_count=1, events=None):
+    """
+    Build a mock page for select_model flows.
+
+    options: list of {"text": str, "mode_id": Optional[str]}
+    id_item_classes: side_effect (or value) for the matched mode-id item's
+                     get_attribute("class"); None -> never queried
+    id_match_count: how many items the post-click data-mode-id query returns
+    events: optional list; interaction lifecycle is appended to it as
+            "picker_click", "menu_open", "escape"
+
+    Returns (page, selectors_seen, option_els).
+    """
+    page = MagicMock()
+    page._gemini_callbacks = {}
+    page.url = "https://gemini.google.com/app"
+    selectors_seen = []
+    option_els = []
+    record = events.append if events is not None else (lambda _e: None)
+
+    def make_loc():
+        loc = MagicMock()
+        loc.first = loc
+        return loc
+
+    picker_el = MagicMock()
+    picker_el.count = AsyncMock(return_value=1)
+    picker_el.get_attribute = AsyncMock(return_value=None)
+    picker_el.inner_text = AsyncMock(return_value="")
+
+    async def _picker_click(*_a, **_k):
+        record("picker_click")
+
+    picker_el.click = _picker_click
+    picker_el.scroll_into_view_if_needed = AsyncMock()
+
+    menu_loc = make_loc()
+
+    async def _menu_wait(*_a, **_k):
+        record("menu_open")
+
+    menu_loc.first.wait_for = _menu_wait
+
+    # Reuse one id-locator instance per selector so sequential class reads
+    # (one per verification poll) advance the same side_effect sequence.
+    id_locators = {}
+
+    def make_id_locator():
+        loc = MagicMock()
+        loc.count = AsyncMock(return_value=id_match_count)
+        item = MagicMock()
+        if isinstance(id_item_classes, list):
+            item.get_attribute = AsyncMock(side_effect=list(id_item_classes))
+        else:
+            item.get_attribute = AsyncMock(return_value=id_item_classes)
+        loc.nth.return_value = item
+        return loc
+
+    # Build option elements once: every MODEL_OPTION locator call must return
+    # the SAME instances so tests observe the clicks production performs.
+    for opt in options:
+        el = MagicMock()
+        el.inner_text = AsyncMock(return_value=opt["text"])
+        el.get_attribute = AsyncMock(return_value=opt["mode_id"])
+        el.click = AsyncMock()
+        option_els.append(el)
+
+    def make_opts():
+        opts = MagicMock()
+        opts.first = opts
+        opts.wait_for = AsyncMock()
+        opts.count = AsyncMock(return_value=len(options))
+        for i, el in enumerate(option_els):
+            setattr(opts, f"opt_{i}", el)
+
+        def _nth(i, _opts=opts):
+            return getattr(_opts, f"opt_{i}")
+
+        opts.nth = _nth
+        return opts
+
+    def locator_side_effect(selector):
+        selectors_seen.append(selector)
+        if selector == SELECTORS["MODEL_PICKER"]:
+            loc = make_loc()
+            loc.first = picker_el
+            return loc
+        if selector == GEM_MENU_SEL:
+            return menu_loc
+        if selector.startswith('gem-menu-item[data-mode-id='):
+            if selector not in id_locators:
+                id_locators[selector] = make_id_locator()
+            return id_locators[selector]
+        if selector == SELECTORS["MODEL_OPTION"]:
+            return make_opts()
+        return make_loc()
+
+    page.locator.side_effect = locator_side_effect
+
+    async def _escape(key, **_k):
+        record("escape")
+
+    page.keyboard.press = _escape
+    return page, selectors_seen, option_els
+
+
+@pytest.mark.asyncio
+async def test_select_model_verifies_via_captured_mode_id_without_picker_text(adapter, monkeypatch):
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, seen, opts = _build_mode_selection_page(
+        options, id_item_classes="ng-star-inserted selected"
+    )
+    monkeypatch.setattr(
+        "app.services.providers.gemini.browser_adapter.asyncio.sleep", AsyncMock()
+    )
+
+    await adapter.select_model(page, "Flash")
+
+    assert opts[0].click.call_count == 1
+    assert 'gem-menu-item[data-mode-id="abc123session"]' in seen
+    # Picker text stayed unusable throughout; verification still succeeded.
+    assert GEM_MENU_SEL in seen
+
+
+@pytest.mark.asyncio
+async def test_select_model_without_mode_id_uses_text_verification_fallback(adapter):
+    options = [{"text": "3.1 Pro", "mode_id": None}]
+    page, seen, opts = _build_mode_selection_page(options)
+    # No-op pre-check sees a different model; post-click check sees the target.
+    active_reads = iter(["Flash", "Pro", "Pro", "Pro", "Pro", "Pro"])
+
+    async def fake_get_active_model(_page):
+        return next(active_reads, "Pro")
+
+    adapter.get_active_model = fake_get_active_model
+
+    await adapter.select_model(page, "Pro")
+
+    assert opts[0].click.call_count == 1
+    assert not any("data-mode-id" in s for s in seen)
+
+
+@pytest.mark.asyncio
+async def test_select_model_mode_id_never_selected_fails_transient(adapter, monkeypatch):
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, _, _ = _build_mode_selection_page(
+        options, id_item_classes=["ng-star-inserted"] * 10
+    )
+    monkeypatch.setattr(
+        "app.services.providers.gemini.browser_adapter.asyncio.sleep", AsyncMock()
+    )
+
+    with pytest.raises(TransientSessionError, match="never became selected"):
+        await adapter.select_model(page, "Flash")
+
+
+@pytest.mark.asyncio
+async def test_select_model_duplicate_mode_id_is_ambiguous_failure(adapter, monkeypatch):
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, _, _ = _build_mode_selection_page(
+        options,
+        id_item_classes="ng-star-inserted selected",
+        id_match_count=2,
+    )
+
+    with pytest.raises(TransientSessionError, match="ambiguous"):
+        await adapter.select_model(page, "Flash")
+
+
+@pytest.mark.asyncio
+async def test_select_model_data_active_without_selected_does_not_count(adapter, monkeypatch):
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, _, _ = _build_mode_selection_page(
+        options, id_item_classes=["active"] * 10
+    )
+    monkeypatch.setattr(
+        "app.services.providers.gemini.browser_adapter.asyncio.sleep", AsyncMock()
+    )
+
+    with pytest.raises(TransientSessionError, match="never became selected"):
+        await adapter.select_model(page, "Flash")
+
+
+@pytest.mark.asyncio
+async def test_mode_id_unsuccessful_poll_escapes_before_retry_reopens_cleanly(adapter, monkeypatch):
+    events = []
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    # Poll 1: not selected -> Escape + backoff; poll 2: selected -> Escape + success.
+    page, _, opts = _build_mode_selection_page(
+        options,
+        id_item_classes=["ng-star-inserted", "ng-star-inserted selected"],
+        events=events,
+    )
+
+    async def _sleep(_delay):
+        events.append("sleep")
+
+    monkeypatch.setattr(
+        "app.services.providers.gemini.browser_adapter.asyncio.sleep", _sleep
+    )
+
+    await adapter.select_model(page, "Flash")
+
+    assert opts[0].click.call_count == 1
+    assert events == [
+        "picker_click",   # select_model opens options menu
+        "picker_click",   # verification poll 1 reopens menu
+        "menu_open",
+        "escape",         # not selected: close before backoff
+        "sleep",
+        "picker_click",   # poll 2 reopens cleanly (no toggle-shut)
+        "menu_open",
+        "escape",         # success closes menu
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mode_id_timeout_leaves_menu_closed(adapter, monkeypatch):
+    events = []
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, _, _ = _build_mode_selection_page(
+        options, id_item_classes="ng-star-inserted", events=events
+    )
+    monkeypatch.setattr(
+        "app.services.providers.gemini.browser_adapter.asyncio.sleep", AsyncMock()
+    )
+
+    with pytest.raises(TransientSessionError, match="never became selected"):
+        await adapter.select_model(page, "Flash")
+
+    assert events[-1] == "escape"
+    assert events.count("picker_click") == 7  # initial open + 6 polls
+
+
+@pytest.mark.asyncio
+async def test_mode_id_ambiguous_match_closes_menu_before_error(adapter):
+    events = []
+    options = [{"text": "3.6 Flash", "mode_id": "abc123session"}]
+    page, _, _ = _build_mode_selection_page(
+        options,
+        id_item_classes="ng-star-inserted selected",
+        id_match_count=2,
+        events=events,
+    )
+
+    with pytest.raises(TransientSessionError, match="ambiguous"):
+        await adapter.select_model(page, "Flash")
+
+    assert events == ["picker_click", "picker_click", "menu_open", "escape"]
 
 def test_get_gemini_models_preserves_playwright_models_without_runtime_catalog():
     """Runtime catalog absence must not remove Playwright models."""

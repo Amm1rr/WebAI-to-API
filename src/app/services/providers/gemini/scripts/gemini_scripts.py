@@ -11,7 +11,7 @@ SELECTORS = {
     "SEND_BUTTON": 'button.send-button, button[aria-label*="Send message"], button[aria-label="Send"], [data-test-id="send-button"]',
     "STOP_BUTTON": 'button[aria-label*="Stop"], .stop-button',
     "RESPONSE_CONTAINER": 'message-content, .message-content, [data-test-id="message-content"]',
-    "MODEL_PICKER": 'button[aria-label*="Open mode picker"]',
+    "MODEL_PICKER": '[data-test-id="bard-mode-menu-button"], button[aria-label*="Open mode picker"]',
     "MODEL_OPTION": '[role="menuitem"], [role="option"], .mat-mdc-menu-item'
 }
 
