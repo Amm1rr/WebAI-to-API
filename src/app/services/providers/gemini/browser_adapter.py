@@ -347,7 +347,8 @@ class GeminiProviderAdapter(BaseProviderAdapter):
                 "index": i,
                 "label": label,
                 "score": score,
-                "locator": opt
+                "locator": opt,
+                "mode_id": await opt.get_attribute("data-mode-id"),
             })
 
         if not candidates:
@@ -371,10 +372,56 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         # Sort candidates by score (descending)
         candidates.sort(key=lambda x: x["score"], reverse=True)
         target_option = candidates[0]["locator"]
+        target_mode_id = candidates[0]["mode_id"]
 
         await target_option.click()
-        
-        # 4. Verify Selection (polling with short timeout)
+
+        if target_mode_id:
+            await self._verify_selection_by_mode_id(page, requested_model_label, target_mode_id, state)
+        else:
+            await self._verify_selection_by_label(page, requested_model_label, state)
+
+        logger.info(f"Gemini model successfully switched to '{requested_model_label}'", extra={"request_id": getattr(state, "request_id", "unknown")})
+
+    async def _verify_selection_by_mode_id(self, page: Page, requested_model_label: str, mode_id: str, state: Optional[Any] = None) -> None:
+        """
+        Verify the clicked option via its session-captured data-mode-id: after
+        reopening the menu exactly one item must carry that id and the `selected`
+        class. `data-active`/`active` are focus artifacts and never count.
+        The id is re-read from the same DOM moments after the click, so it cannot
+        go stale like a hardcoded mapping would.
+        """
+        verification_timeout = 3.0
+        poll_interval = 0.5
+        elapsed = 0.0
+
+        while elapsed < verification_timeout:
+            await self._open_mode_menu(page)
+            matches = page.locator(f'gem-menu-item[data-mode-id="{mode_id}"]')
+            match_count = await matches.count()
+            if match_count != 1:
+                await page.keyboard.press("Escape")
+                raise TransientSessionError(
+                    f"Gemini model selection verification is ambiguous. Requested: '{requested_model_label}', "
+                    f"matching options for id '{mode_id}': {match_count}"
+                )
+            selected_class = (await matches.nth(0).get_attribute("class")) or ""
+            if "selected" in selected_class.split():
+                await page.keyboard.press("Escape")
+                return
+            # Close the menu before backoff so the next poll's picker click
+            # reopens it instead of toggling a still-open menu shut.
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TransientSessionError(
+            f"Gemini model selection verification failed. Requested: '{requested_model_label}', "
+            f"option '{mode_id}' never became selected."
+        )
+
+    async def _verify_selection_by_label(self, page: Page, requested_model_label: str, state: Optional[Any] = None) -> None:
+        """Legacy text-based verification fallback when no data-mode-id exists."""
         verification_timeout = 3.0
         poll_interval = 0.5
         elapsed = 0.0
@@ -394,5 +441,3 @@ class GeminiProviderAdapter(BaseProviderAdapter):
             raise TransientSessionError(
                 f"Gemini model selection verification failed. Requested: '{requested_model_label}', Found: '{last_found}'"
             )
-        
-        logger.info(f"Gemini model successfully switched to '{last_found}'", extra={"request_id": getattr(state, "request_id", "unknown")})
