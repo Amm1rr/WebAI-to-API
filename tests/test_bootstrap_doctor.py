@@ -173,6 +173,41 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.assertIn("WARN", res.stdout)
         self.assertIn("No Gemini auth material found", res.stdout)
 
+    def test_doctor_corrupt_json_reports_playwright_impact(self):
+        # Case 1: valid [Gemini] config cookies + corrupt JSON -> FAIL,
+        # message explains backend impact and recovery.
+        subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True
+        )
+        config_path = os.path.join(self.test_dir, "config.conf")
+        with open(config_path, "w") as f:
+            f.write("[Gemini]\n__Secure-1PSID = psid_val\n__Secure-1PSIDTS = ts_val\n")
+        json_path = os.path.join(self.test_dir, "runtime", "auth", "gemini.json")
+        os.makedirs(os.path.dirname(json_path), exist_ok=True)
+        with open(json_path, "w") as f:
+            f.write('{"cookies": [broken')
+
+        res = subprocess.run(
+            ["python", self.doctor_path],
+            cwd=self.test_dir, capture_output=True, text=True
+        )
+        self.assertIn("FAIL", res.stdout)
+        self.assertIn("Playwright authentication is broken", res.stdout)
+        self.assertIn("WebAPI cookie authentication may still be unaffected", res.stdout)
+        self.assertIn("Run: python verify_login.py", res.stdout)
+
+        # Case 2: no usable auth + corrupt JSON -> same actionable FAIL.
+        with open(config_path, "w") as f:
+            f.write("[Gemini]\n")
+        res = subprocess.run(
+            ["python", self.doctor_path],
+            cwd=self.test_dir, capture_output=True, text=True
+        )
+        self.assertIn("FAIL", res.stdout)
+        self.assertIn("Playwright authentication is broken", res.stdout)
+        self.assertIn("Run: python verify_login.py", res.stdout)
+
 
 @pytest.mark.parametrize(
     ("version", "expected_ok"),

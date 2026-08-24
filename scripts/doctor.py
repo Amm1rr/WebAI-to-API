@@ -232,16 +232,21 @@ def check_auth_material(config):
 
     # Detailed Auth (JSON) check
     if os.path.exists(json_path):
+        unreadable_json_msg = (
+            f"{json_path} is unreadable/corrupt. Playwright authentication is broken; "
+            "WebAPI cookie authentication may still be unaffected. "
+            "Run: python verify_login.py"
+        )
         try:
             with open(json_path, 'r') as f:
                 data = json.load(f)
                 if isinstance(data, dict) and "cookies" in data:
                     print_status("Auth (JSON)", "PASS", f"{json_path} exists and is valid")
                 else:
-                    print_status("Auth (JSON)", "FAIL", f"{json_path} is invalid format", Colors.FAIL)
+                    print_status("Auth (JSON)", "FAIL", unreadable_json_msg, Colors.FAIL)
                     has_fail = True
         except Exception as e:
-            print_status("Auth (JSON)", "FAIL", f"Error reading {json_path}: {e}", Colors.FAIL)
+            print_status("Auth (JSON)", "FAIL", f"Error reading {json_path}: {e}. {unreadable_json_msg}", Colors.FAIL)
             has_fail = True
     else:
         # If no JSON and no config, this is where we'd advise verify_login
