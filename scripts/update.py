@@ -2,7 +2,8 @@
 """
 Git-based updater for WebAI-to-API.
 
-VERSION (repo root) is the update trigger; origin/master is the transport.
+The [project].version field in pyproject.toml is the update trigger;
+origin/master is the transport.
 Host-only: refuses to run inside containers. Never touches user-owned paths
 (.env, .env.local, config.conf, runtime/).
 
@@ -12,6 +13,7 @@ introduced by a newer version are not reverted.
 
 import errno
 import fcntl
+import json
 import os
 import shlex
 import signal
@@ -19,6 +21,7 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.request
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,9 +35,9 @@ HEALTH_INTERVAL = float(os.environ.get("WEBAI_HEALTH_INTERVAL", "2"))
 START_COMMAND = os.environ.get("WEBAI_START_COMMAND", "poetry run python src/run.py")
 POETRY_COMMAND = os.environ.get("WEBAI_POETRY", "poetry")
 BRANCH = "master"
-VERSION_FILE = "VERSION"
+PYPROJECT_FILE = "pyproject.toml"
+LOCK_FILE_NAME = "poetry.lock"
 PROTECTED_PATHS = (".env", ".env.local", "config.conf", "runtime/")
-DEP_FILES = ("pyproject.toml", "poetry.lock")
 
 UPDATE_LOCKED_MESSAGE = (
     "Another updater instance is already running. If this is stale, remove "
@@ -245,10 +248,20 @@ def container_guard(exists=None):
         raise UpdateError(DOCKER_MESSAGE)
 
 
+def _extract_project_version(raw):
+    """Parse pyproject TOML and return [project].version; '' on any failure."""
+    try:
+        data = tomllib.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+        version = data.get("project", {}).get("version", "")
+        return str(version).strip() if version else ""
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, AttributeError, TypeError):
+        return ""
+
+
 def read_local_version():
     try:
-        with open(os.path.join(ROOT, VERSION_FILE)) as handle:
-            return handle.read().strip()
+        with open(os.path.join(ROOT, PYPROJECT_FILE), "rb") as handle:
+            return _extract_project_version(handle.read())
     except OSError:
         return ""
 
@@ -331,19 +344,20 @@ def preflight():
     if fetch.returncode != 0:
         raise UpdateError(f"git fetch failed:\n{fetch.stderr.strip()}")
 
-    show = git("show", f"origin/{BRANCH}:{VERSION_FILE}", check=False)
-    remote_version = show.stdout.strip() if show.returncode == 0 else ""
+    show = git("show", f"origin/{BRANCH}:{PYPROJECT_FILE}", check=False)
+    remote_version = _extract_project_version(show.stdout) if show.returncode == 0 else ""
     if not remote_version:
         raise UpdateError(
-            f"No readable VERSION on origin/master; refusing to update."
+            f"No readable [project].version in origin/master:{PYPROJECT_FILE}; "
+            "refusing to update."
         )
 
     local_version = read_local_version()
     if local_version and local_version == remote_version:
-        say(f"Already up to date (VERSION {local_version}).")
+        say(f"Already up to date (project version {local_version}).")
         return None
 
-    say(f"Update available: {local_version or '(none)'} -> {remote_version}")
+    say(f"Update available: {local_version or '(unknown)'} -> {remote_version}")
 
     ancestry = git("merge-base", "--is-ancestor", "HEAD", f"origin/{BRANCH}", check=False)
     if ancestry.returncode != 0:
@@ -385,11 +399,55 @@ def preflight():
         )
 
     changed = set(git("diff", "--name-only", "HEAD", f"origin/{BRANCH}").stdout.split())
+    lock_changed = LOCK_FILE_NAME in changed
+
+    old_toml = git("show", f"HEAD:{PYPROJECT_FILE}", check=False).stdout
+    new_toml = git("show", f"origin/{BRANCH}:{PYPROJECT_FILE}", check=False).stdout
+    old_signature = _dependency_signature(old_toml)
+    new_signature = _dependency_signature(new_toml)
+    if old_signature is None or new_signature is None:
+        # Fail safe: unparseable dependency metadata -> assume deps changed.
+        deps_changed = True
+    else:
+        deps_changed = old_signature != new_signature
+    if lock_changed:
+        deps_changed = True
+
     return {
         "previous_sha": git("rev-parse", "HEAD").stdout.strip(),
-        "deps_changed": any(path in changed for path in DEP_FILES),
-        "lock_changed": "poetry.lock" in changed,
+        "deps_changed": deps_changed,
+        "lock_changed": lock_changed,
     }
+
+
+def _dependency_signature(toml_text):
+    """
+    Deterministic fingerprint of dependency-bearing pyproject configuration.
+    Dicts compare order-insensitively (sorted JSON); list order is preserved
+    (dependency lists are semantically ordered). Returns None when the
+    document cannot be parsed, signalling a conservative 'changed'.
+    """
+    try:
+        data = tomllib.loads(toml_text)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    project = data.get("project") if isinstance(data.get("project"), dict) else {}
+    tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+    poetry = tool.get("poetry") if isinstance(tool.get("poetry"), dict) else {}
+
+    signature = {
+        "project.requires-python": project.get("requires-python"),
+        "project.dependencies": project.get("dependencies"),
+        "project.optional-dependencies": project.get("optional-dependencies"),
+        "dependency-groups": data.get("dependency-groups"),
+        "tool.poetry.dependencies": poetry.get("dependencies"),
+        "tool.poetry.group": poetry.get("group"),
+        "tool.poetry.dev-dependencies": poetry.get("dev-dependencies"),
+    }
+    return json.dumps(signature, sort_keys=True, default=repr)
 
 
 def sync_dependencies(lock_changed):

@@ -7,32 +7,48 @@
 ./update.sh --stop   # stop the service (unchanged legacy behavior)
 ```
 
-Contract: the tracked root `VERSION` file is the update trigger; Git is the
-transport. If remote `VERSION` equals local, nothing happens.
+Contract: the `[project].version` field in the tracked `pyproject.toml` is
+the update trigger; Git is the transport. If the remote version equals the
+local version, nothing happens.
+
+## Version bump discipline
+
+**Every deploy-worthy merge to `master` must bump `[project].version`.**
+Otherwise the local and remote versions match, the updater intentionally
+reports "already up to date", and newer code is not applied. There is no CI
+enforcement yet — reviewers should verify the bump.
+
+A pure version bump does NOT force a dependency sync. The updater compares
+the dependency-bearing configuration (`requires-python`, `dependencies`,
+`optional-dependencies`, `dependency-groups`, Poetry dependency tables)
+between HEAD and origin/master and runs `poetry install --sync` only when
+that signature or `poetry.lock` changed; a changed lock also runs
+`poetry run playwright install chromium`.
 
 Behavior:
 
 - Fetch/version/preflight run while the service keeps running.
 - Preflight aborts (service untouched) on: dirty tracked/staged files, local
   commits not on `origin/master`, wrong branch/detached HEAD, protected paths
-  becoming tracked, or untracked-file collisions.
-- The service is stopped only after preflight passes; it restarts afterwards
-  only if it was running before. Success = `GET /health` returns 200 within
-  ~60s (`/ready` is intentionally not used; browser runtime starts lazily).
-- If `pyproject.toml`/`poetry.lock` changed: `poetry install --sync`; a
-  changed `poetry.lock` also runs `poetry run playwright install chromium`.
+  becoming tracked, or local untracked/ignored files colliding with paths
+  origin/master tracks.
+- The service stops only after preflight passes; it restarts afterwards only
+  if it was running before. Success = `GET /health` returns 200 within ~60s.
+  `/ready` is intentionally not used (browser runtime starts lazily).
 - On failure after the code switch (deps, start, health), the updater rolls
-  back to the previous commit, restores dependencies, restarts the old
-  version and re-checks `/health`. A failed rollback exits non-zero and
-  points at the server log.
+  back to the previous commit, restores dependencies when needed, restarts
+  the old version and re-checks `/health`. A failed rollback exits non-zero,
+  leaves the service stopped where restoration itself failed, and points at
+  the server log.
 
 User-owned state — `.env`, `.env.local`, `config.conf`, `runtime/` — is never
-tracked and never touched. The updater refuses to run when `origin/master`
-would start tracking them or would overwrite colliding untracked files.
+tracked and never touched. Symlinks and untracked/ignored files that would
+collide with newly tracked upstream paths block the update instead of being
+overwritten.
 
 Rollback covers code and dependencies only. If a newer version migrated
 persistent state (e.g., snapshot DB schema), rolling back cannot undo that;
 back up `runtime/` before updating if in doubt.
 
-Docker deployments are out of scope for this script (it refuses to run inside
-containers): update with `git pull && docker compose up -d --build`.
+Docker deployments are out of scope for this script (only `--stop` works
+inside containers): update with `git pull && docker compose up -d --build`.
