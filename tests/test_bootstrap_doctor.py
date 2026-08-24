@@ -15,6 +15,14 @@ def _load_bootstrap_module():
     spec.loader.exec_module(module)
     return module
 
+
+def _load_doctor_module():
+    path = os.path.abspath("scripts/doctor.py")
+    spec = importlib.util.spec_from_file_location("doctor_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 class TestBootstrapDoctor(unittest.TestCase):
     def setUp(self):
         # Create a temporary directory for tests
@@ -186,6 +194,33 @@ def test_check_python_version_matches_pyproject_contract(monkeypatch, capsys, ve
         captured = capsys.readouterr()
         assert "3.11 to <3.13 is required." in captured.err
         assert f"Current version is {version[0]}.{version[1]}." in captured.err
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_ok"),
+    [
+        ((3, 10), False),
+        ((3, 11), True),
+        ((3, 12), True),
+        ((3, 13), False),
+    ],
+)
+def test_doctor_check_python_version_matches_pyproject_contract(monkeypatch, capsys, version, expected_ok):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.sys, "version_info", version + (0, 0, "final"))
+
+    result = doctor.check_python_version()
+
+    assert result is expected_ok
+    captured = capsys.readouterr()
+    if expected_ok:
+        assert "PASS" in captured.out
+        assert "is supported" in captured.out
+    else:
+        assert "FAIL" in captured.out
+        assert f"Version {version[0]}.{version[1]} is unsupported" in captured.out
+        assert "Python 3.11 to <3.13 is required" in captured.out
+        assert "Run: poetry run python scripts/doctor.py" in captured.out
 
 if __name__ == "__main__":
     unittest.main()
