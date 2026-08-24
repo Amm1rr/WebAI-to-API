@@ -40,6 +40,8 @@ Provides access to cloud-hosted AI models through a native API integration power
 
 ## Quick Start
 
+> **Prerequisite:** Python 3.11–3.12 (see `pyproject.toml`).
+
 ### 1. Install Dependencies
 ```bash
 poetry install

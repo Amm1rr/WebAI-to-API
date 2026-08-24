@@ -17,6 +17,16 @@ except ImportError:
     def get_linux_distro():
         return None, sys.platform, False
 
+# Constants
+# Must mirror pyproject.toml requires-python (">=3.11,<3.13").
+# Guarded by tests/test_version_alignment.py::test_python_version_contract_alignment.
+REQUIRED_PYTHON_VERSION = (3, 11)
+MAX_PYTHON_VERSION = (3, 13)
+SUPPORTED_RANGE_TEXT = (
+    f"{REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to "
+    f"<{MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]}"
+)
+
 # Colors
 class Colors:
     HEADER = '\033[95m'
@@ -33,6 +43,18 @@ def print_status(label, status, message="", color=Colors.ENDC):
     print(f"{Colors.BOLD}{label:<20}{Colors.ENDC} [{color}{status:<7}{Colors.ENDC}] {lines[0]}")
     for line in lines[1:]:
         print(f"{' ':<20}           {line}")
+
+def check_python_version():
+    current_version = sys.version_info[:2]
+    version_text = f"{current_version[0]}.{current_version[1]}"
+    if REQUIRED_PYTHON_VERSION <= current_version < MAX_PYTHON_VERSION:
+        print_status("Python", "PASS", f"Version {version_text} is supported ({SUPPORTED_RANGE_TEXT})")
+        return True
+    print_status("Python", "FAIL", (
+        f"Version {version_text} is unsupported. Python {SUPPORTED_RANGE_TEXT} is required. "
+        "Run: poetry run python scripts/doctor.py"
+    ), Colors.FAIL)
+    return False
 
 def check_config():
     if os.path.isdir("config.conf"):
@@ -255,6 +277,8 @@ def main():
     print("=" * 60)
 
     has_fail = False
+
+    if not check_python_version(): has_fail = True
 
     config_ok, config = check_config()
     if not config_ok: has_fail = True
