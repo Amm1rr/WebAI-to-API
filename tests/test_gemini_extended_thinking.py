@@ -458,7 +458,7 @@ async def test_missing_item_after_menu_render_false_succeeds_true_fails(extended
 
 
 @pytest.mark.asyncio
-async def test_missing_item_with_extended_label_fails_off(extended_page):
+async def test_missing_item_with_extended_label_succeeds_off(extended_page):
     picker = MagicMock()
     picker.click = AsyncMock()
     picker.get_attribute = AsyncMock(return_value="Open mode picker, currently Flash Extended")
@@ -470,23 +470,42 @@ async def test_missing_item_with_extended_label_fails_off(extended_page):
     adapter = GeminiProviderAdapter()
     adapter._find_model_picker = AsyncMock(return_value=picker)
 
-    with pytest.raises(TransientSessionError, match="normalized off"):
-        await adapter.set_extended_thinking(extended_page, False)
+    await adapter.set_extended_thinking(extended_page, False)
 
 
 @pytest.mark.asyncio
-async def test_missing_item_with_disappeared_picker_fails_off(extended_page):
-    picker = MagicMock()
-    picker.click = AsyncMock()
+async def test_missing_item_succeeds_off_without_secondary_picker_verification(extended_page):
     item = MagicMock()
     item.first = item
     item.wait_for = AsyncMock(side_effect=PlaywrightTimeoutError("missing"))
     extended_page.get_by_role = MagicMock(return_value=item)
     await extended_page.locator("#menu").evaluate("element => element.hidden = false")
     adapter = GeminiProviderAdapter()
-    adapter._find_model_picker = AsyncMock(side_effect=[picker, None])
 
-    with pytest.raises(TransientSessionError, match="verified off"):
+    await adapter.set_extended_thinking(extended_page, False)
+
+
+@pytest.mark.asyncio
+async def test_absent_control_false_succeeds_true_capability_error(extended_page):
+    await extended_page.locator("gem-menu-item").evaluate(
+        "element => { element.textContent = 'Other'; element.removeAttribute('role'); }"
+    )
+    adapter = GeminiProviderAdapter()
+
+    await adapter.set_extended_thinking(extended_page, False)
+    with pytest.raises(ModelNotFoundError):
+        await adapter.set_extended_thinking(extended_page, True)
+
+
+@pytest.mark.asyncio
+async def test_playwright_failure_during_control_check_still_fails(extended_page):
+    item = MagicMock()
+    item.first = item
+    item.wait_for = AsyncMock(side_effect=PlaywrightError("Target closed"))
+    extended_page.get_by_role = MagicMock(return_value=item)
+    adapter = GeminiProviderAdapter()
+
+    with pytest.raises(PlaywrightError):
         await adapter.set_extended_thinking(extended_page, False)
 
 
