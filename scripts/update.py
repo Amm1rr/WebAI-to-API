@@ -35,8 +35,10 @@ if not _python_version_supported(sys.version_info):
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
+import tempfile
 import time
 import tomllib
 import urllib.request
@@ -46,6 +48,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from update_platform import (
+    IS_WINDOWS,
     PlatformOperationError,
     acquire_lock as platform_acquire_lock,
     force_kill as platform_force_kill,
@@ -54,10 +57,27 @@ from update_platform import (
     terminate_graceful as platform_terminate_graceful,
 )
 
+
+def _temp_base():
+    """POSIX keeps the historical /tmp defaults byte-for-byte; Windows uses
+    the standard per-user temp directory."""
+    return "/tmp" if not IS_WINDOWS else tempfile.gettempdir()
+
+
 ROOT = os.environ.get("WEBAI_ROOT") or os.path.dirname(SCRIPT_DIR)
-PID_FILE = os.environ.get("WEBAI_PID_FILE", "/tmp/webai-to-api.pid")
-LOG_FILE = os.environ.get("WEBAI_LOG_FILE", "/tmp/webai-to-api.log")
-LOCK_FILE = os.environ.get("WEBAI_LOCK_FILE", "/tmp/webai-to-api-update.lock")
+PID_FILE = os.environ.get(
+    "WEBAI_PID_FILE", os.path.join(_temp_base(), "webai-to-api.pid")
+)
+LOG_FILE = os.environ.get(
+    "WEBAI_LOG_FILE", os.path.join(_temp_base(), "webai-to-api.log")
+)
+LOCK_FILE = os.environ.get(
+    "WEBAI_LOCK_FILE", os.path.join(_temp_base(), "webai-to-api-update.lock")
+)
+SHUTDOWN_CONTROL_FILE = os.path.join(
+    os.environ.get("RUNTIME_DIR") or os.path.join(ROOT, "runtime"),
+    "shutdown-control.json",
+)
 HEALTH_URL = os.environ.get("WEBAI_HEALTH_URL", "http://127.0.0.1:6969/health")
 HEALTH_TIMEOUT = float(os.environ.get("WEBAI_HEALTH_TIMEOUT", "60"))
 HEALTH_INTERVAL = float(os.environ.get("WEBAI_HEALTH_INTERVAL", "2"))
@@ -122,8 +142,81 @@ def running_service_pid():
     return pid if platform_pid_alive(pid) else None
 
 
+_SEND_SHUTDOWN = None
+
+# Phase 4 client default; the per-call timeout is capped by remaining grace
+# budget so one IPC attempt can never stretch the stop beyond ~10s wall clock.
+WINDOWS_IPC_TIMEOUT_SECONDS = 3.0
+WINDOWS_STOP_BUDGET_SECONDS = 10.0
+
+
+def _send_windows_shutdown(control_file, timeout=None):
+    """Lazy-bound Phase 4 transport client (Windows graceful stop only)."""
+    global _SEND_SHUTDOWN
+    if _SEND_SHUTDOWN is None:
+        src_dir = os.path.join(os.path.dirname(SCRIPT_DIR), "src")
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from app.shutdown_transport import (
+            ShutdownTransportError as transport_error,
+            send_shutdown as send,
+        )
+
+        globals()["ShutdownTransportError"] = transport_error
+        _SEND_SHUTDOWN = send
+    return _SEND_SHUTDOWN(control_file, timeout=timeout)
+
+
+# Normalized Windows IPC outcomes; "unreachable" covers missing/stale/malformed
+# control metadata and connect failures. All are retryable by policy.
+_WINDOWS_IPC_RETRY = "retry"
+_WINDOWS_IPC_UNREACHABLE = "unreachable"
+
+
+def request_service_shutdown(pid, timeout=None):
+    """
+    One platform-dispatched graceful-stop request.
+
+    POSIX: deliver SIGTERM via the platform primitive (raises
+    PlatformOperationError on operational failure, as before).
+    Windows: attempt the Phase 4 loopback IPC; returns "ok" (accepted),
+    "retry" (not accepted yet), or "unreachable" (no usable control
+    channel). Never raises for absent/stale channels — the grace budget
+    owns retries and the force fallback. `timeout` caps this single IPC
+    call; callers on the Windows stop path pass min(IPC default,
+    remaining budget).
+    """
+    if not IS_WINDOWS:
+        platform_terminate_graceful(pid)
+        return None
+    try:
+        result = _send_windows_shutdown(SHUTDOWN_CONTROL_FILE, timeout)
+    except ShutdownTransportError:
+        return _WINDOWS_IPC_UNREACHABLE
+    if result == "ok":
+        return "ok"
+    return _WINDOWS_IPC_RETRY
+
+
 def stop_service(pid):
     say(f"Stopping WebAI-to-API (PID {pid})...")
+    if IS_WINDOWS:
+        _stop_service_windows(pid)
+    else:
+        _stop_service_posix(pid)
+    try:
+        os.unlink(PID_FILE)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        # Service is down but lifecycle state is uncertain: fail loudly.
+        raise UpdateError(
+            f"Service stopped but stale PID file {PID_FILE} "
+            f"could not be removed: {error}"
+        ) from error
+
+
+def _stop_service_posix(pid):
     try:
         platform_terminate_graceful(pid)
     except PlatformOperationError as error:
@@ -140,23 +233,70 @@ def stop_service(pid):
             raise UpdateError(
                 f"Cannot force-kill service PID {pid}: {error}"
             ) from error
+
+
+def _stop_service_windows(pid):
+    # Single ~10s wall-clock budget (monotonic): IPC ticks interleave with
+    # liveness polls, each IPC call's timeout is capped by the remaining
+    # budget so it can never stretch the stop. "ok" stops further sends;
+    # process exit is the only success proof; hard kill is fallback only.
+    deadline = time.monotonic() + WINDOWS_STOP_BUDGET_SECONDS
+    accepted = False
+    while time.monotonic() < deadline:
+        if not platform_pid_alive(pid):
+            return
+        if not accepted:
+            ipc_timeout = min(
+                WINDOWS_IPC_TIMEOUT_SECONDS,
+                max(0.0, deadline - time.monotonic()),
+            )
+            accepted = (
+                request_service_shutdown(pid, timeout=ipc_timeout) == "ok"
+            )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(1.0, remaining))
+    say("Process did not stop gracefully; forcing termination.")
     try:
-        os.unlink(PID_FILE)
-    except FileNotFoundError:
-        pass
-    except OSError as error:
-        # Service is down but lifecycle state is uncertain: fail loudly.
+        platform_force_kill(pid)
+    except PlatformOperationError as error:
         raise UpdateError(
-            f"Service stopped but stale PID file {PID_FILE} "
-            f"could not be removed: {error}"
+            f"Cannot force-kill service PID {pid}: {error}"
         ) from error
 
 
+def _strip_matching_double_quotes(token):
+    if len(token) >= 2 and token[0] == token[-1] == '"':
+        return token[1:-1]
+    return token
+
+
 def parse_start_command():
-    """Parse START_COMMAND; malformed or empty commands are fatal."""
+    """Parse START_COMMAND; malformed or empty commands are fatal.
+
+    POSIX keeps POSIX-mode shlex parsing unchanged. Windows parses in
+    non-POSIX mode (preserving backslashes and drive paths), strips one
+    matching pair of surrounding double quotes per token, and resolves
+    argv[0] via shutil.which() so PATHEXT (.exe/.cmd/.bat) works with
+    shell=False. Resolution failure is a clean fatal error.
+    """
     if not START_COMMAND.strip():
         raise UpdateError("START_COMMAND is empty; cannot start the service.")
     try:
+        if IS_WINDOWS:
+            tokens = [
+                _strip_matching_double_quotes(token)
+                for token in shlex.split(START_COMMAND, posix=False)
+            ]
+            resolved = shutil.which(tokens[0])
+            if resolved is None:
+                raise UpdateError(
+                    f"Cannot resolve executable {tokens[0]!r} from "
+                    f"START_COMMAND {START_COMMAND!r}."
+                )
+            tokens[0] = resolved
+            return tokens
         return shlex.split(START_COMMAND)
     except ValueError as error:
         raise UpdateError(

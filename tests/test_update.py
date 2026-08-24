@@ -15,6 +15,8 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
+import time
 import threading
 
 import pytest
@@ -1182,3 +1184,375 @@ def test_main_releases_acquired_lock_exactly_once(repo, monkeypatch):
     repo.remote_set_version("2.0") if hasattr(repo, "remote_set_version") else None
     assert module.main([]) == 0
     assert len(releases) == 1
+
+
+# --- Phase 5: Windows updater policy (semantics mocked; real Windows = 6) ---
+
+
+class _FakeClock:
+    """Scripted time.monotonic/sleep pair: sleep advances the clock."""
+
+    def __init__(self, start=1000.0):
+        self.start = start
+        self.now = start
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _windows_stop_module(repo, monkeypatch, ipc_results, alive_sequence):
+    """Bound updater module forced onto the Windows stop path.
+
+    ipc_results: consumed per IPC call ("ok"/"retry"/"unreachable"/Exception).
+    alive_sequence: liveness polls; last value repeats once exhausted.
+    Time is faked: sleep advances a monotonic clock, so no real waiting.
+    Returns (module, ipc_calls, force_calls, ipc_timeouts, clock).
+    """
+    module = _load_update_module_for(repo)
+    module.IS_WINDOWS = True
+    clock = _FakeClock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+
+    import importlib
+    transport_error_cls = (
+        importlib.import_module("app.shutdown_transport")
+        .ShutdownTransportError
+    )
+    monkeypatch.setattr(
+        module, "ShutdownTransportError", transport_error_cls, raising=False
+    )
+
+    ipc_calls = []
+    ipc_timeouts = []
+
+    def fake_ipc(control_file, timeout=None):
+        result = (
+            ipc_results.pop(0) if ipc_results else "unreachable"
+        )
+        if isinstance(result, Exception):
+            raise result
+        ipc_calls.append(result)
+        ipc_timeouts.append(timeout)
+        return result
+
+    # Production seam: request_service_shutdown resolves this lazily.
+    monkeypatch.setattr(module, "_SEND_SHUTDOWN", fake_ipc)
+
+    alive_calls = []
+
+    def fake_alive(pid):
+        state = (
+            alive_sequence.pop(0)
+            if len(alive_sequence) > 1
+            else alive_sequence[0]
+        )
+        alive_calls.append(state)
+        return state
+
+    force_calls = []
+    monkeypatch.setattr(module, "platform_pid_alive", fake_alive)
+    monkeypatch.setattr(
+        module,
+        "platform_force_kill",
+        lambda pid: force_calls.append(pid),
+    )
+    return module, ipc_calls, force_calls, ipc_timeouts, clock
+
+
+def test_windows_stop_ipc_ok_no_repeat_no_force(repo, monkeypatch, capsys):
+    old_pid = repo.start_fake_service()
+    try:
+        # tick1 alive+ok, tick2 dead -> success without force.
+        module, ipc_calls, force_calls, timeouts, clock = (
+            _windows_stop_module(
+                repo, monkeypatch,
+                ipc_results=["ok"],
+                alive_sequence=[True, False],
+            )
+        )
+
+        module.stop_service(4321)
+        captured = capsys.readouterr()  # read the buffer exactly once
+
+        assert ipc_calls == ["ok"]           # sent exactly once after "ok"
+        assert len(timeouts) == 1
+        assert timeouts[0] <= module.WINDOWS_IPC_TIMEOUT_SECONDS
+        assert force_calls == []             # graceful acceptance honored
+        assert "forcing termination" not in captured.out
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_retry_then_ok_then_exit(repo, monkeypatch, capsys):
+    old_pid = repo.start_fake_service()
+    try:
+        module, ipc_calls, force_calls, timeouts, clock = (
+            _windows_stop_module(
+                repo, monkeypatch,
+                ipc_results=["retry", "retry", "ok"],
+                alive_sequence=[True, True, True, False],
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert ipc_calls == ["retry", "retry", "ok"]
+        assert force_calls == []
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_unreachable_budget_then_force(repo, monkeypatch):
+    old_pid = repo.start_fake_service()
+    try:
+        module, ipc_calls, force_calls, timeouts, clock = (
+            _windows_stop_module(
+                repo, monkeypatch,
+                ipc_results=[],               # never reachable
+                alive_sequence=[True],        # stays alive whole budget
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert len(ipc_calls) == 10       # one attempt per grace tick
+        assert force_calls == [4321]      # fallback engaged exactly once
+        elapsed = clock.now - clock.start
+        assert elapsed <= module.WINDOWS_STOP_BUDGET_SECONDS + 1e-9
+        assert all(t is not None and t <= 3.0 for t in timeouts)
+        assert timeouts[-1] < timeouts[0]  # cap shrinks near deadline
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_stale_metadata_behaves_as_unreachable(
+    repo, monkeypatch,
+):
+    """Malformed/stale control metadata is retryable, then hard fallback."""
+    old_pid = repo.start_fake_service()
+    try:
+        module, ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+            repo, monkeypatch,
+            ipc_results=[
+                app_shutdown_transport_error(),
+                    app_shutdown_transport_error(),
+                    "retry",
+                ],
+                alive_sequence=[True],
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert len(force_calls) == 1
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_process_exits_during_retries(repo, monkeypatch):
+    old_pid = repo.start_fake_service()
+    try:
+        module, ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+            repo, monkeypatch,
+                ipc_results=["retry"],
+                alive_sequence=[True, False],
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert force_calls == []          # exit beats any IPC outcome
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_already_dead_no_ipc_no_force(repo, monkeypatch):
+    old_pid = repo.start_fake_service()
+    try:
+        module, ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+            repo, monkeypatch,
+                ipc_results=["ok"],
+                alive_sequence=[False],
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert ipc_calls == []
+        assert force_calls == []
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def app_shutdown_transport_error():
+    import importlib
+    cls = (
+        importlib.import_module("app.shutdown_transport")
+        .ShutdownTransportError
+    )
+    return cls("stale control file")
+
+
+def test_windows_temp_defaults_use_gettempdir(monkeypatch, tmp_path):
+    import importlib.util
+
+    monkeypatch.setenv("WEBAI_PID_FILE", "")
+    monkeypatch.setenv("WEBAI_LOG_FILE", "")
+    monkeypatch.setenv("WEBAI_LOCK_FILE", "")
+    monkeypatch.delenv("WEBAI_PID_FILE", raising=False)
+    monkeypatch.delenv("WEBAI_LOG_FILE", raising=False)
+    monkeypatch.delenv("WEBAI_LOCK_FILE", raising=False)
+    spec = importlib.util.spec_from_file_location("update_nt_paths", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # On POSIX CI the defaults must remain byte-identical /tmp literals...
+    assert module.PID_FILE == "/tmp/webai-to-api.pid"
+    assert module.LOCK_FILE == "/tmp/webai-to-api-update.lock"
+
+    # ...while the Windows base helper routes through gettempdir().
+    monkeypatch.setattr(module, "IS_WINDOWS", True)
+    assert module._temp_base() == tempfile.gettempdir()
+    expected = os.path.join(tempfile.gettempdir(), "webai-to-api.pid")
+    helper_default = os.path.join(module._temp_base(), "webai-to-api.pid")
+    assert helper_default == expected
+
+
+def test_env_path_overrides_win(repo):
+    module = _load_bound_update_module(repo)
+    env = repo.env()
+    assert module.PID_FILE == env["WEBAI_PID_FILE"]
+    assert module.LOG_FILE == env["WEBAI_LOG_FILE"]
+
+
+def test_windows_quoted_path_parsing_preserves_backslashes(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("update_parse_win", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.IS_WINDOWS = True
+    object.__setattr__(module, "START_COMMAND",
+                       '"C:\\Program Files\\Poetry\\poetry.exe" run python src/run.py')
+    monkeypatch.setattr(
+        module.shutil, "which",
+        lambda name: "C:\\Resolved\\poetry.exe" if "poetry" in name else None,
+    )
+
+    argv = module.parse_start_command()
+
+    assert argv[0] == "C:\\Resolved\\poetry.exe"
+    assert argv[1:] == ["run", "python", "src/run.py"]
+
+
+def test_windows_executable_resolution_failure_clean(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("update_parse_bad", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.IS_WINDOWS = True
+    object.__setattr__(module, "START_COMMAND", "missing-tool serve")
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    with pytest.raises(module.UpdateError, match="Cannot resolve executable"):
+
+        module.parse_start_command()
+
+
+def test_posix_parsing_unchanged(repo):
+    module = _load_bound_update_module(repo)
+    object.__setattr__(module, "START_COMMAND",
+                       "poetry run python src/run.py")
+    assert module.parse_start_command() == [
+        "poetry", "run", "python", "src/run.py",
+    ]
+
+
+def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
+    """Windows rollback restart resolves argv and passes detached spawn."""
+    old_pid = repo.start_fake_service()
+    previous_sha = repo.head()
+    spawned = {}
+    real_platform_spawn = None
+
+    class FakePopen:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def kill(self):
+            pass
+
+    try:
+        module = _load_update_module_for(repo)
+        module.IS_WINDOWS = True
+        module.START_COMMAND = "sleep 30"
+        module.HEALTH_TIMEOUT = 1
+        module.HEALTH_INTERVAL = 0.1
+        module.SHUTDOWN_CONTROL_FILE = str(repo.base / "shutdown-control.json")
+
+        def fake_spawn(argv, cwd, log_handle):
+            spawned["argv"] = list(argv)
+            spawned["cwd"] = cwd
+            return FakePopen(old_pid)
+
+        monkeypatch.setattr(module, "platform_spawn_detached", fake_spawn)
+        monkeypatch.setattr(module.shutil, "which",
+                            lambda name: "/usr/bin/sleep" if name == "sleep" else None)
+        repo.remote_set_version("2.0")
+
+        with pytest.raises(SystemExit):
+            module.main([])  # health gate will fail -> rollback path exits
+
+        assert spawned["cwd"] == module.ROOT
+        assert spawned["argv"][0] == "/usr/bin/sleep"  # Windows-resolved argv
+        # Rollback actually executed and restored the previous release.
+        assert repo.head() == previous_sha
+        assert 'version = "1.0"' in repo.read("pyproject.toml")
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+# --- update.cmd wrapper contract (textual; real execution = Phase 6) --------
+
+
+def test_update_cmd_wrapper_contract():
+    wrapper_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "update.cmd"
+    )
+    with open(wrapper_path, encoding="utf-8") as handle:
+        content = handle.read()
+
+    # Repo-root cd + argument forwarding.
+    assert 'cd /d "%~dp0"' in content
+    assert "%*" in content
+
+    # Execution-time ERRORLEVEL dispatch (stale %errorlevel% is forbidden).
+    assert "if errorlevel 1 goto fallback" in content
+    assert "if not errorlevel 1 goto run312" in content
+    assert "if not errorlevel 1 goto run311" in content
+    assert ":run312" in content and ":run311" in content
+    assert ":fallback" in content
+    assert "%errorlevel%==0" not in content  # stale percent-expansion guard
+
+    # Both supported launcher versions probed; python is the final fallback;
+    # each path runs the updater exactly once and propagates its rc.
+    assert 'py -3.12 -c "import sys" >nul 2>nul' in content
+    assert 'py -3.11 -c "import sys" >nul 2>nul' in content
+    for interpreter in ("py -3.12", "py -3.11", "python"):
+        invocation = f"{interpreter} scripts\\update.py %*"
+        assert content.count(invocation) == 1
+    assert content.count("exit /b %errorlevel%") == 3
+
+    # No retry chains, no PowerShell, no delayed expansion machinery.
+    assert "||" not in content
+    assert "powershell" not in content.lower()
+    assert "setlocal enabledelayedexpansion" not in content.lower()
+    assert "!errorlevel!" not in content

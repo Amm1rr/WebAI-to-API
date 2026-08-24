@@ -268,3 +268,305 @@ def test_unsupported_python_gets_clean_exit_before_heavy_imports(monkeypatch):
     output = "".join(written)
     assert ">=3.11,<3.13" in output
     assert "3.10" in output
+
+
+# --- Windows platform adapter (semantics mocked; real Windows = Phase 6) -----
+
+import ctypes
+import errno
+import types
+
+import update_platform
+
+
+class FakeMsvcrt:
+    """Records locking() calls; scripted failures per (fd, mode)."""
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self, fail_on=None):
+        self.calls = []
+        self.fail_on = fail_on or {}
+
+    def locking(self, fd, mode, nbytes):
+        self.calls.append((fd, mode, nbytes))
+        failure = self.fail_on.get(mode)
+        if failure is not None:
+            raise failure
+        return None
+
+
+@pytest.fixture
+def windows_platform(monkeypatch):
+    """Force the Windows branch with an injectable msvcrt fake."""
+    fake = FakeMsvcrt()
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "msvcrt", fake, raising=False)
+    return fake
+
+
+def _errno_oserror(errno_value):
+    return OSError(errno_value, os.strerror(errno_value))
+
+
+def test_windows_imports_are_platform_gated():
+    """fcntl must sit under the POSIX branch; msvcrt/ctypes under nt."""
+    import ast as ast_module
+
+    source_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "scripts", "update_platform.py",
+    )
+    with open(source_path, encoding="utf-8") as handle:
+        tree = ast_module.parse(handle.read())
+
+    unconditional, posix_side, nt_side = set(), set(), set()
+    for node in tree.body:
+        if isinstance(node, ast_module.Import):
+            for alias in node.names:
+                unconditional.add(alias.name)
+        elif isinstance(node, ast_module.If):
+            test_source = ast_module.unparse(node.test)
+            is_nt_check = '"nt"' in test_source or "'nt'" in test_source
+            for inner in ast_module.walk(ast_module.Module(
+                body=node.body, type_ignores=[]
+            )):
+                if isinstance(inner, ast_module.Import):
+                    for alias in inner.names:
+                        (nt_side if is_nt_check else posix_side).add(alias.name)
+            for inner in ast_module.walk(ast_module.Module(
+                body=node.orelse, type_ignores=[]
+            )):
+                if isinstance(inner, ast_module.Import):
+                    for alias in inner.names:
+                        (posix_side if is_nt_check else nt_side).add(alias.name)
+
+    assert "fcntl" not in unconditional
+    assert "fcntl" in posix_side
+    assert "msvcrt" in nt_side and "ctypes" in nt_side
+
+
+def test_windows_lock_initializes_byte_and_locks(windows_platform, tmp_path):
+    lock_path = tmp_path / "win.lock"
+    handle = platform.acquire_lock(str(lock_path))
+
+    assert handle is not None
+    assert lock_path.stat().st_size >= 1  # lockable byte exists
+    assert windows_platform.calls[0][1] == FakeMsvcrt.LK_NBLCK
+    assert windows_platform.calls[0][2] == 1
+    handle.release()
+    assert any(mode == FakeMsvcrt.LK_UNLCK for _, mode, _ in windows_platform.calls)
+
+
+def test_windows_lock_contention_returns_none(monkeypatch, tmp_path):
+    for contention_errno in (errno.EACCES, errno.EDEADLOCK):
+        fake = FakeMsvcrt(fail_on={FakeMsvcrt.LK_NBLCK: _errno_oserror(contention_errno)})
+        monkeypatch.setattr(platform, "IS_WINDOWS", True)
+        monkeypatch.setattr(platform, "msvcrt", fake, raising=False)
+        lock_path = tmp_path / f"lock-{contention_errno}"
+        assert platform.acquire_lock(str(lock_path)) is None  # expected path
+
+
+def test_windows_lock_unexpected_error_normalized(monkeypatch, tmp_path):
+    fake = FakeMsvcrt(fail_on={FakeMsvcrt.LK_NBLCK: _errno_oserror(errno.EBADF)})
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "msvcrt", fake, raising=False)
+    with pytest.raises(platform.PlatformOperationError) as excinfo:
+        platform.acquire_lock(str(tmp_path / "bad.lock"))
+    assert excinfo.value.phase == "flock"
+    assert isinstance(excinfo.value.original_error, OSError)
+
+
+def test_windows_release_is_idempotent(windows_platform, tmp_path):
+    handle = platform.acquire_lock(str(tmp_path / "idem.lock"))
+    calls_before = len(windows_platform.calls)
+    handle.release()
+    handle.release()  # second call must not re-unlock or raise
+    unlock_calls = [c for c in windows_platform.calls[calls_before:] if c[1] == FakeMsvcrt.LK_UNLCK]
+    assert len(unlock_calls) == 1
+
+
+def test_posix_lock_branch_unchanged(monkeypatch, tmp_path):
+    """POSIX flag still routes through flock semantics."""
+    lock_path = tmp_path / "posix.lock"
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    handle = platform.acquire_lock(str(lock_path))
+    assert handle is not None and handle._windows is False
+    other = platform.acquire_lock(str(lock_path))
+    assert other is None  # real flock contention on this platform
+    handle.release()
+
+
+class FakeKernel32:
+    """Mirrors the real Win32 boundary: OpenProcess failures publish a
+    last-error code into the ctypes snapshot slot instead of exposing any
+    fake `get_last_error` method."""
+
+    def __init__(self, open_result=1, open_error=0, exit_code=259,
+                 query_succeeds=True):
+        self.open_result = open_result
+        self.open_error = open_error
+        self.exit_code = exit_code
+        self.query_succeeds = query_succeeds
+        self.opened = []
+        self.closed = []
+        self._next_handle = 4321
+        self.state = {"last": 0}
+
+    def OpenProcess(self, access, inherit, pid):
+        if self.open_result == 0:
+            self.state["last"] = self.open_error  # kernel records error
+            return 0
+        self.state["last"] = 0
+        self.opened.append(pid)
+        self.last_handle = self._next_handle
+        self._next_handle += 1
+        return self.last_handle
+
+    def GetExitCodeProcess(self, handle, byref_target):
+        if not self.query_succeeds:
+            self.state["last"] = 6  # ERROR_INVALID_HANDLE
+            return 0
+        byref_target._obj.value = self.exit_code
+        return 1
+
+    def CloseHandle(self, handle):
+        self.closed.append(handle)
+        return 1
+
+
+def _with_fake_kernel32(monkeypatch, fake):
+    """Windows branch + ctypes namespace whose get_last_error() snapshots
+    what the fake kernel recorded (mirrors use_last_error=True semantics)."""
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    state = fake.state
+
+    class SnapshotNamespace(types.SimpleNamespace):
+        pass
+
+    snapshot = SnapshotNamespace(
+        c_uint32=ctypes.c_uint32,
+        byref=ctypes.byref,
+        get_last_error=lambda: state["last"],
+        set_last_error=lambda value: state.__setitem__("last", value),
+    )
+    monkeypatch.setattr(platform, "ctypes", snapshot, raising=False)
+    monkeypatch.setattr(platform, "_KERNEL32", fake)
+    return fake
+
+
+def test_windows_liveness_live_process(monkeypatch):
+    fake = _with_fake_kernel32(
+        monkeypatch, FakeKernel32(exit_code=259)  # STILL_ACTIVE
+    )
+    assert platform.pid_alive(1234) is True
+    assert fake.closed == [fake.last_handle]  # handle deterministically closed
+
+
+def test_windows_liveness_exited_process(monkeypatch):
+    fake = _with_fake_kernel32(monkeypatch, FakeKernel32(exit_code=0))
+    assert platform.pid_alive(1234) is False
+    assert len(fake.closed) == 1
+
+
+def test_windows_liveness_nonexistent_pid(monkeypatch):
+    fake = _with_fake_kernel32(
+        monkeypatch, FakeKernel32(open_result=0, open_error=87)
+    )
+    assert platform.pid_alive(999999) is False
+    assert fake.closed == []
+
+
+def test_windows_liveness_access_denied_means_alive(monkeypatch):
+    _with_fake_kernel32(
+        monkeypatch, FakeKernel32(open_result=0, open_error=5)
+    )
+    assert platform.pid_alive(5) is True
+
+
+def test_windows_liveness_unknown_openerror_raises(monkeypatch):
+    fake = _with_fake_kernel32(
+        monkeypatch, FakeKernel32(open_result=0, open_error=1455)
+    )
+    with pytest.raises(platform.PlatformOperationError) as excinfo:
+        platform.pid_alive(888)
+    assert excinfo.value.phase == "liveness"
+    assert excinfo.value.original_error.errno == 1455
+    assert fake.closed == []  # nothing to close: never opened
+
+
+def test_windows_liveness_query_failure_raises_normalized(monkeypatch):
+    fake = _with_fake_kernel32(monkeypatch, FakeKernel32(query_succeeds=False))
+    with pytest.raises(platform.PlatformOperationError) as excinfo:
+        platform.pid_alive(777)
+    assert excinfo.value.phase == "liveness"
+    # winerror attr only exists on Windows builds; errno carries the code
+    assert excinfo.value.original_error.errno == 6
+    assert len(fake.closed) == 1  # valid HANDLE closed on failure path too
+
+
+def test_windows_force_kill_uses_hard_termination(monkeypatch):
+    kills = []
+
+    def fake_kill(pid, sig):
+        kills.append((pid, sig))
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(os, "kill", fake_kill)
+    platform.force_kill(4242)
+    assert kills == [(4242, signal.SIGTERM)]  # TerminateProcess mapping
+
+
+def test_windows_force_kill_already_gone_tolerated(monkeypatch):
+    def fake_kill(pid, sig):
+        raise ProcessLookupError()
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(os, "kill", fake_kill)
+    platform.force_kill(4242)  # no exception
+
+
+def test_windows_force_kill_operational_failure_normalized(monkeypatch):
+    def fake_kill(pid, sig):
+        raise OSError(errno.EACCES, "denied")
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(os, "kill", fake_kill)
+    with pytest.raises(platform.PlatformOperationError) as excinfo:
+        platform.force_kill(4242)
+    assert excinfo.value.phase == "force"
+
+
+def test_windows_graceful_signal_forbidden(monkeypatch):
+    """terminate_graceful must fail loudly on Windows, never hard-kill."""
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    with pytest.raises(RuntimeError, match="IPC"):
+        platform.terminate_graceful(123)
+
+
+def test_windows_spawn_flags(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakePopen:
+        def __init__(self, argv, **kwargs):
+            captured.update(kwargs)
+            self.pid = 5555
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    expected_flags = 0x20000200  # arbitrary recognizable sentinel
+    monkeypatch.setattr(
+        platform, "_windows_creation_flags", lambda: expected_flags
+    )
+    monkeypatch.setattr(platform.subprocess, "Popen", FakePopen)
+    log = open(tmp_path / "win.log", "ab")
+    process = platform.spawn_detached(
+        ["C:\\fake\\service.exe"], cwd=str(tmp_path), log_handle=log
+    )
+    log.close()
+    assert process.pid == 5555
+    assert "start_new_session" not in captured
+    assert captured["creationflags"] == expected_flags
