@@ -641,6 +641,11 @@ def test_rollback_restart_failure_is_fail_closed(repo):
         })
 
         assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        # Legacy-compatible spawn wording survives platform translation.
+        assert ("Cannot start service with "
+                "'/nonexistent/start-binary': No such file or directory") \
+            in combined
         assert "ROLLBACK FAILED" in result.stderr
         assert "left STOPPED" in result.stderr
         assert repo.head() == previous_sha
@@ -650,6 +655,34 @@ def test_rollback_restart_failure_is_fail_closed(repo):
                               capture_output=True).returncode != 0
     finally:
         repo.cleanup_pids(old_pid)
+
+
+def test_log_open_failure_rolls_back_with_clean_error(repo):
+    """Unwritable log path after code switch -> clean UpdateError + rollback."""
+    old_pid = repo.start_fake_service()
+    previous_sha = repo.head()
+    blocker = repo.base / "log-blocker"
+    blocker.write_text("x")
+    try:
+        repo.remote_set_version("2.0")
+        result = repo.run_updater(extra_env={
+            "WEBAI_LOG_FILE": str(blocker / "service.log"),
+            "WEBAI_HEALTH_URL": f"http://127.0.0.1:{_free_port()}/health",
+            "WEBAI_HEALTH_TIMEOUT": "1",
+            "WEBAI_HEALTH_INTERVAL": "0.1",
+        })
+
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert ("Cannot start service with 'sleep 30': "
+                "Not a directory") in combined
+        assert "Traceback" not in result.stderr
+        assert repo.head() == previous_sha
+        assert 'version = "1.0"' in repo.read("pyproject.toml")
+    finally:
+        repo.cleanup_pids(old_pid)
+        if blocker.exists():
+            blocker.unlink()
 
 
 # --- Locking, stop command, guards ----------------------------------------
@@ -926,19 +959,27 @@ def test_lock_file_open_failure_is_clean_error(repo):
     assert "Traceback" not in result.stderr
 
 
-def test_unexpected_flock_error_raises_update_error(monkeypatch):
+def test_unexpected_flock_error_raises_platform_error(tmp_path, monkeypatch):
+    """Non-contention flock failures surface as PlatformOperationError."""
     import errno
     import importlib.util
-    spec = importlib.util.spec_from_file_location("update_flock", UPDATE_PY)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    platform_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts", "update_platform.py",
+    )
+    spec = importlib.util.spec_from_file_location("update_pflock", platform_path)
+    platform_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(platform_module)
 
     def boom(fd, operation):
         raise OSError(errno.EIO, "Simulated I/O error")
 
-    monkeypatch.setattr(module.fcntl, "flock", boom)
-    with pytest.raises(module.UpdateError, match="Cannot lock updater lock file"):
-        module.acquire_lock()
+    monkeypatch.setattr(platform_module.fcntl, "flock", boom)
+    with pytest.raises(
+        platform_module.PlatformOperationError
+    ) as excinfo:
+        platform_module.acquire_lock(str(tmp_path / "update.lock"))
+    assert getattr(excinfo.value, "phase", "") == "flock"
 
 
 def test_tracked_symlink_in_head_remains_allowed(repo):
@@ -976,7 +1017,7 @@ def test_container_guard_refuses():
     module.container_guard(exists=lambda p: False)
 
 
-def _load_update_module_for(repo, monkeypatch):
+def _load_update_module_for(repo, monkeypatch=None):
     import importlib.util
     spec = importlib.util.spec_from_file_location("update_docker", UPDATE_PY)
     module = importlib.util.module_from_spec(spec)
@@ -988,14 +1029,15 @@ def _load_update_module_for(repo, monkeypatch):
     module.LOG_FILE = env["WEBAI_LOG_FILE"]
     module.LOCK_FILE = env["WEBAI_LOCK_FILE"]
 
-    real_exists = os.path.exists
+    if monkeypatch is not None:
+        real_exists = os.path.exists
 
-    def fake_exists(path):
-        if path == "/.dockerenv":
-            return True
-        return real_exists(path)
+        def fake_exists(path):
+            if path == "/.dockerenv":
+                return True
+            return real_exists(path)
 
-    monkeypatch.setattr(os.path, "exists", fake_exists)
+        monkeypatch.setattr(os.path, "exists", fake_exists)
     return module
 
 
@@ -1046,3 +1088,97 @@ def test_docker_stop_blocked_by_active_updater_lock(repo, monkeypatch, capsys):
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
         repo.cleanup_pids(old_pid)
+
+
+# --- Phase 2 extraction seams -----------------------------------------------
+
+
+def _load_bound_update_module(repo):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("update_seam", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    env = repo.env()
+    module.ROOT = env["WEBAI_ROOT"]
+    module.PID_FILE = env["WEBAI_PID_FILE"]
+    module.LOG_FILE = env["WEBAI_LOG_FILE"]
+    return module
+
+
+def test_stop_ordering_terminate_wait_then_force(repo, monkeypatch):
+    """Grace expiry: terminate -> wait -> force_kill, then PID file removed."""
+    module = _load_update_module_for(repo)
+    old_pid = repo.start_fake_service()
+    events = []
+
+    def fake_alive(pid):
+        return True  # process refuses to die within the grace window
+
+    monkeypatch.setattr(module, "platform_pid_alive", fake_alive)
+    monkeypatch.setattr(
+        module, "platform_terminate_graceful",
+        lambda pid: events.append(("terminate", pid)),
+    )
+    monkeypatch.setattr(
+        module, "platform_force_kill",
+        lambda pid: events.append(("force", pid)),
+    )
+    monkeypatch.setattr(module.time, "sleep",
+                        lambda s: events.append(("sleep", s)))
+
+    module.stop_service(old_pid)
+
+    kinds = [event[0] for event in events]
+    assert kinds[0] == "terminate"
+    assert "force" in kinds
+    assert kinds.index("terminate") < kinds.index("force")
+    assert all(event[0] != "terminate" or i == 0
+               for i, event in enumerate(events))
+    assert kinds.count("terminate") == 1
+    assert not repo.pid_file.exists()
+    repo.cleanup_pids(old_pid)
+
+
+def test_stop_graceful_exit_skips_force_kill(repo, monkeypatch):
+    module = _load_update_module_for(repo)
+    old_pid = repo.start_fake_service()
+    calls = []
+    state = {"alive": True}
+
+    def fake_alive(pid):
+        alive = state["alive"]
+        state["alive"] = False
+        return alive
+
+    monkeypatch.setattr(module, "platform_pid_alive", fake_alive)
+    monkeypatch.setattr(module, "platform_terminate_graceful",
+                        lambda pid: calls.append("terminate"))
+    monkeypatch.setattr(module, "platform_force_kill",
+                        lambda pid: calls.append("force"))
+
+    module.stop_service(old_pid)
+
+    assert calls == ["terminate"]
+    assert not repo.pid_file.exists()
+    repo.cleanup_pids(old_pid)
+
+
+def test_main_releases_acquired_lock_exactly_once(repo, monkeypatch):
+    module = _load_update_module_for(repo)
+    releases = []
+
+    original_release = __import__("update_platform").LockHandle.release
+
+    def spy_release(self):
+        if self._released:
+            return
+        releases.append(True)
+        original_release(self)
+
+    monkeypatch.setattr(
+        __import__("update_platform").LockHandle, "release", spy_release
+    )
+
+    repo.remote_set_version("2.0") if hasattr(repo, "remote_set_version") else None
+    assert module.main([]) == 0
+    assert len(releases) == 1

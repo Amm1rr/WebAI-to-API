@@ -11,12 +11,9 @@ Rollback covers code and dependencies only; persistent-state schema changes
 introduced by a newer version are not reverted.
 """
 
-import errno
-import fcntl
 import json
 import os
 import shlex
-import signal
 import stat
 import subprocess
 import sys
@@ -25,6 +22,18 @@ import tomllib
 import urllib.request
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from update_platform import (
+    PlatformOperationError,
+    acquire_lock as platform_acquire_lock,
+    force_kill as platform_force_kill,
+    pid_alive as platform_pid_alive,
+    spawn_detached as platform_spawn_detached,
+    terminate_graceful as platform_terminate_graceful,
+)
+
 ROOT = os.environ.get("WEBAI_ROOT") or os.path.dirname(SCRIPT_DIR)
 PID_FILE = os.environ.get("WEBAI_PID_FILE", "/tmp/webai-to-api.pid")
 LOG_FILE = os.environ.get("WEBAI_LOG_FILE", "/tmp/webai-to-api.log")
@@ -84,94 +93,30 @@ def die(message, code=1):
     sys.exit(code)
 
 
-def _pid_alive(pid):
-    """Zombie-aware liveness: a reaped-pending child must count as dead."""
-    try:
-        with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
-            state = handle.read().rsplit(")", 1)[1].split()[0]
-            return state != "Z"
-    except OSError:
-        pass
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-_LOCK_FD = None
-
-
-def acquire_lock():
-    """
-    Acquire an exclusive non-blocking flock on the lock file.
-    Returns False only for expected lock contention (another updater owns
-    it). Open failures and unexpected flock errors raise UpdateError.
-    The fd stays open for the updater lifetime; the kernel releases on
-    close, so stale locks and unlink races cannot occur.
-    """
-    global _LOCK_FD
-    try:
-        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o644)
-    except OSError as error:
-        raise UpdateError(
-            f"Cannot open updater lock file {LOCK_FILE}: {error}"
-        ) from error
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as error:
-        os.close(fd)
-        if error.errno in (errno.EACCES, errno.EAGAIN):
-            return False  # expected contention: another updater owns it
-        raise UpdateError(
-            f"Cannot lock updater lock file {LOCK_FILE}: {error}"
-        ) from error
-    _LOCK_FD = fd
-    return True
-
-
-def release_lock():
-    global _LOCK_FD
-    if _LOCK_FD is None:
-        return
-    try:
-        fcntl.flock(_LOCK_FD, fcntl.LOCK_UN)
-    except OSError:
-        pass
-    try:
-        os.close(_LOCK_FD)
-    except OSError:
-        pass
-    _LOCK_FD = None
-
-
 def running_service_pid():
+    """PID from PID_FILE when that process is alive; stale files yield None."""
     try:
         pid = int(open(PID_FILE).read().strip())
     except (OSError, ValueError):
         return None
-    return pid if _pid_alive(pid) else None
+    return pid if platform_pid_alive(pid) else None
 
 
 def stop_service(pid):
     say(f"Stopping WebAI-to-API (PID {pid})...")
     try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except OSError as error:
+        platform_terminate_graceful(pid)
+    except PlatformOperationError as error:
         raise UpdateError(f"Cannot signal service PID {pid}: {error}") from error
     for _ in range(10):
-        if not _pid_alive(pid):
+        if not platform_pid_alive(pid):
             break
         time.sleep(1)
     else:
         say("Process did not stop gracefully; forcing termination.")
         try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except OSError as error:
+            platform_force_kill(pid)
+        except PlatformOperationError as error:
             raise UpdateError(
                 f"Cannot force-kill service PID {pid}: {error}"
             ) from error
@@ -204,16 +149,16 @@ def start_service():
     argv = parse_start_command()
     try:
         log = open(LOG_FILE, "ab")
-        process = subprocess.Popen(
-            argv,
-            cwd=ROOT,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
     except OSError as error:
         raise UpdateError(
-            f"Cannot start service with '{START_COMMAND}': {error.strerror or error}"
+            f"Cannot start service with '{START_COMMAND}': "
+            f"{error.strerror or error}"
+        ) from error
+    try:
+        process = platform_spawn_detached(argv, ROOT, log)
+    except PlatformOperationError as error:
+        raise UpdateError(
+            f"Cannot start service with '{START_COMMAND}': {error.user_message}"
         ) from error
     try:
         with open(PID_FILE, "w") as handle:
@@ -554,10 +499,14 @@ def main(argv=None):
 
     # Lock first: both flows mutually exclude through the same flock.
     try:
-        locked = acquire_lock()
-    except UpdateError as error:
-        die(str(error))
-    if not locked:
+        lock_handle = platform_acquire_lock(LOCK_FILE)
+    except PlatformOperationError as error:
+        prefix = {
+            "open": f"Cannot open updater lock file {LOCK_FILE}: ",
+            "flock": f"Cannot lock updater lock file {LOCK_FILE}: ",
+        }.get(getattr(error, "phase", ""), "")
+        die(f"{prefix}{error}")
+    if lock_handle is None:
         print(UPDATE_LOCKED_MESSAGE, file=sys.stderr)
         return 0
 
@@ -573,7 +522,7 @@ def main(argv=None):
         print(f"ERROR: {error}", file=sys.stderr, flush=True)
         return 1
     finally:
-        release_lock()
+        lock_handle.release()
 
 
 if __name__ == "__main__":
