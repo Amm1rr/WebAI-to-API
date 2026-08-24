@@ -8,7 +8,7 @@ client = TestClient(app)
 
 @pytest.fixture
 def mock_engine_instance():
-    with patch("app.endpoints.system.BrowserEngine._instance") as mock:
+    with patch("app.services.browser.engine.BrowserEngine._instance") as mock:
         engine = MagicMock()
         engine.is_shutting_down = False
         engine.browser = MagicMock()
@@ -16,15 +16,13 @@ def mock_engine_instance():
         engine.browser_generation = 1
         engine.is_bootstrap = False
         engine.sessions = {}
-        
-        # Configure the patch to return our engine mock
-        # Since it's a direct attribute patch, we set it via start() or property
-        # But for system.BrowserEngine._instance, we can just point it to engine
-        import app.endpoints.system as system
-        old_instance = system.BrowserEngine._instance
-        system.BrowserEngine._instance = engine
+
+        # Canonical accessor reads engine.BrowserEngine._instance at call time.
+        import app.services.browser.engine as engine_module
+        old_instance = engine_module.BrowserEngine._instance
+        engine_module.BrowserEngine._instance = engine
         yield engine
-        system.BrowserEngine._instance = old_instance
+        engine_module.BrowserEngine._instance = old_instance
 
 @pytest.fixture
 def mock_auth_mgr():
@@ -39,7 +37,7 @@ def mock_auth_mgr():
 
 def test_health_200_uninitialized():
     # If BrowserEngine._instance is None, /health should still be 200
-    with patch("app.endpoints.system.BrowserEngine._instance", None):
+    with patch("app.services.browser.engine.BrowserEngine._instance", None):
         response = client.get("/health")
         assert response.status_code == 200
 
@@ -62,7 +60,7 @@ def test_ready_200(mock_engine_instance):
     assert response.status_code == 200
 
 def test_ready_503_uninitialized():
-    with patch("app.endpoints.system.BrowserEngine._instance", None):
+    with patch("app.services.browser.engine.BrowserEngine._instance", None):
         response = client.get("/ready")
         assert response.status_code == 503
 
@@ -120,7 +118,7 @@ def test_runtime_status_diagnostics(mock_engine_instance, mock_auth_mgr):
     assert data["auth"]["playwright"]["status"] == AuthStatus.VALID_SESSION
 
 def test_runtime_status_uninitialized(mock_auth_mgr):
-    with patch("app.endpoints.system.BrowserEngine._instance", None):
+    with patch("app.services.browser.engine.BrowserEngine._instance", None):
         response = client.get("/v1/runtime/status")
         assert response.status_code == 200
         data = response.json()

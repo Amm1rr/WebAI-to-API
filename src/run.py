@@ -9,13 +9,49 @@ from app.utils.startup import print_server_info, print_gemini_preflight_status
 
 
 class ApplicationServer(uvicorn.Server):
-    """Mark runtime shutdown intent before Uvicorn drains connections."""
+    """
+    Server-owned graceful shutdown.
+
+    `_shutdown_intent_marked` guarantees application shutdown intent is
+    recorded exactly once, before Uvicorn begins draining, regardless of how
+    many signals or programmatic requests arrive.
+    """
+
+    _shutdown_intent_marked = False
+
+    def _mark_application_shutdown_intent(self):
+        """Mark runtime shutdown intent exactly once (idempotent)."""
+        if self._shutdown_intent_marked:
+            return
+        self._shutdown_intent_marked = True
+        from app.services.browser.engine import request_application_shutdown
+        request_application_shutdown()
 
     def handle_exit(self, sig, frame):
-        from app.services.browser.engine import request_application_shutdown
-
-        request_application_shutdown()
+        # Real signal path: mark intent first, then delegate unchanged so
+        # Uvicorn keeps its own logging and second-signal force-exit behavior.
+        self._mark_application_shutdown_intent()
         super().handle_exit(sig, frame)
+
+    def request_shutdown(self, reason: str = "programmatic") -> bool:
+        """
+        Transport-independent programmatic graceful shutdown.
+
+        Returns True only for the first accepted request. Rejected when the
+        server has not started or Uvicorn already entered shutdown through
+        another path (`should_exit` set) — such a later request must not be
+        treated as a newly accepted shutdown. Uses Uvicorn's normal
+        should_exit loop behavior: no fake signals, no direct Uvicorn
+        handle_exit call, no engine teardown here.
+        """
+        if not getattr(self, "started", False) or self.should_exit:
+            return False
+        first_request = not self._shutdown_intent_marked
+        self._mark_application_shutdown_intent()
+        if not first_request:
+            return False
+        self.should_exit = True
+        return True
 
 
 def run_server(config):
