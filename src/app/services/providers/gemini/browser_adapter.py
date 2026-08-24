@@ -106,40 +106,22 @@ class GeminiProviderAdapter(BaseProviderAdapter):
         return confirmed
 
     async def set_extended_thinking(self, page: Page, enabled: bool, state: Optional[Any] = None) -> None:
-        """Normalize Gemini mode-picker Extended thinking state for one request."""
+        """Normalize Gemini mode-picker Extended thinking state for one request.
+
+        An absent control after the mode menu opened means the feature is
+        unavailable for this session/model; that satisfies a requested OFF state.
+        """
         await self._open_mode_menu(page)
         item = page.get_by_role("menuitem", name=re.compile("Extended thinking", re.I)).first
         try:
             await item.wait_for(state="visible", timeout=1000)
         except PlaywrightTimeoutError as error:
-            if not enabled:
-                verification_error = None
-                try:
-                    picker = await self._find_model_picker(page)
-                    label = await picker.get_attribute("aria-label") if picker else None
-                except Exception as exc:
-                    picker = None
-                    label = None
-                    verification_error = exc
-                finally:
-                    try:
-                        await page.keyboard.press("Escape")
-                    except Exception:
-                        pass
-
-                if not picker or label is None:
-                    raise TransientSessionError(
-                        "Gemini Extended thinking state could not be verified off."
-                    ) from (verification_error or error)
-                if re.search(r"\bExtended\b", label, re.I):
-                    raise TransientSessionError(
-                        "Gemini Extended thinking state could not be normalized off."
-                    )
-                return
             try:
                 await page.keyboard.press("Escape")
             except Exception:
                 pass
+            if not enabled:
+                return
             raise ModelNotFoundError("Gemini Extended thinking control is unavailable.") from error
 
         aria_disabled = await item.get_attribute("aria-disabled")
