@@ -171,6 +171,7 @@ def test_spawn_failure_preserves_legacy_strerror_wording(tmp_path):
     log.close()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="fcntl is POSIX-only")
 def test_flock_close_failure_does_not_mask_primary_error(
     tmp_path, monkeypatch
 ):
@@ -180,14 +181,24 @@ def test_flock_close_failure_does_not_mask_primary_error(
 
     real_flock = platform.fcntl.flock
     real_close = os.close
+    captured_fds = []
+    close_failed = False
 
     def flock_eio(fd, operation):
         raise OSError(errno.EIO, "Simulated I/O error")
 
     def close_boom(fd):
-        # Only explode on the lock fd cleanup, not on unrelated closes.
-        raise OSError(errno.EBADF, "Simulated close failure")
+        # Explode on the FIRST production cleanup close so the primary
+        # error path is exercised; delegate to the real close afterwards
+        # so the descriptor cannot leak past this test.
+        nonlocal close_failed
+        captured_fds.append(fd)
+        if not close_failed:
+            close_failed = True
+            raise OSError(errno.EBADF, "Simulated close failure")
+        return real_close(fd)
 
+    captured_fd = None
     monkeypatch.setattr(platform.fcntl, "flock", flock_eio)
     monkeypatch.setattr(platform.os, "close", close_boom)
     try:
@@ -197,10 +208,22 @@ def test_flock_close_failure_does_not_mask_primary_error(
         monkeypatch.setattr(platform.os, "close", real_close)
         # Restore a usable flock for later fixture teardown paths.
         monkeypatch.setattr(platform.fcntl, "flock", real_flock)
+        if captured_fds:
+            captured_fd = captured_fds[0]
+            try:
+                real_close(captured_fd)  # production already failed once
+            except OSError:
+                pass
 
     assert excinfo.value.phase == "flock"
     assert excinfo.value.original_error.errno == errno.EIO
     assert "Simulated I/O error" in str(excinfo.value)
+
+    # FD hygiene: the real descriptor is closed before the test exits,
+    # without relying on process teardown.
+    assert captured_fd is not None
+    with pytest.raises(OSError):
+        os.fstat(captured_fd)
 
 
 # --- Updater Python contract guard ------------------------------------------
