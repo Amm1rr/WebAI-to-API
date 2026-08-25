@@ -1,11 +1,18 @@
 # Updating (host installations)
 
-`./update.sh` updates a host installation to the latest `origin/master`.
+`./update-linux-macos.sh` updates a Linux/macOS host installation to the latest
+`origin/master`. Windows CMD uses `update-windows.cmd`.
 
 ```bash
-./update.sh          # update if origin/master differs
-./update.sh --stop   # stop the service (unchanged legacy behavior)
+./update-linux-macos.sh          # update if origin/master differs
+./update-linux-macos.sh --stop   # stop the service (unchanged legacy behavior)
 ```
+
+```cmd
+update-windows.cmd --stop
+```
+
+From Windows PowerShell, use `.\update-windows.cmd`.
 
 Contract: the `[project].version` field in the tracked `pyproject.toml` is
 the update trigger; Git is the transport. If the remote version equals the

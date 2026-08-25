@@ -1497,6 +1497,12 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
         module.HEALTH_TIMEOUT = 1
         module.HEALTH_INTERVAL = 0.1
         module.SHUTDOWN_CONTROL_FILE = str(repo.base / "shutdown-control.json")
+        health_results = iter([False, True])
+        monkeypatch.setattr(
+            module,
+            "wait_for_health",
+            lambda *_args, **_kwargs: next(health_results),
+        )
 
         def fake_spawn(argv, cwd, log_handle):
             spawned["argv"] = list(argv)
@@ -1520,12 +1526,12 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
         repo.cleanup_pids(old_pid)
 
 
-# --- update.cmd wrapper contract (textual; real execution = Phase 6) --------
+# --- update-windows.cmd wrapper contract (textual; real execution = Phase 6) -
 
 
-def test_update_cmd_wrapper_contract():
+def test_update_windows_wrapper_contract():
     wrapper_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "update.cmd"
+        os.path.dirname(os.path.abspath(__file__)), "..", "update-windows.cmd"
     )
     with open(wrapper_path, encoding="utf-8") as handle:
         content = handle.read()

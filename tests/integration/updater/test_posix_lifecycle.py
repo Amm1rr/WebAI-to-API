@@ -288,10 +288,10 @@ def test_real_server_via_run_py_boots_and_stops(repo, tracked_processes):
     assert not port_serving(restart_port)
 
 
-def test_update_sh_wrapper_forwards_arguments(repo):
+def test_update_linux_macos_wrapper_forwards_arguments(repo):
     with open(repo.pid_file, "w") as handle:
         handle.write("999999999")
-    wrapper = os.path.join(REPO_ROOT, "update.sh")
+    wrapper = os.path.join(REPO_ROOT, "update-linux-macos.sh")
     env = repo.env()
     result = subprocess.run(
         ["bash", wrapper, "--stop"],

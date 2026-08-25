@@ -1,7 +1,7 @@
 """Windows real-process updater lifecycle tests.
 
 Every test here executes REAL Windows mechanics (real msvcrt locks, real
-ctypes liveness, real loopback IPC, real update.cmd). Nothing is mocked;
+ctypes liveness, real loopback IPC, real update-windows.cmd). Nothing is mocked;
 on non-Windows platforms the whole module self-skips so CI on Linux/macOS
 never reports false passes.
 
@@ -313,13 +313,13 @@ def test_windows_quoted_path_parsing_real(tmp_path):
     assert "--host" in argv and "127.0.0.1" in argv
 
 
-def test_update_cmd_wrapper_real_execution(repo):
+def test_update_windows_wrapper_real_execution(repo):
     """Real cmd.exe wrapper: repo-root cd, %* forwarding, rc propagation."""
     with open(repo.pid_file, "w") as handle:
         handle.write("999999999")
     env = repo.env()
     result = subprocess.run(
-        ["cmd", "/c", os.path.join(REPO_ROOT, "update.cmd"), "--stop"],
+        ["cmd", "/c", os.path.join(REPO_ROOT, "update-windows.cmd"), "--stop"],
         cwd=env["WEBAI_ROOT"], env=env, capture_output=True, text=True,
         timeout=120,
     )
@@ -327,7 +327,7 @@ def test_update_cmd_wrapper_real_execution(repo):
     assert not os.path.exists(repo.pid_file)
 
 
-def test_update_cmd_forwards_arguments_via_argparse_help(tmp_path):
+def test_update_windows_forwards_arguments_via_argparse_help(tmp_path):
     """%* really reaches update.py's argparse (--help lists --stop).
 
     Interpreter-inventory selection (3.12 vs 3.11 vs python fallback) on a
@@ -346,7 +346,7 @@ def test_update_cmd_forwards_arguments_via_argparse_help(tmp_path):
         "WEBAI_LOCK_FILE": str(root / "update.lock"),
     }
     result = subprocess.run(
-        ["cmd", "/c", os.path.join(REPO_ROOT, "update.cmd"), "--help"],
+        ["cmd", "/c", os.path.join(REPO_ROOT, "update-windows.cmd"), "--help"],
         cwd=str(root), env=env, capture_output=True, text=True,
         timeout=120,
     )
