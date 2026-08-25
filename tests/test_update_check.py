@@ -174,20 +174,56 @@ async def test_malformed_local_version_warns(mocker, local_version):
 
 
 @pytest.mark.asyncio
-async def test_git_unavailable_warns(mocker):
+async def test_git_unavailable_logs_info_skip(mocker):
     mocker.patch.object(update_check, "acquire_lock", return_value=Lock())
     mocker.patch.object(
         update_check,
         "_git",
-        side_effect=update_check.UpdateCheckError("Cannot execute git: not found. Is Git installed and on PATH?"),
+        side_effect=update_check.GitUnavailableError("Git is not available."),
+    )
+    logger = MagicMock()
+
+    await update_check.run_update_check(logger=logger, exists=lambda _: False)
+
+    logger.info.assert_called_once_with("Update check skipped: Git is not available.")
+    logger.warning.assert_not_called()
+    logger.error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_git_permission_failure_remains_warning(mocker):
+    mocker.patch.object(update_check, "acquire_lock", return_value=Lock())
+    mocker.patch.object(
+        update_check,
+        "_git",
+        side_effect=update_check.UpdateCheckError(
+            "Cannot execute git: permission denied. Is Git installed and on PATH?"
+        ),
     )
     logger = MagicMock()
 
     await update_check.run_update_check(logger=logger, exists=lambda _: False)
 
     logger.warning.assert_called_once_with(
-        "Update check failed: %s", "Cannot execute git: not found. Is Git installed and on PATH?"
+        "Update check failed: %s",
+        "Cannot execute git: permission denied. Is Git installed and on PATH?",
     )
+    logger.info.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_git_executable_is_classified_narrowly(mocker):
+    mocker.patch.object(
+        update_check.asyncio,
+        "create_subprocess_exec",
+        side_effect=FileNotFoundError("git not found"),
+    )
+
+    with pytest.raises(update_check.GitUnavailableError, match="Git is not available"):
+        await update_check._git(
+            asyncio.get_running_loop().time() + update_check.CHECK_TIMEOUT_SECONDS,
+            "--version",
+        )
 
 
 @pytest.mark.asyncio

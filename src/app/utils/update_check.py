@@ -61,6 +61,10 @@ class UpdateCheckError(Exception):
     """Expected update-check failure suitable for a concise warning."""
 
 
+class GitUnavailableError(UpdateCheckError):
+    """Git executable is missing from the runtime environment."""
+
+
 def _extract_project_version(raw: str | bytes) -> str:
     try:
         data = tomllib.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
@@ -108,6 +112,10 @@ async def _git(deadline: float, *args: str) -> tuple[int, str, str]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+    except FileNotFoundError as error:
+        raise GitUnavailableError(
+            "Git is not available."
+        ) from error
     except OSError as error:
         raise UpdateCheckError(
             f"Cannot execute git: {error.strerror or error}. Is Git installed and on PATH?"
@@ -187,6 +195,8 @@ async def run_update_check(logger: logging.Logger | None = None, exists=os.path.
             )
     except asyncio.CancelledError:
         raise
+    except GitUnavailableError:
+        logger.info("Update check skipped: Git is not available.")
     except UpdateCheckError as error:
         logger.warning("Update check failed: %s", str(error))
     except Exception:
