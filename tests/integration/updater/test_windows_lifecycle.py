@@ -560,3 +560,152 @@ def _stub_path():
 
 def _stub_start_command_static(port):
     return f'"{sys.executable}" "{_stub_path()}" {port}'
+
+
+def test_real_poetry_lifecycle_through_updater_stop(
+    repo, tracked_processes,
+):
+    """Real `poetry run python src/run.py` on Windows, stopped by the updater.
+
+    Mirrors the POSIX real-Poetry contract with the FULL graceful contract:
+    the Poetry-launched ApplicationServer runs in the isolated repo
+    environment (same RUNTIME_DIR as the updater), publishes fresh shutdown
+    IPC metadata, and `updater --stop` must complete via IPC — force
+    fallback is a test failure, not an accepted outcome.
+    """
+    import json
+    import shutil
+
+    poetry = shutil.which("poetry")
+    if poetry is None:
+        pytest.skip("Poetry not available for Windows lifecycle integration")
+
+    port = free_port()
+    url = f"http://127.0.0.1:{port}/health"
+    run_py = os.path.join(REPO_ROOT, "src", "run.py")
+    spawn_argv = [
+        poetry, "run", "python", run_py,
+        "--host", "127.0.0.1", "--port", str(port),
+    ]
+
+    # Same isolated environment as the updater: identical WEBAI_* state,
+    # PID/log paths, and RUNTIME_DIR for shutdown-control.json.
+    server_env = repo.env()
+
+    log = open(repo.log_file, "ab")
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    proc = subprocess.Popen(
+        spawn_argv,
+        cwd=REPO_ROOT,  # real project root so Poetry resolves its own venv
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        env=server_env,
+        creationflags=creationflags,
+    )
+    log.close()
+    tracked_processes(proc)
+    with open(repo.pid_file, "w") as handle:
+        handle.write(str(proc.pid))  # outer PID is what the updater manages
+
+    control_file = os.path.join(repo.runtime_dir, "shutdown-control.json")
+    stopped_cleanly = False
+    try:
+        assert wait_health(url, timeout=90), open(repo.log_file).read()
+        assert pid_alive(proc.pid)
+
+        # Fresh Phase 4 metadata must exist inside the isolated runtime.
+        deadline = time.monotonic() + 30
+        control = None
+        while time.monotonic() < deadline:
+            try:
+                with open(control_file, encoding="utf-8") as handle:
+                    candidate = json.load(handle)
+                if (
+                    isinstance(candidate.get("token"), str)
+                    and candidate["token"]
+                    and isinstance(candidate.get("port"), int)
+                    and candidate["port"] > 0
+                ):
+                    control = candidate
+                    break
+            except (OSError, ValueError, TypeError):
+                pass
+            time.sleep(0.1)
+        assert control is not None, (
+            "Poetry-launched server never published shutdown metadata in "
+            f"{repo.runtime_dir}"
+        )
+
+        # Graceful stop is MANDATORY: scoped log evidence + no fallback.
+        log_offset = os.path.getsize(repo.log_file)
+        stop_started = time.monotonic()
+        stopped = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": url,
+        })
+        assert stopped.returncode == 0, stopped.stderr
+        combined = stopped.stdout + stopped.stderr
+        assert "forcing termination" not in combined, (
+            "updater fell back to hard termination; graceful IPC was not "
+            f"used (control={control!r})"
+        )
+        assert time.monotonic() - stop_started < 10.0
+
+        with open(repo.log_file, "rb") as handle:
+            handle.seek(log_offset)
+            tail = handle.read().decode("utf-8", errors="replace")
+        assert (
+            "Application shutdown requested" in tail
+            or "FastAPI application lifespan shutdown executing." in tail
+        ), "no graceful lifecycle evidence appended by the final stop"
+
+        assert wait_process_exit(proc, timeout=30)
+        assert not os.path.exists(repo.pid_file)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and os.path.exists(control_file):
+            time.sleep(0.1)
+        assert not os.path.exists(control_file)
+        assert health_status(url) is None
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if not port_serving(port):
+                break
+            time.sleep(0.2)
+        else:
+            raise AssertionError(
+                "orphan WebAI server still serving after updater --stop"
+            )
+        stopped_cleanly = True
+    finally:
+        if not stopped_cleanly:
+            # Ordered backstop: updater stop first, then outer process only.
+            try:
+                repo.run_updater(["--stop"], timeout=60)
+            except Exception:
+                pass  # contained: never masks the original failure
+            if proc.poll() is None:
+                proc.terminate()
+                if not wait_process_exit(proc, timeout=10):
+                    proc.kill()
+                    if not wait_process_exit(proc, timeout=10):
+                        # Diagnostic-only: never mask the original failure.
+                        print(
+                            "CLEANUP LIMITATION: outer Poetry process "
+                            "could not be reaped after kill."
+                        )
+            # The PID file names the OUTER Poetry PID; after it dies the
+            # inner uvicorn PID is not directly known to this harness, so
+            # child cleanup can only be verified, not forced by PID.
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                if not port_serving(port):
+                    break
+                time.sleep(0.2)
+            else:
+                # Known limitation (see audit notes): no scoped handle to
+                # the inner server PID once Poetry is gone. Surface loudly
+                # without masking any original assertion failure.
+                print(
+                    "CLEANUP LIMITATION: WebAI server still serving on "
+                    f"port {port} after updater stop and outer-process "
+                    "reap; inner PID is not tracked by the harness."
+                )
