@@ -200,6 +200,7 @@ Gemini WebAPI and Playwright support Extended Thinking through `provider_options
 - [Architecture Guide](docs/architecture.md)
 - [Docker Deployment Guide](docs/docker.md)
 - [Dashboard Guide](docs/dashboard.md)
+- [Updater Guide](docs/updating.md)
 
 Interactive API documentation is available through Swagger UI when the server is running.
 
