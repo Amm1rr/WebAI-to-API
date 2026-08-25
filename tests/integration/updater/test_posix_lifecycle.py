@@ -105,7 +105,7 @@ def test_lock_contention_second_updater_fails_without_mutation(repo):
 
         # Contract: contention reports cleanly with rc 0 and no mutation.
         assert probe.returncode == 0
-        assert "Another updater instance" in probe.stderr
+        assert "Another update operation or update check" in probe.stderr
         assert holder.poll() is None  # holder unaffected
         assert repo.worktree_clean()
     finally:

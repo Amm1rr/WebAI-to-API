@@ -3,6 +3,18 @@
 The updater installs a newer remote `[project].version` from `origin/master`.
 A newer commit without a version bump is intentionally not installed.
 
+By default, host server startup performs a separate, notification-only update
+check after Uvicorn has started. It fetches `origin/master`, compares
+`[project].version`, and logs a result within 10 seconds. It never updates,
+stops the service, or installs dependencies. Disable it with:
+
+```ini
+[General]
+check_updates = false
+```
+
+Docker skips the startup check. Host update commands remain platform-specific.
+
 ```bash
 ./update-linux-macos.sh
 ./update-linux-macos.sh --stop

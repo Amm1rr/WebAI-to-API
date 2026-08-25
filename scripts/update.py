@@ -89,8 +89,7 @@ LOCK_FILE_NAME = "poetry.lock"
 PROTECTED_PATHS = (".env", ".env.local", "config.conf", "runtime/")
 
 UPDATE_LOCKED_MESSAGE = (
-    "Another updater instance is already running. If this is stale, remove "
-    f"{LOCK_FILE} and retry."
+    "Another update operation or update check is in progress. Retry shortly."
 )
 DOCKER_MESSAGE = (
     "This updater manages host installations only. Inside Docker, update with: "

@@ -1,9 +1,11 @@
 import asyncio
+import sys
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import uvicorn
+import run as run_module
 
 from app.services.browser.engine import BrowserEngine
 from run import ApplicationServer, run_server
@@ -17,6 +19,23 @@ def started_server():
     server = make_server()
     server.started = True
     return server
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows policy only")
+def test_windows_runner_uses_proactor_policy(mocker):
+    policy = object()
+    proactor = mocker.patch.object(
+        run_module.asyncio, "WindowsProactorEventLoopPolicy", return_value=policy
+    )
+    selector = mocker.patch.object(run_module.asyncio, "WindowsSelectorEventLoopPolicy")
+    setter = mocker.patch.object(run_module.asyncio, "set_event_loop_policy")
+    mocker.patch.object(run_module.sys, "platform", "win32")
+
+    run_module.configure_windows_event_loop_policy()
+
+    proactor.assert_called_once_with()
+    selector.assert_not_called()
+    setter.assert_called_once_with(policy)
 
 
 # --- Signal path (existing contract, intent via shared helper) ------------
@@ -230,6 +249,118 @@ def test_run_server_returns_normally_when_server_returns(mocker):
 
     assert run_server(config) is None
     server.return_value.run.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_startup_starts_update_check_only_after_uvicorn_startup(mocker):
+    calls = []
+    entered = asyncio.Event()
+
+    async def parent_startup(server, sockets=None):
+        calls.append("uvicorn-startup")
+        server.started = True
+
+    async def check():
+        entered.set()
+
+    check = mocker.patch("app.utils.update_check.run_update_check", side_effect=check)
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
+    mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
+    server = make_server()
+
+    await server.startup()
+    await entered.wait()
+
+    assert calls == ["uvicorn-startup"]
+    check.assert_awaited_once()
+    await server.startup()
+    check.assert_awaited_once()
+    await server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_startup_does_not_create_update_check_when_disabled(mocker):
+    async def parent_startup(server, sockets=None):
+        server.started = True
+
+    check = mocker.patch("app.utils.update_check.run_update_check")
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
+    mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
+    mocker.patch("run.CONFIG.getboolean", return_value=False)
+    server = make_server()
+
+    await server.startup()
+
+    assert server._update_check_task is None
+    check.assert_not_called()
+    await server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_uvicorn_startup_does_not_create_update_check(mocker):
+    async def parent_startup(server, sockets=None):
+        raise RuntimeError("startup failed")
+
+    check = mocker.patch("app.utils.update_check.run_update_check")
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
+    server = make_server()
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        await server.startup()
+
+    assert server._update_check_task is None
+    check.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_slow_update_check_does_not_delay_startup(mocker):
+    started_check = asyncio.Event()
+    release_check = asyncio.Event()
+
+    async def parent_startup(server, sockets=None):
+        server.started = True
+
+    async def slow_check():
+        started_check.set()
+        await release_check.wait()
+
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
+    mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
+    mocker.patch("app.utils.update_check.run_update_check", side_effect=slow_check)
+    server = make_server()
+
+    await server.startup()
+
+    assert not started_check.is_set()
+    await started_check.wait()
+    release_check.set()
+    await server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_update_check_task_before_uvicorn_shutdown(mocker):
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def running_check():
+        entered.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async def parent_shutdown(server, sockets=None):
+        assert cancelled.is_set()
+
+    mocker.patch.object(uvicorn.Server, "shutdown", autospec=True, side_effect=parent_shutdown)
+    server = make_server()
+    server._update_check_task = asyncio.create_task(running_check())
+    await entered.wait()
+
+    await server.shutdown()
+
+    assert server._update_check_task.cancelled()
 
 
 # --- Canonical accessor + idle-shutdown fix ---------------------------------

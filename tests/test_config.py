@@ -18,6 +18,36 @@ def test_gemini_extended_thinking_defaults_when_missing(tmp_path):
     assert config.getboolean("Gemini", "extended_thinking") is False
 
 
+def test_general_check_updates_defaults_to_true_when_section_missing(tmp_path):
+    config = load_config(write_config(tmp_path, "[Gemini]\nbackend = webapi\n"))
+
+    assert config["General"]["check_updates"] == "true"
+    assert config.getboolean("General", "check_updates") is True
+
+
+def test_general_check_updates_defaults_to_true_when_key_missing(tmp_path):
+    config = load_config(write_config(tmp_path, "[General]\nkeep_me = value\n"))
+
+    assert config["General"]["check_updates"] == "true"
+    assert config["General"]["keep_me"] == "value"
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [("true", "true"), ("false", "false"), ("TRUE", "true"), ("False", "false"), ("  true  ", "true")],
+)
+def test_general_check_updates_boolean_values_are_validated_and_normalized(tmp_path, value, expected):
+    config = load_config(write_config(tmp_path, f"[General]\ncheck_updates = {value}\n"))
+
+    assert config["General"]["check_updates"] == expected
+
+
+@pytest.mark.parametrize("value", ["yes", "no", "1", "0", "on", "off", "foo", ""])
+def test_general_check_updates_invalid_value_fails_during_load(tmp_path, value):
+    with pytest.raises(ValueError, match=r"Invalid General check_updates value"):
+        load_config(write_config(tmp_path, f"[General]\ncheck_updates = {value}\n"))
+
+
 def test_gemini_extended_thinking_key_defaults_when_section_exists(tmp_path):
     config = load_config(write_config(tmp_path, "[Gemini]\n"))
 

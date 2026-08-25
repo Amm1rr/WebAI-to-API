@@ -11,6 +11,11 @@ from app.config import CONFIG, get_runtime_dir, resolve_logging_config
 from app.utils.startup import print_server_info, print_gemini_preflight_status
 
 
+def configure_windows_event_loop_policy():
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
 class ApplicationServer(uvicorn.Server):
     """
     Server-owned graceful shutdown.
@@ -29,6 +34,30 @@ class ApplicationServer(uvicorn.Server):
         super().__init__(config)
         self._shutdown_lock = threading.Lock()
         self._shutdown_intent_marked = False
+        self._update_check_task = None
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        if (
+            self.started
+            and self._update_check_task is None
+            and CONFIG.getboolean("General", "check_updates", fallback=True)
+        ):
+            from app.utils.update_check import run_update_check
+
+            self._update_check_task = asyncio.create_task(
+                run_update_check(), name="webai-update-check"
+            )
+
+    async def shutdown(self, sockets=None):
+        task = self._update_check_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        await super().shutdown(sockets=sockets)
 
     def _mark_application_shutdown_intent(self):
         """Mark runtime shutdown intent exactly once (idempotent)."""
@@ -97,8 +126,7 @@ def run_server(config):
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # Fix: Set the asyncio event loop policy for Windows.
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    configure_windows_event_loop_policy()
 
     parser = argparse.ArgumentParser(
         description="Run the WebAI-to-API server."

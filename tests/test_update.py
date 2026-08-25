@@ -742,7 +742,7 @@ def test_updater_lock_blocks_second_instance(repo):
         os.close(fd)
 
     assert result.returncode == 0
-    assert "Another updater instance" in result.stderr
+    assert "Another update operation or update check" in result.stderr
     assert repo.lock_file.exists()
 
 
@@ -765,7 +765,7 @@ def test_stop_waits_for_active_updater_lock(repo):
         os.close(fd)
 
         assert result.returncode == 0
-        assert "Another updater instance" in result.stderr
+        assert "Another update operation or update check" in result.stderr
         assert subprocess.run(["kill", "-0", str(old_pid)],
                               capture_output=True).returncode == 0
         assert repo.pid_file.exists()
@@ -1082,7 +1082,7 @@ def test_docker_stop_blocked_by_active_updater_lock(repo, monkeypatch, capsys):
         captured = capsys.readouterr()
 
         assert rc == 0
-        assert "Another updater instance" in captured.err
+        assert "Another update operation or update check" in captured.err
         assert subprocess.run(["kill", "-0", str(old_pid)],
                               capture_output=True).returncode == 0
         assert repo.pid_file.exists()
