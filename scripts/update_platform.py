@@ -33,6 +33,11 @@ _STILL_ACTIVE = 259
 _ERROR_INVALID_PARAMETER = 87
 _ERROR_ACCESS_DENIED = 5
 
+
+def _windows_lock_contention_errno():
+    """Return alternate deadlock errno used by Windows byte-range locks."""
+    return getattr(errno, "EDEADLOCK", getattr(errno, "EDEADLK", errno.EACCES))
+
 _KERNEL32 = None
 
 
@@ -135,7 +140,7 @@ def acquire_lock(path):
                 os.close(fd)  # best-effort; never masks the primary error
             except OSError:
                 pass
-            if error.errno in (errno.EACCES, errno.EDEADLOCK):
+            if error.errno in (errno.EACCES, _windows_lock_contention_errno()):
                 return None  # expected contention: another updater owns it
             raise PlatformOperationError(error, phase="flock") from error
         return LockHandle(fd, windows=True)

@@ -12,6 +12,7 @@ Environment:
 
 import os
 import signal
+import socketserver
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -52,7 +53,17 @@ def _shutdown(signum, frame):
 signal.signal(signal.SIGTERM, _shutdown)
 signal.signal(signal.SIGINT, _shutdown)
 
-server = HTTPServer(("127.0.0.1", PORT), Handler)
+
+class LoopbackHTTPServer(HTTPServer):
+    """HTTPServer variant that never reverse-resolves loopback."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
+
+server = LoopbackHTTPServer(("127.0.0.1", PORT), Handler)
 if READY_FILE:
     with open(READY_FILE, "w") as handle:
         handle.write("ready")

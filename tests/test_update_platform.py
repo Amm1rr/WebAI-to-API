@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.join(
 
 import update_platform as platform
 
+POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix", reason="POSIX-only platform mechanics"
+)
+
 
 @pytest.fixture
 def lock_path(tmp_path):
@@ -60,7 +64,9 @@ def test_lock_open_error_raises_platform_error(tmp_path):
 
 
 def test_live_process_is_alive():
-    proc = subprocess.Popen(["sleep", "0.2"])
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(0.2)"]
+    )
     try:
         assert platform.pid_alive(proc.pid) is True
     finally:
@@ -68,7 +74,7 @@ def test_live_process_is_alive():
 
 
 def test_dead_pid_is_not_alive():
-    finished = subprocess.Popen(["true"])
+    finished = subprocess.Popen([sys.executable, "-c", "pass"])
     finished.wait()
     assert platform.pid_alive(finished.pid) is False
 
@@ -94,6 +100,7 @@ def test_zombie_child_counts_as_dead():
     os.waitpid(pid, 0)
 
 
+@POSIX_ONLY
 def test_terminate_graceful_uses_sigterm(monkeypatch):
     sent = []
     monkeypatch.setattr(platform.os, "kill",
@@ -102,6 +109,7 @@ def test_terminate_graceful_uses_sigterm(monkeypatch):
     assert sent == [(1234, signal.SIGTERM)]
 
 
+@POSIX_ONLY
 def test_force_kill_uses_sigkill(monkeypatch):
     sent = []
     monkeypatch.setattr(platform.os, "kill",
@@ -110,6 +118,7 @@ def test_force_kill_uses_sigkill(monkeypatch):
     assert sent == [(1234, signal.SIGKILL)]
 
 
+@POSIX_ONLY
 def test_already_gone_process_tolerated(monkeypatch):
     def raise_lookup(pid, sig):
         raise ProcessLookupError()
@@ -131,6 +140,7 @@ def test_detached_spawn_returns_popen(tmp_path):
         log.close()
 
 
+@POSIX_ONLY
 def test_detached_spawn_uses_start_new_session(tmp_path, monkeypatch):
     captured = {}
     real_popen = subprocess.Popen
@@ -160,6 +170,7 @@ def test_spawn_failure_raises_platform_error(tmp_path):
     log.close()
 
 
+@POSIX_ONLY
 def test_spawn_failure_preserves_legacy_strerror_wording(tmp_path):
     """user_message must match pre-extraction `error.strerror or error`."""
     log = open(tmp_path / "out.log", "ab")
@@ -383,7 +394,9 @@ def test_windows_lock_initializes_byte_and_locks(windows_platform, tmp_path):
 
 
 def test_windows_lock_contention_returns_none(monkeypatch, tmp_path):
-    for contention_errno in (errno.EACCES, errno.EDEADLOCK):
+    monkeypatch.delattr(errno, "EDEADLOCK", raising=False)
+    fallback_errno = getattr(errno, "EDEADLK", errno.EACCES)
+    for contention_errno in (errno.EACCES, fallback_errno):
         fake = FakeMsvcrt(fail_on={FakeMsvcrt.LK_NBLCK: _errno_oserror(contention_errno)})
         monkeypatch.setattr(platform, "IS_WINDOWS", True)
         monkeypatch.setattr(platform, "msvcrt", fake, raising=False)
@@ -410,6 +423,7 @@ def test_windows_release_is_idempotent(windows_platform, tmp_path):
     assert len(unlock_calls) == 1
 
 
+@POSIX_ONLY
 def test_posix_lock_branch_unchanged(monkeypatch, tmp_path):
     """POSIX flag still routes through flock semantics."""
     lock_path = tmp_path / "posix.lock"

@@ -13,17 +13,31 @@ Each test builds a temporary origin (bare repo) plus two clones:
 import http.server
 import os
 import socket
+import socketserver
 import subprocess
 import sys
 import tempfile
 import time
 import threading
+import urllib.request
 
 import pytest
 
 UPDATE_PY = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "scripts", "update.py",
+)
+SCRIPTS_DIR = os.path.dirname(UPDATE_PY)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
+from update_platform import (  # noqa: E402
+    force_kill as platform_force_kill,
+    pid_alive as platform_pid_alive,
+)
+
+POSIX_ONLY = pytest.mark.skipif(
+    os.name != "posix", reason="POSIX-only updater mechanics"
 )
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@test",
@@ -44,6 +58,15 @@ def _free_port():
     port = sock.getsockname()[1]
     sock.close()
     return port
+
+
+class _LoopbackHTTPServer(http.server.HTTPServer):
+    """HTTPServer variant that never reverse-resolves loopback."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
 
 
 def _pid_from(path):
@@ -113,10 +136,15 @@ class Repo:
         self.work = str(tmp_path / "work")
         self.editor = str(tmp_path / "editor")
         self.poetry_bin = tmp_path / "bin"
+        self.poetry_cmd = self.poetry_bin / "poetry.cmd"
         self.poetry_log = tmp_path / "poetry-calls.log"
         self.pid_file = tmp_path / "service.pid"
         self.log_file = tmp_path / "service.log"
         self.lock_file = tmp_path / "update.lock"
+        self.start_command = (
+            f'"{sys.executable}" -c "import time; time.sleep(30)"'
+        )
+        self._processes = {}
         self._build()
 
     def _build(self):
@@ -129,13 +157,26 @@ class Repo:
             )
             git(clone, "checkout", "-b", "master")
         self.poetry_bin.mkdir(exist_ok=True)
-        shim = self.poetry_bin / "poetry"
-        shim.write_text(
-            "#!/usr/bin/env bash\n"
-            f'echo "$*" >> "{self.poetry_log}"\n'
-            'exit ${FAKE_POETRY_EXIT:-0}\n'
-        )
-        shim.chmod(0o755)
+        if os.name == "nt":
+            shim = self.poetry_cmd
+            shim.write_text(
+                "@echo off\n"
+                f'"{sys.executable}" -c "'
+                "import os, sys; "
+                "open(os.environ['POETRY_CALLS_LOG'], 'a').write("
+                "' '.join(sys.argv[1:]) + '\\n'); "
+                "raise SystemExit(int(os.environ.get('FAKE_POETRY_EXIT', '0')))"
+                '" %*\n'
+                "exit /b %errorlevel%\n"
+            )
+        else:
+            shim = self.poetry_bin / "poetry"
+            shim.write_text(
+                "#!/usr/bin/env bash\n"
+                f'echo "$*" >> "{self.poetry_log}"\n'
+                'exit ${FAKE_POETRY_EXIT:-0}\n'
+            )
+            shim.chmod(0o755)
 
         # c1: pre-pyproject installation (no version metadata at all).
         self._files_on_disk(self.work, {"app.txt": "one\n"})
@@ -209,9 +250,10 @@ class Repo:
 
     def start_fake_service(self):
         process = subprocess.Popen(
-            ["sleep", "60"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        self._processes[process.pid] = process
         self.pid_file.write_text(str(process.pid))
         return process.pid
 
@@ -222,10 +264,12 @@ class Repo:
             "WEBAI_PID_FILE": str(self.pid_file),
             "WEBAI_LOG_FILE": str(self.log_file),
             "WEBAI_LOCK_FILE": str(self.lock_file),
-            "WEBAI_START_COMMAND": "sleep 30",
-            "PATH": f"{self.poetry_bin}:{base.get('PATH', '')}",
+            "WEBAI_START_COMMAND": self.start_command,
+            "PATH": os.pathsep.join((str(self.poetry_bin), base.get("PATH", ""))),
             "POETRY_CALLS_LOG": str(self.poetry_log),
         })
+        if os.name == "nt":
+            base["WEBAI_POETRY"] = str(self.poetry_cmd)
         base.update({k: str(v) for k, v in overrides.items()})
         return base
 
@@ -237,9 +281,25 @@ class Repo:
         )
 
     def cleanup_pids(self, *pids):
-        for pid in (*pids, _pid_from(self.pid_file)):
-            if pid:
-                subprocess.run(["kill", "-9", str(pid)], capture_output=True)
+        candidates = (*pids, _pid_from(self.pid_file))
+        for pid in dict.fromkeys(pid for pid in candidates if pid):
+            process = self._processes.get(pid)
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+                continue
+            if platform_pid_alive(pid):
+                try:
+                    platform_force_kill(pid)
+                except Exception:
+                    pass
+
+    def pid_alive(self, pid):
+        process = self._processes.get(pid)
+        if process is not None:
+            return process.poll() is None
+        return platform_pid_alive(pid)
 
 
 class FlakyHealth:
@@ -260,7 +320,7 @@ class FlakyHealth:
             def log_message(*_args):
                 pass
 
-        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.httpd = _LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.httpd.server_port}/health"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
@@ -281,6 +341,42 @@ def test_same_project_version_is_noop(repo):
     result = repo.run_updater()
     assert result.returncode == 0
     assert "Already up to date" in result.stdout
+
+
+def test_flaky_health_does_not_reverse_resolve_loopback(monkeypatch):
+    monkeypatch.setattr(
+        socket,
+        "getfqdn",
+        lambda *_args: pytest.fail("loopback health server used reverse DNS"),
+    )
+    health = FlakyHealth()
+    try:
+        with urllib.request.urlopen(health.url, timeout=2) as response:
+            assert response.status == 200
+        port = int(health.url.rsplit(":", 1)[1].split("/", 1)[0])
+        assert health.httpd.server_port == port
+    finally:
+        health.stop()
+
+
+def test_repo_env_prepends_fake_poetry_with_host_separator(repo):
+    assert repo.env()["PATH"].startswith(f"{repo.poetry_bin}{os.pathsep}")
+
+
+def test_windows_repo_env_uses_explicit_fake_poetry_path(repo, monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    assert repo.env()["WEBAI_POETRY"] == str(repo.poetry_cmd)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows fake Poetry contract")
+def test_windows_fake_poetry_records_args_and_exit_code(repo):
+    repo.remote_set_version("2.0", playwright="^9.9.9")
+
+    result = repo.run_updater(extra_env={"FAKE_POETRY_EXIT": "3"})
+
+    assert result.returncode != 0
+    assert "Command failed (3)" in result.stderr
+    assert any("install --sync" in call for call in repo.poetry_calls())
 
 
 def test_different_project_version_moves_head_to_origin_master(repo):
@@ -432,6 +528,7 @@ def test_untracked_file_blocking_remote_directory_aborts(repo):
     assert open(blocker).read() == "blocks dir creation\n"
 
 
+@POSIX_ONLY
 def test_symlink_ancestor_collision_aborts(repo):
     repo.remote_set_version("2.0")
     repo.remote_bump({"foo/bar.py": "remote\n"})
@@ -581,8 +678,7 @@ def test_running_service_is_stopped_updated_restarted(repo):
         assert result.returncode == 0
         new_pid = _pid_from(repo.pid_file)
         assert new_pid != old_pid
-        assert subprocess.run(["kill", "-0", str(new_pid)],
-                              capture_output=True).returncode == 0
+        assert repo.pid_alive(new_pid)
     finally:
         health.stop()
         repo.cleanup_pids(old_pid)
@@ -653,8 +749,7 @@ def test_rollback_restart_failure_is_fail_closed(repo):
         assert repo.head() == previous_sha
         assert "Traceback" not in result.stderr
         assert not repo.pid_file.exists()
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode != 0
+        assert not repo.pid_alive(old_pid)
     finally:
         repo.cleanup_pids(old_pid)
 
@@ -676,7 +771,7 @@ def test_log_open_failure_rolls_back_with_clean_error(repo):
 
         assert result.returncode != 0
         combined = result.stdout + result.stderr
-        assert ("Cannot start service with 'sleep 30': "
+        assert (f"Cannot start service with '{repo.start_command}': "
                 "Not a directory") in combined
         assert "Traceback" not in result.stderr
         assert repo.head() == previous_sha
@@ -701,8 +796,7 @@ def test_stop_command_stops_running_service(repo):
         )
 
         assert result.returncode == 0
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode != 0
+        assert not repo.pid_alive(old_pid)
         assert not repo.pid_file.exists()
     finally:
         repo.cleanup_pids(old_pid)
@@ -730,6 +824,7 @@ def test_normal_flow_leaves_no_stale_pid_file_when_stopped(repo):
     assert not repo.pid_file.exists()
 
 
+@POSIX_ONLY
 def test_updater_lock_blocks_second_instance(repo):
     import fcntl
     fd = os.open(repo.lock_file, os.O_CREAT | os.O_RDWR, 0o644)
@@ -751,6 +846,7 @@ def test_lock_released_after_run(repo):
     assert repo.run_updater().returncode == 0
 
 
+@POSIX_ONLY
 def test_stop_waits_for_active_updater_lock(repo):
     import fcntl
     old_pid = repo.start_fake_service()
@@ -766,8 +862,7 @@ def test_stop_waits_for_active_updater_lock(repo):
 
         assert result.returncode == 0
         assert "Another update operation or update check" in result.stderr
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode == 0
+        assert repo.pid_alive(old_pid)
         assert repo.pid_file.exists()
     finally:
         repo.cleanup_pids(old_pid)
@@ -886,8 +981,7 @@ def test_rollback_dep_restoration_failure_leaves_service_stopped(repo):
         assert "left STOPPED" in result.stderr
         assert repo.head() == previous_sha
         assert not repo.pid_file.exists()
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode != 0
+        assert not repo.pid_alive(old_pid)
     finally:
         repo.cleanup_pids(old_pid)
 
@@ -961,6 +1055,7 @@ def test_lock_file_open_failure_is_clean_error(repo):
     assert "Traceback" not in result.stderr
 
 
+@POSIX_ONLY
 def test_unexpected_flock_error_raises_platform_error(tmp_path, monkeypatch):
     """Non-contention flock failures surface as PlatformOperationError."""
     import errno
@@ -984,6 +1079,7 @@ def test_unexpected_flock_error_raises_platform_error(tmp_path, monkeypatch):
     assert getattr(excinfo.value, "phase", "") == "flock"
 
 
+@POSIX_ONLY
 def test_tracked_symlink_in_head_remains_allowed(repo):
     git(repo.editor, "pull", "origin", "master")
     link = os.path.join(repo.editor, "shim")
@@ -1064,13 +1160,13 @@ def test_docker_stop_with_running_service_succeeds(repo, monkeypatch):
         rc = module.main(["--stop"])
 
         assert rc == 0
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode != 0
+        assert not repo.pid_alive(old_pid)
         assert not repo.pid_file.exists()
     finally:
         repo.cleanup_pids(old_pid)
 
 
+@POSIX_ONLY
 def test_docker_stop_blocked_by_active_updater_lock(repo, monkeypatch, capsys):
     import fcntl
     old_pid = repo.start_fake_service()
@@ -1083,8 +1179,7 @@ def test_docker_stop_blocked_by_active_updater_lock(repo, monkeypatch, capsys):
 
         assert rc == 0
         assert "Another update operation or update check" in captured.err
-        assert subprocess.run(["kill", "-0", str(old_pid)],
-                              capture_output=True).returncode == 0
+        assert repo.pid_alive(old_pid)
         assert repo.pid_file.exists()
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -1107,6 +1202,7 @@ def _load_bound_update_module(repo):
     return module
 
 
+@POSIX_ONLY
 def test_stop_ordering_terminate_wait_then_force(repo, monkeypatch):
     """Grace expiry: terminate -> wait -> force_kill, then PID file removed."""
     module = _load_update_module_for(repo)
@@ -1141,6 +1237,7 @@ def test_stop_ordering_terminate_wait_then_force(repo, monkeypatch):
     repo.cleanup_pids(old_pid)
 
 
+@POSIX_ONLY
 def test_stop_graceful_exit_skips_force_kill(repo, monkeypatch):
     module = _load_update_module_for(repo)
     old_pid = repo.start_fake_service()
@@ -1415,9 +1512,13 @@ def test_windows_temp_defaults_use_gettempdir(monkeypatch, tmp_path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    # On POSIX CI the defaults must remain byte-identical /tmp literals...
-    assert module.PID_FILE == "/tmp/webai-to-api.pid"
-    assert module.LOCK_FILE == "/tmp/webai-to-api-update.lock"
+    # Host defaults preserve /tmp on POSIX and use the system temp directory
+    # on Windows.
+    host_base = "/tmp" if os.name == "posix" else tempfile.gettempdir()
+    assert module.PID_FILE == os.path.join(host_base, "webai-to-api.pid")
+    assert module.LOCK_FILE == os.path.join(
+        host_base, "webai-to-api-update.lock"
+    )
 
     # ...while the Windows base helper routes through gettempdir().
     monkeypatch.setattr(module, "IS_WINDOWS", True)
@@ -1467,6 +1568,7 @@ def test_windows_executable_resolution_failure_clean(monkeypatch):
         module.parse_start_command()
 
 
+@POSIX_ONLY
 def test_posix_parsing_unchanged(repo):
     module = _load_bound_update_module(repo)
     object.__setattr__(module, "START_COMMAND",
@@ -1493,7 +1595,9 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
     try:
         module = _load_update_module_for(repo)
         module.IS_WINDOWS = True
-        module.START_COMMAND = "sleep 30"
+        module.START_COMMAND = (
+            '"C:\\Python\\python.exe" -c "import time; time.sleep(30)"'
+        )
         module.HEALTH_TIMEOUT = 1
         module.HEALTH_INTERVAL = 0.1
         module.SHUTDOWN_CONTROL_FILE = str(repo.base / "shutdown-control.json")
@@ -1510,15 +1614,16 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
             return FakePopen(old_pid)
 
         monkeypatch.setattr(module, "platform_spawn_detached", fake_spawn)
-        monkeypatch.setattr(module.shutil, "which",
-                            lambda name: "/usr/bin/sleep" if name == "sleep" else None)
+        monkeypatch.setattr(
+            module.shutil, "which", lambda _name: "C:\\Resolved\\python.exe"
+        )
         repo.remote_set_version("2.0")
 
         with pytest.raises(SystemExit):
             module.main([])  # health gate will fail -> rollback path exits
 
         assert spawned["cwd"] == module.ROOT
-        assert spawned["argv"][0] == "/usr/bin/sleep"  # Windows-resolved argv
+        assert spawned["argv"][0] == "C:\\Resolved\\python.exe"
         # Rollback actually executed and restored the previous release.
         assert repo.head() == previous_sha
         assert 'version = "1.0"' in repo.read("pyproject.toml")
