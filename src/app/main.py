@@ -95,12 +95,17 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error closing Gemini WebAPI client: {e}", exc_info=True)
 
     # Shutdown logic
-    logger.info("Gracefully closing BrowserEngine during application shutdown...")
     try:
-        from app.services.browser.engine import get_browser_engine
-        engine = await get_browser_engine()
-        await engine.close(source="application")
-        logger.info("BrowserEngine closed gracefully.")
+        from app.services.browser.engine import get_existing_browser_engine
+        engine = get_existing_browser_engine()
+        if engine is None:
+            logger.info(
+                "BrowserEngine was never initialized; skipping browser close."
+            )
+        else:
+            logger.info("Gracefully closing BrowserEngine during application shutdown...")
+            await engine.close(source="application")
+            logger.info("BrowserEngine closed gracefully.")
     except Exception as e:
         logger.error(f"Error closing BrowserEngine: {e}", exc_info=True)
     logger.info("Application shutdown complete.")

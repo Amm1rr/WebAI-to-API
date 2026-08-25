@@ -115,6 +115,9 @@ curl http://localhost:6969/v1/auth/status
 Example:
 
 ```ini
+[General]
+check_updates = true
+
 [Gemini]
 backend = webapi
 default_model = gemini-3-flash
@@ -133,6 +136,14 @@ http_proxy =
 ---
 
 ## Key Configuration Options
+
+### General
+
+| Option | Description |
+| ------ | ----------- |
+| `check_updates` | Strict boolean `true`/`false`, default `true`. After successful server startup, checks `origin/master` for a different `[project].version` and logs a notification only. The bounded check never updates code or dependencies. Docker skips the check. |
+
+Set `check_updates = false` to disable all startup Git/network activity. Values are case-insensitive and whitespace-tolerant, stored as lowercase, and accept only `true` or `false`.
 
 ### Gemini
 

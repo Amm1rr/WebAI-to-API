@@ -56,6 +56,28 @@ def test_playwright_version_alignment():
     )
 
 
+def test_env_not_tracked():
+    """
+    Repository hygiene: .env holds user-managed secrets/configuration and must
+    never return to Git tracking; the updater's `git reset --hard` would
+    otherwise overwrite local environment configuration on every update.
+    `.env.example` must remain tracked as the documented template.
+    """
+    import subprocess
+
+    root = get_project_root()
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=root, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+
+    assert ".env" not in tracked, (
+        ".env is tracked again. User-local secrets/configuration must stay "
+        "untracked: run `git rm --cached --sparse .env` and commit."
+    )
+    assert ".env.example" in tracked, ".env.example template disappeared from tracking"
+
+
 def test_python_version_contract_alignment():
     """
     Ensures BOTH scripts/bootstrap.py and scripts/doctor.py mirror the

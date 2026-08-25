@@ -78,12 +78,49 @@ class PlaywrightChromiumRuntime(BrowserRuntime):
                     extra={"phase": phase},
                 )
         except Exception as close_error:
-            logger.warning(
-                "BrowserRuntime: Error closing browser: %s",
-                close_error,
-                exc_info=(type(close_error), close_error, close_error.__traceback__),
-                extra={"phase": phase},
+            # Playwright 1.6x can surface the known driver transport-close
+            # race as a plain builtin Exception (transport sets it on
+            # IncompleteReadError; wrap_api_call's rewrite_error preserves
+            # the generic type), so the PlaywrightError branch above cannot
+            # see it. Classify it benign only with full evidence: exact
+            # transport signature AND post-error disconnect.
+            known_transport_close = (
+                "connection closed while reading from the driver"
+                in str(close_error).lower()
             )
+            if not known_transport_close:
+                logger.warning(
+                    "BrowserRuntime: Error closing browser: %s",
+                    close_error,
+                    exc_info=(type(close_error), close_error, close_error.__traceback__),
+                    extra={"phase": phase},
+                )
+                return
+
+            try:
+                connected_after_error = self.is_browser_connected(browser)
+            except Exception as inspection_error:
+                logger.warning(
+                    "BrowserRuntime: Browser close failed (%s); post-close connection inspection failed: %s",
+                    close_error,
+                    inspection_error,
+                    exc_info=(type(close_error), close_error, close_error.__traceback__),
+                    extra={"phase": phase},
+                )
+                return
+
+            if connected_after_error:
+                logger.warning(
+                    "BrowserRuntime: Error closing browser: %s",
+                    close_error,
+                    exc_info=True,
+                    extra={"phase": phase},
+                )
+            else:
+                logger.debug(
+                    "BrowserRuntime: Browser transport disconnected during close.",
+                    extra={"phase": phase},
+                )
 
     async def stop(self) -> None:
         if not self._playwright:

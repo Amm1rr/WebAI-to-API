@@ -151,10 +151,10 @@ async def test_lifespan_shutdown_uses_browser_engine_not_provider_factory(mocker
     mocker.patch("app.main.init_gemini_client", new_callable=AsyncMock, return_value=True)
     mocker.patch("app.main.init_session_managers", new_callable=AsyncMock)
     mocker.patch("app.main.get_auth_manager", return_value=mock_auth_manager)
+    # Lifespan shutdown uses the non-initializing canonical accessor.
     mocker.patch(
-        "app.services.browser.engine.get_browser_engine",
-        new_callable=AsyncMock,
-        return_value=mock_engine,
+        "app.services.browser.engine.BrowserEngine._instance",
+        mock_engine,
     )
     close_all = mocker.patch.object(ProviderFactory, "close_all", new_callable=AsyncMock)
 

@@ -126,7 +126,12 @@ AI Agents working on this runtime MUST adhere to these strict constraints:
 - `src/app/services/providers/`: Provider-specific implementation logic.
 - `docs/`: authoritative runtime contracts (normative specs).
 
-### 8.2 Core Commands
+### 8.2 Release & Update Contract
+- Every deploy-worthy merge to `master` MUST bump `[project].version` in `pyproject.toml`.
+- The updater compares local and remote `[project].version`; matching versions intentionally produce a no-op.
+- A deploy-worthy code change without a version bump will not be installed by the updater.
+
+### 8.3 Core Commands
 - **Run Server**: `poetry run python src/run.py`
 - **Modern Auth**: `curl -X POST http://localhost:6969/v1/auth/login` (Recommended setup)
 - **Run Tests**: `PYTHONPATH=src pytest`

@@ -26,6 +26,16 @@ def get_default_playwright_cache_dir() -> str:
     return os.path.join(get_runtime_dir(), "cache", "playwright")
 
 
+def normalize_strict_boolean(raw_value: str, setting_name: str) -> str:
+    """Return canonical true/false, rejecting ConfigParser's wider boolean set."""
+    normalized = raw_value.strip().lower()
+    if normalized not in ("true", "false"):
+        raise ValueError(
+            f"Invalid {setting_name} value '{raw_value}'. Expected true/false."
+        )
+    return normalized
+
+
 def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config.optionxform = str  # Preserve case for cookie names
@@ -49,6 +59,10 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
         config["Cookies"] = {}
     if "Proxy" not in config:
         config["Proxy"] = {"http_proxy": ""}
+    if "General" not in config:
+        config["General"] = {"check_updates": "true"}
+    elif "check_updates" not in config["General"]:
+        config["General"]["check_updates"] = "true"
     if "Playwright" not in config:
         config["Playwright"] = {
             "headless": "false",
@@ -107,13 +121,14 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
     config["Gemini"]["backend"] = gemini_backend
 
     # Validate Gemini extended_thinking (strict boolean, canonical lowercase)
-    raw_value = config["Gemini"].get("extended_thinking", "false")
-    normalized = raw_value.strip().lower()
-    if normalized not in ("true", "false"):
-        raise ValueError(
-            f"Invalid Gemini extended_thinking value '{raw_value}'. Expected true/false."
-        )
-    config["Gemini"]["extended_thinking"] = normalized
+    config["Gemini"]["extended_thinking"] = normalize_strict_boolean(
+        config["Gemini"].get("extended_thinking", "false"),
+        "Gemini extended_thinking",
+    )
+    config["General"]["check_updates"] = normalize_strict_boolean(
+        config["General"].get("check_updates", "true"),
+        "General check_updates",
+    )
 
     return config
 

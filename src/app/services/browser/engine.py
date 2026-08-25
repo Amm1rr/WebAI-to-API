@@ -344,6 +344,14 @@ async def get_browser_engine(headless: Optional[bool] = None, is_bootstrap: bool
     return await BrowserEngine.get_instance(headless=headless)
 
 
+def get_existing_browser_engine() -> Optional[BrowserEngine]:
+    """
+    Non-initializing access to the BrowserEngine singleton.
+    Returns the current instance or None; never creates a browser process.
+    """
+    return BrowserEngine._instance
+
+
 def request_application_shutdown() -> bool:
     """Mark existing runtime engine shutdown intent from Uvicorn's signal hook."""
     if BrowserEngine._instance is None:

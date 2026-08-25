@@ -1,36 +1,132 @@
 # src/run.py
 import argparse
 import asyncio
+import os
 import sys
+import threading
+
 import uvicorn
 # --- App and Service Imports ---
-from app.config import CONFIG, resolve_logging_config
+from app.config import CONFIG, get_runtime_dir, resolve_logging_config
 from app.utils.startup import print_server_info, print_gemini_preflight_status
 
 
+def configure_windows_event_loop_policy():
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
 class ApplicationServer(uvicorn.Server):
-    """Mark runtime shutdown intent before Uvicorn drains connections."""
+    """
+    Server-owned graceful shutdown.
+
+    `_shutdown_intent_marked` guarantees application shutdown intent is
+    recorded exactly once, before Uvicorn begins draining, regardless of how
+    many signals or programmatic requests arrive.
+
+    Shutdown state is guarded by a per-instance lock: POSIX signal handlers
+    (main thread) and the Windows IPC listener thread may race on the
+    check/set transition. The lock only protects state transitions; no
+    long-running teardown runs while it is held.
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_intent_marked = False
+        self._update_check_task = None
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        if (
+            self.started
+            and self._update_check_task is None
+            and CONFIG.getboolean("General", "check_updates", fallback=True)
+        ):
+            from app.utils.update_check import run_update_check
+
+            self._update_check_task = asyncio.create_task(
+                run_update_check(), name="webai-update-check"
+            )
+
+    async def shutdown(self, sockets=None):
+        task = self._update_check_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        await super().shutdown(sockets=sockets)
+
+    def _mark_application_shutdown_intent(self):
+        """Mark runtime shutdown intent exactly once (idempotent)."""
+        if self._shutdown_intent_marked:
+            return
+        self._shutdown_intent_marked = True
+        from app.services.browser.engine import request_application_shutdown
+        request_application_shutdown()
 
     def handle_exit(self, sig, frame):
-        from app.services.browser.engine import request_application_shutdown
-
-        request_application_shutdown()
+        # Real signal path: mark intent first (at most once, under the same
+        # lock as the programmatic path), then delegate unchanged so Uvicorn
+        # keeps its own logging and second-signal force-exit behavior.
+        with self._shutdown_lock:
+            self._mark_application_shutdown_intent()
         super().handle_exit(sig, frame)
+
+    def request_shutdown(self, reason: str = "programmatic") -> bool:
+        """
+        Transport-independent programmatic graceful shutdown.
+
+        Returns True only for the first accepted request. Rejected when the
+        server has not started or Uvicorn already entered shutdown through
+        another path (`should_exit` set) — such a later request must not be
+        treated as a newly accepted shutdown. The full check/set transition
+        is atomic under `_shutdown_lock`, so concurrent requests yield
+        exactly one True. Uses Uvicorn's normal should_exit loop behavior:
+        no fake signals, no direct Uvicorn handle_exit call, no engine
+        teardown here.
+        """
+        with self._shutdown_lock:
+            if not getattr(self, "started", False) or self.should_exit:
+                return False
+            first_request = not self._shutdown_intent_marked
+            self._mark_application_shutdown_intent()
+            if not first_request:
+                return False
+            self.should_exit = True
+            return True
 
 
 def run_server(config):
+    server = ApplicationServer(config)
+    listener = None
+    if sys.platform == "win32":
+        from app.shutdown_transport import ShutdownListener
+
+        control_file = os.path.join(
+            get_runtime_dir(), "shutdown-control.json"
+        )
+        listener = ShutdownListener(
+            callback=server.request_shutdown,
+            control_file=control_file,
+        )
+        listener.start()
     try:
-        ApplicationServer(config).run()
+        server.run()
     except KeyboardInterrupt:
         pass
+    finally:
+        if listener is not None:
+            listener.stop()
 
 
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # Fix: Set the asyncio event loop policy for Windows.
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    configure_windows_event_loop_policy()
 
     parser = argparse.ArgumentParser(
         description="Run the WebAI-to-API server."

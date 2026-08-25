@@ -139,7 +139,7 @@ Runtime integrity failures must be visible and traceable.
     - **WARNING**: Recoverable failures and successful session-scoped recovery events.
     - **ERROR**: Request-scoped terminal failures.
     - **CRITICAL**: Session corruption, invariant violations, or engine-scoped fatal errors.
-    - Expected page closure during application shutdown is `INFO`; unexpected runtime page closure is `WARNING`. Expected already-disconnected cleanup is debug/info; unexpected close errors remain warning/error.
+    - Expected page closure during application shutdown is `INFO`; unexpected runtime page closure is `WARNING`. Expected already-disconnected cleanup is debug/info. The known Playwright transport-close race (`"Connection closed while reading from the driver"`) may be `DEBUG` only when post-error browser state confirms disconnection; other unexpected or generic close failures remain `WARNING`/`ERROR` as appropriate.
 
 ---
 

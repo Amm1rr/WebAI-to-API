@@ -1,16 +1,8 @@
 from fastapi import APIRouter, Response, status
-from typing import Optional
-from app.services.browser.engine import BrowserEngine
 from app.services.browser.auth_manager import get_auth_manager
+from app.services.browser.engine import get_existing_browser_engine
 
 router = APIRouter(tags=["System"])
-
-def get_existing_browser_engine() -> Optional[BrowserEngine]:
-    """
-    Non-initializing access to the BrowserEngine singleton.
-    Safe for liveness probes to avoid triggering bootstrap.
-    """
-    return BrowserEngine._instance
 
 @router.get(
     "/health",

@@ -130,7 +130,11 @@ Failed launch leaves the generation unchanged. ProviderSessions observe and stor
 
 - If public Browser state confirms disconnection, explicit browser close is skipped.
 - A public Playwright close error is benign only when state confirms disconnection afterward.
-- If Browser remains connected, close failure remains a warning; generic non-Playwright close exceptions remain visible regardless of connection state.
+- The known generic Playwright transport-close signature
+  `"Connection closed while reading from the driver"` is also benign only when
+  post-error state confirms disconnection. Other generic close exceptions remain
+  warning-worthy.
+- If Browser remains connected, close failure remains a warning.
 - Browser cleanup always precedes driver stop and uses no private Playwright exception or API. Both are executed through the `BrowserRuntime` boundary (`close_browser()`, `stop()`).
 
 ## 9. AI Agent Rules

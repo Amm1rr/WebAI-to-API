@@ -40,6 +40,15 @@ cp config.conf.example config.conf
 
 Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
 
+**Note:** `.env` is untracked and user-owned. If a `git pull` reports a conflict on `.env`, your local copy is preserved; resolve with:
+
+```bash
+cp .env .env.backup
+git restore .env
+git pull
+mv .env.backup .env
+```
+
 ### Container Logging Controls
 
 Container logging is configured via environment variables passed into the service. By default, the container logs at `INFO` level and outputs web request access logs to stderr.

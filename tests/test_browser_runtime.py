@@ -159,6 +159,67 @@ async def test_generic_close_error_warns_after_disconnect(caplog):
 
 
 @pytest.mark.asyncio
+async def test_generic_transport_close_race_is_benign(caplog):
+    """Exact observed shape: Playwright 1.6x raises the driver transport
+    race as a plain builtin Exception; with post-error disconnect it is a
+    benign close race, not a warning."""
+    runtime = make_runtime()
+    browser = make_browser()
+    browser.is_connected.side_effect = [True, False]
+    browser.close.side_effect = Exception(
+        "Browser.close: Connection closed while reading from the driver"
+    )
+
+    await runtime.close_browser(browser, "terminal")
+
+    browser.close.assert_awaited_once()
+    assert not any(
+        "Error closing browser" in record.message for record in caplog.records
+    )
+    assert any(
+        "Browser transport disconnected during close." in record.message
+        for record in caplog.records
+        if record.levelname == "DEBUG"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generic_transport_close_inspection_failure_warns(caplog):
+    runtime = make_runtime()
+    browser = make_browser()
+    browser.is_connected.side_effect = [True, RuntimeError("inspection failed")]
+    browser.close.side_effect = Exception(
+        "Browser.close: Connection closed while reading from the driver"
+    )
+
+    await runtime.close_browser(browser, "terminal")
+
+    browser.close.assert_awaited_once()
+    messages = [record.message for record in caplog.records]
+    warning_messages = [
+        record.message for record in caplog.records if record.levelname == "WARNING"
+    ]
+    assert warning_messages
+    assert any("Connection closed while reading from the driver" in message for message in messages)
+    assert any("inspection failed" in message for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_generic_transport_signature_while_connected_remains_warning(caplog):
+    """Signature match alone is insufficient: still-connected stays WARNING."""
+    runtime = make_runtime()
+    browser = make_browser()
+    browser.is_connected.return_value = True  # before and after
+    browser.close.side_effect = Exception(
+        "Browser.close: Connection closed while reading from the driver"
+    )
+
+    await runtime.close_browser(browser, "terminal")
+
+    assert any("Error closing browser" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_generic_close_error_warns_while_connected(caplog):
     runtime = make_runtime()
     browser = make_browser()

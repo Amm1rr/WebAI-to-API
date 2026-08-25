@@ -2,6 +2,12 @@
 # -------------------------------------------
 # ⚠️ Note: This file is *only* used by the WebAI-to-API server.
 
+# --- General Settings ---
+# Check origin/master for a newer project version after server startup.
+# This only logs a notification; it never updates automatically.
+[General]
+check_updates = true
+
 # --- Browser Settings ---
 # name: Host browser used for local cookie discovery (chrome, firefox, brave, edge, safari).
 #       This does NOT select the browser automation runtime.
