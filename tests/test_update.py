@@ -844,21 +844,43 @@ def test_normal_flow_leaves_no_stale_pid_file_when_stopped(repo):
     assert not repo.pid_file.exists()
 
 
-@POSIX_ONLY
-def test_updater_lock_blocks_second_instance(repo):
-    import fcntl
-    fd = os.open(repo.lock_file, os.O_CREAT | os.O_RDWR, 0o644)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+LOCK_CONTENTION_TEXT = (
+    "Another update operation is still in progress; "
+    "requested action was not performed."
+)
 
+
+def _forbidden(step):
+    def _fail(*_args, **_kwargs):
+        pytest.fail(f"{step} must not run while updater lock is contended")
+    return _fail
+
+
+def _load_fast_wait_module(repo):
+    module = _load_update_module_for(repo)
+    module.EXPLICIT_LOCK_WAIT_SECONDS = 0.05
+    return module
+
+
+@POSIX_ONLY
+def test_updater_lock_blocks_second_instance(repo, monkeypatch, capsys):
+    import fcntl
+    fd = os.open(str(repo.lock_file), os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
-        result = repo.run_updater()
+        module = _load_fast_wait_module(repo)
+        monkeypatch.setattr(module, "preflight", _forbidden("preflight"))
+        head_before = repo.head()
+        rc = module.main([])
+        captured = capsys.readouterr()
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
 
-    assert result.returncode == 0
-    assert "Another update operation or update check" in result.stderr
-    assert repo.lock_file.exists()
+    assert rc == 1
+    assert LOCK_CONTENTION_TEXT in captured.err
+    assert repo.head() == head_before
+    assert not repo.pid_file.exists()
 
 
 def test_lock_released_after_run(repo):
@@ -866,26 +888,201 @@ def test_lock_released_after_run(repo):
     assert repo.run_updater().returncode == 0
 
 
+def test_explicit_lock_helper_retries_until_acquired(repo, monkeypatch):
+    module = _load_update_module_for(repo)
+    attempts = []
+    handle = object()
+
+    def fake_acquire(path):
+        attempts.append(path)
+        return handle if len(attempts) >= 3 else None
+
+    monkeypatch.setattr(module, "platform_acquire_lock", fake_acquire)
+
+    assert module.acquire_explicit_update_lock() is handle
+    assert len(attempts) == 3
+
+
+def test_explicit_lock_helper_returns_none_after_deadline(repo, monkeypatch):
+    module = _load_fast_wait_module(repo)
+    calls = []
+    monkeypatch.setattr(
+        module, "platform_acquire_lock",
+        lambda path: calls.append(path) or None,
+    )
+
+    started = time.monotonic()
+    assert module.acquire_explicit_update_lock() is None
+
+    assert time.monotonic() - started >= 0.05
+    assert len(calls) >= 2  # polled repeatedly instead of a single attempt
+
+
+def test_explicit_wait_bound_covers_checker_cleanup_margin():
+    from app.utils.update_check import CHECK_TIMEOUT_SECONDS
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("update_bound", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.EXPLICIT_LOCK_POLL_SECONDS == 0.1
+    # Current policy: checker deadline (10s) + ~1s subprocess termination
+    # allowance + scheduler margin.
+    assert module.EXPLICIT_LOCK_WAIT_SECONDS == 12.0
+    # Drift guard: the explicit bound must always exceed the startup
+    # checker window by at least its cleanup + scheduling allowance.
+    assert module.EXPLICIT_LOCK_WAIT_SECONDS >= (
+        CHECK_TIMEOUT_SECONDS + 2.0
+    )
+
+
+def test_stop_contention_times_out_without_stopping(repo, monkeypatch, capsys):
+    module = _load_fast_wait_module(repo)
+    monkeypatch.setattr(
+        module, "platform_acquire_lock", lambda _path: None
+    )  # simulated permanent contention
+    with open(module.PID_FILE, "w") as handle:
+        handle.write("999999999")
+    monkeypatch.setattr(module, "stop_service", _forbidden("stop_service"))
+
+    rc = module.main(["--stop"])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert LOCK_CONTENTION_TEXT in captured.err
+    with open(module.PID_FILE) as handle:
+        assert handle.read().strip() == "999999999"
+
+
+def test_update_contention_times_out_without_preflight(
+    repo, monkeypatch, capsys,
+):
+    module = _load_fast_wait_module(repo)
+    monkeypatch.setattr(
+        module, "platform_acquire_lock", lambda _path: None
+    )  # simulated permanent contention
+    monkeypatch.setattr(module, "preflight", _forbidden("preflight"))
+    head_before = repo.head()
+
+    rc = module.main([])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert LOCK_CONTENTION_TEXT in captured.err
+    assert repo.head() == head_before
+
+
 @POSIX_ONLY
-def test_stop_waits_for_active_updater_lock(repo):
+def test_stop_proceeds_after_transient_lock_release(repo, monkeypatch):
+    """Real kernel-lock contention, deterministic handoff: a holder thread
+    owns the flock before the stop flow starts; the worker's first
+    non-blocking acquire observes contention (signalled), then the holder
+    releases and the requested stop executes for real."""
     import fcntl
     old_pid = repo.start_fake_service()
-    fd = os.open(repo.lock_file, os.O_CREAT | os.O_RDWR, 0o644)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    try:
-        result = subprocess.run(
-            [sys.executable, UPDATE_PY, "--stop"],
-            capture_output=True, text=True, timeout=60, env=repo.env(),
-        )
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+    module = _load_update_module_for(repo)
+    real_acquire = module.platform_acquire_lock
+    contended = threading.Event()
+    holder_ready = threading.Event()
+    release = threading.Event()
 
-        assert result.returncode == 0
-        assert "Another update operation or update check" in result.stderr
-        assert repo.pid_alive(old_pid)
-        assert repo.pid_file.exists()
+    def counting_acquire(path):
+        handle = real_acquire(path)
+        if handle is None:
+            contended.set()  # first poll observed the held kernel lock
+        return handle
+
+    monkeypatch.setattr(module, "platform_acquire_lock", counting_acquire)
+
+    fd = os.open(str(repo.lock_file), os.O_CREAT | os.O_RDWR, 0o644)
+
+    def holder():
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            holder_ready.set()
+            release.wait(timeout=30)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+
+    holder_thread = threading.Thread(target=holder)
+    outcome = {}
+    stopped_cleanly = False
+
+    def run():
+        outcome["rc"] = module.main(["--stop"])
+
+    worker = threading.Thread(target=run)
+    try:
+        holder_thread.start()
+        assert holder_ready.wait(timeout=5), (
+            "holder never acquired the kernel lock"
+        )
+        worker.start()
+        assert contended.wait(timeout=10), (
+            "stop flow never reached the lock-contention path"
+        )
+        release.set()
+        worker.join(timeout=30)
+        holder_thread.join(timeout=10)
+
+        # Assert the requested stop actually happened BEFORE any defensive
+        # cleanup, so a false-success stop cannot be masked.
+        process = repo._processes[old_pid]
+        assert outcome.get("rc") == 0
+        process.wait(timeout=5)
+        assert process.poll() is not None
+        assert not repo.pid_file.exists()
+        stopped_cleanly = True
     finally:
-        repo.cleanup_pids(old_pid)
+        release.set()  # unblocks holder on every path
+        if holder_thread.is_alive():
+            holder_thread.join(timeout=30)
+        if worker.is_alive():
+            worker.join(timeout=30)
+        os.close(fd)
+        if not stopped_cleanly:
+            repo.cleanup_pids(old_pid)
+
+    assert outcome.get("rc") == 0
+
+
+def test_update_proceeds_after_transient_lock_release(repo, monkeypatch):
+    """First acquire attempt returns None (contention observed), later poll
+    returns the real handle once the simulated holder exits, and the update
+    flow then completes."""
+    module = _load_update_module_for(repo)
+    real_acquire = module.platform_acquire_lock
+    contended = threading.Event()
+    release = threading.Event()
+    attempts = []
+
+    def transient_acquire(path):
+        attempts.append(path)
+        if len(attempts) == 1:
+            contended.set()
+            return None
+        return real_acquire(path) if release.is_set() else None
+
+    monkeypatch.setattr(module, "platform_acquire_lock", transient_acquire)
+
+    outcome = {}
+
+    def run():
+        outcome["rc"] = module.main([])
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        assert contended.wait(timeout=10), "no contended attempt observed"
+        release.set()  # simulated background-check holder exits
+        worker.join(timeout=30)
+    finally:
+        release.set()
+        worker.join(timeout=30)
+
+    assert outcome.get("rc") == 0
+    assert len(attempts) >= 2
 
 
 def test_preflight_failures_have_no_traceback(repo):
@@ -1587,15 +1784,25 @@ def test_docker_stop_with_running_service_succeeds(repo, monkeypatch):
 def test_docker_stop_blocked_by_active_updater_lock(repo, monkeypatch, capsys):
     import fcntl
     old_pid = repo.start_fake_service()
-    fd = os.open(repo.lock_file, os.O_CREAT | os.O_RDWR, 0o644)
+    fd = os.open(str(repo.lock_file), os.O_CREAT | os.O_RDWR, 0o644)
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
-        module = _load_update_module_for(repo, monkeypatch)
+        module = _load_fast_wait_module(repo)
+        # Re-apply the Docker guard simulation used by the shared loader.
+        real_exists = os.path.exists
+
+        def fake_exists(path):
+            if path == "/.dockerenv":
+                return True
+            return real_exists(path)
+
+        monkeypatch.setattr(os.path, "exists", fake_exists)
+        monkeypatch.setattr(module, "stop_service", _forbidden("stop_service"))
         rc = module.main(["--stop"])
         captured = capsys.readouterr()
 
-        assert rc == 0
-        assert "Another update operation or update check" in captured.err
+        assert rc == 1
+        assert LOCK_CONTENTION_TEXT in captured.err
         assert repo.pid_alive(old_pid)
         assert repo.pid_file.exists()
     finally:

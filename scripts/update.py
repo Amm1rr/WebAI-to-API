@@ -88,8 +88,16 @@ PYPROJECT_FILE = "pyproject.toml"
 LOCK_FILE_NAME = "poetry.lock"
 PROTECTED_PATHS = (".env", ".env.local", "config.conf", "runtime/")
 
-UPDATE_LOCKED_MESSAGE = (
-    "Another update operation or update check is in progress. Retry shortly."
+# Explicit commands (--stop / update) wait longer than the startup
+# availability check's own bounded sequence (CHECK_TIMEOUT_SECONDS = 10.0).
+# The bound covers the checker deadline + its subprocess termination
+# allowance (~1s) + a small scheduler margin; the two processes are not
+# mathematically synchronized, so the margin absorbs cleanup jitter.
+EXPLICIT_LOCK_WAIT_SECONDS = 12.0
+EXPLICIT_LOCK_POLL_SECONDS = 0.1
+LOCK_CONTENTION_MESSAGE = (
+    "Another update operation is still in progress; "
+    "requested action was not performed."
 )
 DOCKER_MESSAGE = (
     "This updater manages host installations only. Inside Docker, update with: "
@@ -932,12 +940,33 @@ def stop_command():
     return 0
 
 
+def acquire_explicit_update_lock():
+    """Bounded retry-acquire for explicit commands (--stop / update).
+
+    Reuses the same non-blocking platform primitive and lock file, so
+    serialization against a real updater is unchanged; only the contention
+    outcome differs: wait out short holders (startup check), then report
+    failure instead of silently succeeding. Returns the lock handle, or
+    None once the deadline expires. PlatformOperationError propagates
+    unchanged.
+    """
+    deadline = time.monotonic() + EXPLICIT_LOCK_WAIT_SECONDS
+    while True:
+        lock_handle = platform_acquire_lock(LOCK_FILE)
+        if lock_handle is not None:
+            return lock_handle
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(EXPLICIT_LOCK_POLL_SECONDS, remaining))
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # Lock first: both flows mutually exclude through the same flock.
     try:
-        lock_handle = platform_acquire_lock(LOCK_FILE)
+        lock_handle = acquire_explicit_update_lock()
     except PlatformOperationError as error:
         prefix = {
             "open": f"Cannot open updater lock file {LOCK_FILE}: ",
@@ -945,8 +974,8 @@ def main(argv=None):
         }.get(getattr(error, "phase", ""), "")
         die(f"{prefix}{error}")
     if lock_handle is None:
-        print(UPDATE_LOCKED_MESSAGE, file=sys.stderr)
-        return 0
+        print(LOCK_CONTENTION_MESSAGE, file=sys.stderr)
+        return 1
 
     try:
         if argv and argv[0] == "--stop":

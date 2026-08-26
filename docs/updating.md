@@ -68,6 +68,19 @@ between HEAD and origin/master and runs `poetry install --sync` only when
 that signature or `poetry.lock` changed; a changed lock also runs
 `poetry run playwright install chromium`.
 
+## Updater locking
+
+One shared lock file serializes explicit updates, explicit `--stop`, and the
+startup update-availability check. The startup check is opportunistic: it
+acquires the lock non-blocking and skips silently (debug log) when something
+else already owns it. Explicit commands instead wait for the shared lock
+briefly — long enough to cover the startup check's bounded window plus its
+subprocess-cleanup allowance and a small scheduler margin. If the shared lock
+remains occupied beyond that explicit wait window (for example, a full update
+is running), the command fails nonzero and reports that the requested action
+was not performed. A lifecycle or update action is never reported as
+successful when it did not run.
+
 Behavior:
 
 - Fetch/version/preflight run while the service keeps running.

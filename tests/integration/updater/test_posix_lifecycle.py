@@ -99,21 +99,73 @@ def _holder_process(repo, hold_seconds=30):
 def test_lock_contention_second_updater_fails_without_mutation(repo):
     holder = _holder_process(repo)
     try:
-        # Lock is provably held now; a second updater must report contention.
+        # Lock is provably held now; a second updater must wait out the
+        # explicit bound, then fail loudly instead of silently succeeding.
         probe = repo.run_updater(["--stop"], extra_env={
             "WEBAI_HEALTH_TIMEOUT": "1",
             "WEBAI_HEALTH_INTERVAL": "0.1",
-        }, timeout=20)
+        }, timeout=30)
 
-        # Contract: contention reports cleanly with rc 0 and no mutation.
-        assert probe.returncode == 0
-        assert "Another update operation or update check" in probe.stderr
+        assert probe.returncode != 0
+        assert "requested action was not performed" in probe.stderr
         assert holder.poll() is None  # holder unaffected
         assert repo.worktree_clean()
     finally:
         if holder.poll() is None:
             holder.kill()
             holder.wait(timeout=5)
+
+
+def test_stop_succeeds_after_short_lock_hold(repo, tracked_processes):
+    """Background-check-shaped contention: lock frees inside the explicit
+    wait window and the requested stop then executes for real."""
+    port = free_port()
+    proc, _, url = _start_managed_service(
+        repo, tracked_processes, stub_start_command(port), port,
+    )
+    holder = _holder_process(repo, hold_seconds=2)
+    try:
+        stopped = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": url,
+        }, timeout=90)
+
+        assert stopped.returncode == 0, stopped.stderr
+        assert "requested action was not performed" not in stopped.stderr
+        assert wait_process_exit(proc, timeout=20)
+        assert not os.path.exists(repo.pid_file)
+        assert wait_port_closed(port)
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=5)
+
+
+def test_update_succeeds_after_short_lock_hold(
+    repo, tracked_processes, service_env_overrides,
+):
+    """Same transient-contention contract for a real full update cycle."""
+    repo.remote_set_version("2.0")
+    holder = _holder_process(repo, hold_seconds=2)
+    updated_cleanly = False
+    try:
+        result = repo.run_updater([], extra_env=service_env_overrides["env"],
+                                  timeout=90)
+        assert result.returncode == 0, result.stderr
+        assert 'version = "2.0"' in repo.read("pyproject.toml")
+        updated_cleanly = True
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=5)
+        try:
+            cleanup_managed_service(
+                repo,
+                service_env_overrides["url"],
+                service_env_overrides["port"],
+            )
+        except (AssertionError, OSError):
+            if updated_cleanly:
+                raise
 
 
 def test_lock_crash_release_allows_reacquire(repo):
