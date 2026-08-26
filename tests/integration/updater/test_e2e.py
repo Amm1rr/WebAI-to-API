@@ -17,6 +17,7 @@ import pytest
 from ._harness import (  # noqa: E402
     health_status,
     pid_alive,
+    port_serving,
     read_pid,
     spawn_service,
     wait_health,
@@ -38,6 +39,42 @@ def _start_managed(repo, tracked_processes, svc):
     with open(repo.pid_file, "w") as handle:
         handle.write(str(proc.pid))
     return proc
+
+
+def wait_port_closed(port, timeout=5.0, interval=0.1):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not port_serving(port):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(interval, remaining))
+    return not port_serving(port)
+
+
+def _cleanup_managed_service(repo, svc):
+    """Stop updater-created service and verify no lifecycle state remains."""
+    try:
+        pid = read_pid(repo)
+    except (OSError, ValueError):
+        pid = None
+
+    if os.path.exists(repo.pid_file):
+        stopped = repo.run_updater(
+            ["--stop"],
+            extra_env={"WEBAI_HEALTH_URL": svc["url"]},
+            timeout=60,
+        )
+        if stopped.returncode != 0:
+            raise AssertionError(
+                "cleanup updater --stop failed:\n"
+                f"{stopped.stdout}{stopped.stderr}"
+            )
+
+    if pid is not None:
+        assert wait_pid_gone(pid)
+    assert not os.path.exists(repo.pid_file)
+    assert wait_port_closed(svc["port"])
 
 
 def test_no_op_when_local_equals_remote(repo, tracked_processes, service_env_overrides):
@@ -66,21 +103,24 @@ def test_update_success_moves_head_and_restarts_service(
     old_proc = _start_managed(repo, tracked_processes, svc)
     old_pid = old_proc.pid
 
-    repo.remote_set_version("2.0")  # version-only: dependency sync skipped
+    try:
+        repo.remote_set_version("2.0")  # version-only: dependency sync skipped
 
-    updated = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": svc["start_command"],
-        "WEBAI_HEALTH_URL": svc["url"],
-    })
-    assert updated.returncode == 0, updated.stderr
+        updated = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": svc["start_command"],
+            "WEBAI_HEALTH_URL": svc["url"],
+        })
+        assert updated.returncode == 0, updated.stderr
 
-    new_pid = read_pid(repo)
-    assert new_pid != old_pid
-    assert pid_alive(new_pid)
-    assert 'version = "2.0"' in repo.read("pyproject.toml")
-    assert repo.worktree_clean()
-    assert health_status(svc["url"]) == 200
-    assert wait_process_exit(old_proc, timeout=10)
+        new_pid = read_pid(repo)
+        assert new_pid != old_pid
+        assert pid_alive(new_pid)
+        assert 'version = "2.0"' in repo.read("pyproject.toml")
+        assert repo.worktree_clean()
+        assert health_status(svc["url"]) == 200
+        assert wait_process_exit(old_proc, timeout=10)
+    finally:
+        _cleanup_managed_service(repo, svc)
 
 
 def test_rollback_restores_previous_release_when_new_version_fails_health(
@@ -91,40 +131,43 @@ def test_rollback_restores_previous_release_when_new_version_fails_health(
     sha_a = repo.head()
     assert health_status(svc["url"]) == 200
 
-    # Version B ships a tracked file that forces its /health to 500.
-    # After rollback resets to A the marker disappears and A serves 200.
-    fail_marker_rel = ".fail-health"
-    fail_marker_abs = os.path.join(repo.work, fail_marker_rel)
-    repo.remote_set_version("2.0", extra_files={fail_marker_rel: "500\n"})
-    assert repo.head() == sha_a  # work clone still on A before update
+    try:
+        # Version B ships a tracked file that forces its /health to 500.
+        # After rollback resets to A the marker disappears and A serves 200.
+        fail_marker_rel = ".fail-health"
+        fail_marker_abs = os.path.join(repo.work, fail_marker_rel)
+        repo.remote_set_version("2.0", extra_files={fail_marker_rel: "500\n"})
+        assert repo.head() == sha_a  # work clone still on A before update
 
-    rolled_back = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": svc["start_command"],
-        "WEBAI_HEALTH_URL": svc["url"],
-        "WEBAI_HEALTH_TIMEOUT": "3",
-        "WEBAI_HEALTH_INTERVAL": "0.2",
-    })
+        rolled_back = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": svc["start_command"],
+            "WEBAI_HEALTH_URL": svc["url"],
+            "WEBAI_HEALTH_TIMEOUT": "3",
+            "WEBAI_HEALTH_INTERVAL": "0.2",
+        })
 
-    assert rolled_back.returncode != 0
-    combined = rolled_back.stdout + rolled_back.stderr
-    assert "ROLLBACK FAILED" not in combined      # rollback itself succeeded
-    assert repo.head() == sha_a                   # HEAD restored
-    assert 'version = "1.0"' in repo.read("pyproject.toml")
-    assert not os.path.exists(fail_marker_abs)    # marker gone with reset
-    assert repo.worktree_clean()
+        assert rolled_back.returncode != 0
+        combined = rolled_back.stdout + rolled_back.stderr
+        assert "ROLLBACK FAILED" not in combined      # rollback itself succeeded
+        assert repo.head() == sha_a                   # HEAD restored
+        assert 'version = "1.0"' in repo.read("pyproject.toml")
+        assert not os.path.exists(fail_marker_abs)    # marker gone with reset
+        assert repo.worktree_clean()
 
-    # Previous release restarted and healthy again.
-    deadline = time.monotonic() + 30
-    pid_b = None
-    while time.monotonic() < deadline:
-        try:
-            pid_b = read_pid(repo)
-            break
-        except (OSError, ValueError):
-            time.sleep(0.2)
-    assert pid_b is not None, "PID file missing after rollback restart"
-    assert wait_health(svc["url"], timeout=30)
-    assert pid_alive(pid_b)
+        # Previous release restarted and healthy again.
+        deadline = time.monotonic() + 30
+        pid_b = None
+        while time.monotonic() < deadline:
+            try:
+                pid_b = read_pid(repo)
+                break
+            except (OSError, ValueError):
+                time.sleep(0.2)
+        assert pid_b is not None, "PID file missing after rollback restart"
+        assert wait_health(svc["url"], timeout=30)
+        assert pid_alive(pid_b)
+    finally:
+        _cleanup_managed_service(repo, svc)
 
 
 def test_explicit_spaces_checkout_end_to_end(tmp_path, tracked_processes,
@@ -140,16 +183,19 @@ def test_explicit_spaces_checkout_end_to_end(tmp_path, tracked_processes,
     svc = service_env_overrides
     old_proc = _start_managed(repo, tracked_processes, svc)
 
-    repo.remote_set_version("2.0")
-    updated = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": svc["start_command"],
-        "WEBAI_HEALTH_URL": svc["url"],
-    })
-    assert updated.returncode == 0, updated.stderr
+    try:
+        repo.remote_set_version("2.0")
+        updated = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": svc["start_command"],
+            "WEBAI_HEALTH_URL": svc["url"],
+        })
+        assert updated.returncode == 0, updated.stderr
 
-    new_pid = read_pid(repo)
-    assert pid_alive(new_pid)
-    assert 'version = "2.0"' in repo.read("pyproject.toml")
-    assert repo.worktree_clean()
-    assert wait_health(svc["url"], timeout=30)
-    assert wait_process_exit(old_proc, timeout=20)
+        new_pid = read_pid(repo)
+        assert pid_alive(new_pid)
+        assert 'version = "2.0"' in repo.read("pyproject.toml")
+        assert repo.worktree_clean()
+        assert wait_health(svc["url"], timeout=30)
+        assert wait_process_exit(old_proc, timeout=20)
+    finally:
+        _cleanup_managed_service(repo, svc)

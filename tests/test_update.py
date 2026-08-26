@@ -693,6 +693,14 @@ def test_previously_stopped_service_remains_stopped(repo):
     assert not repo.pid_file.exists()
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason=(
+        "generic fake service lacks Windows shutdown IPC; Windows hard-fallback "
+        "timing is intentionally slow; real Windows rollback behavior is covered "
+        "by dedicated integration tests"
+    ),
+)
 def test_health_failure_restores_previous_sha(repo):
     service_pid = repo.start_fake_service()
     previous_sha = repo.head()
