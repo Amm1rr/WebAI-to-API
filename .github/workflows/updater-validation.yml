@@ -111,4 +111,7 @@ jobs:
           tests/test_update_platform.py
           tests/test_shutdown_transport.py
           tests/test_server_shutdown.py::test_windows_runner_uses_proactor_policy
+          tests/test_update_check.py::test_windows_proactor_runs_real_subprocess
+          tests/test_update_check.py::test_checker_git_subprocess_runs_under_proactor
+          tests/test_update_check.py::test_windows_proactor_terminates_real_child
           tests/integration/updater/test_windows_lifecycle.py
