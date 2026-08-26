@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies (locked)
         run: poetry install --sync
       - name: Full test suite (includes updater integration)
-        run: poetry run pytest -q
+        run: poetry run pytest -q --durations=30 --durations-min=0.5
 
   macos:
     name: macOS (focused + updater integration)
@@ -60,7 +60,7 @@ jobs:
         run: poetry install --sync
       - name: Focused suites + updater integration
         run: >
-          poetry run pytest -q
+          poetry run pytest -q --durations=30 --durations-min=0.5
           tests/test_update.py
           tests/test_update_platform.py
           tests/test_shutdown_transport.py
@@ -100,7 +100,7 @@ jobs:
         run: poetry install --sync
       - name: Focused suites + updater integration
         run: >
-          poetry run pytest -q
+          poetry run pytest -q --durations=30 --durations-min=0.5
           tests/test_update.py
           tests/test_update_platform.py
           tests/test_shutdown_transport.py
