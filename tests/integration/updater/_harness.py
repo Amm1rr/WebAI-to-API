@@ -7,7 +7,9 @@ the project's default START_COMMAND shape). No Docker, no network beyond
 loopback, no Gemini/browser.
 """
 
+import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -205,11 +207,16 @@ class IntegrationRepo:
 
 def spawn_service(repo, command, tracked, ready_url=None, ready_timeout=30.0,
                   env=None):
-    """Spawn a detached-style service like the updater does; returns Popen.
+    """Spawn a detached-style service like the updater does; returns a Popen-like handle.
 
     env=None inherits the test process environment. Pass repo.env() when the
     server must resolve the same RUNTIME_DIR as the updater (Windows IPC).
     """
+    if os.name == "posix":
+        return _spawn_posix_supervised_service(
+            repo, command, tracked, ready_url, ready_timeout, env
+        )
+
     log = open(repo.log_file, "ab")
     popen_kwargs = {}
     if os.name == "nt":
@@ -240,6 +247,133 @@ def spawn_service(repo, command, tracked, ready_url=None, ready_timeout=30.0,
             f"process_exit={proc.poll()!r}; log:\n{log_contents}"
         )
     return proc
+
+
+_POSIX_SUPERVISOR_SOURCE = r'''
+import json
+import signal
+import subprocess
+import sys
+import time
+
+command = json.loads(sys.argv[1])
+cwd = sys.argv[2]
+log_path = sys.argv[3]
+child = None
+stop_requested = False
+
+
+def stop_child(*_args):
+    global stop_requested
+    stop_requested = True
+
+
+signal.signal(signal.SIGTERM, stop_child)
+signal.signal(signal.SIGINT, stop_child)
+with open(log_path, "ab") as log:
+    child = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    print(child.pid, flush=True)
+    kill_at = None
+    while child.poll() is None:
+        if stop_requested:
+            if kill_at is None:
+                child.terminate()
+                kill_at = time.monotonic() + 5
+            elif time.monotonic() >= kill_at:
+                child.kill()
+        time.sleep(0.05)
+    returncode = child.wait()
+sys.exit(returncode)
+'''
+
+
+class _SupervisedProcess:
+    """Popen-like handle exposing managed child PID and supervisor lifecycle."""
+
+    def __init__(self, supervisor, managed_pid):
+        self._supervisor = supervisor
+        self.pid = managed_pid
+
+    @property
+    def returncode(self):
+        return self._supervisor.returncode
+
+    def poll(self):
+        return self._supervisor.poll()
+
+    def wait(self, timeout=None):
+        return self._supervisor.wait(timeout=timeout)
+
+    def terminate(self):
+        if self._supervisor.poll() is None:
+            self._supervisor.terminate()
+
+    def kill(self):
+        try:
+            os.kill(self.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if self._supervisor.poll() is None:
+            self._supervisor.kill()
+
+
+def _spawn_posix_supervised_service(
+    repo, command, tracked, ready_url, ready_timeout, env
+):
+    """Run service below a reaping supervisor, not directly below pytest."""
+    supervisor = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            _POSIX_SUPERVISOR_SOURCE,
+            json.dumps(list(command)),
+            os.fspath(repo.work),
+            os.fspath(repo.log_file),
+        ],
+        cwd=os.fspath(repo.work),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    line = supervisor.stdout.readline()
+    if not line:
+        stdout, stderr = supervisor.communicate(timeout=5)
+        raise RuntimeError(
+            "service supervisor failed to start; "
+            f"stdout={stdout!r} stderr={stderr!r}"
+        )
+    try:
+        managed_pid = int(line.strip())
+    except ValueError as error:
+        stdout, stderr = supervisor.communicate(timeout=5)
+        raise RuntimeError(
+            "service supervisor returned invalid managed PID; "
+            f"line={line!r} stdout={stdout!r} stderr={stderr!r}"
+        ) from error
+    finally:
+        supervisor.stdout.close()
+        supervisor.stderr.close()
+
+    process = _SupervisedProcess(supervisor, managed_pid)
+    tracked(process)
+    if ready_url and not wait_health(
+        ready_url, timeout=ready_timeout, process=process
+    ):
+        with open(repo.log_file, encoding="utf-8", errors="replace") as handle:
+            log_contents = handle.read()
+        raise RuntimeError(
+            "service did not become healthy; "
+            f"process_exit={process.poll()!r}; log:\n{log_contents}"
+        )
+    return process
 
 
 def stub_start_command(port):

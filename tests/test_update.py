@@ -1027,8 +1027,23 @@ def test_stop_proceeds_after_transient_lock_release(repo, monkeypatch):
     non-blocking acquire observes contention (signalled), then the holder
     releases and the requested stop executes for real."""
     import fcntl
-    old_pid = repo.start_fake_service()
+    tests_dir = os.path.dirname(os.path.abspath(__file__))
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from integration.updater._harness import spawn_service
+
+    def track(process):
+        repo._processes[process.pid] = process
+
+    process = spawn_service(
+        repo,
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        track,
+        env=repo.env(),
+    )
+    old_pid = process.pid
     module = _load_update_module_for(repo)
+    _publish_pid(module, old_pid)
     real_acquire = module.platform_acquire_lock
     contended = threading.Event()
     holder_ready = threading.Event()
