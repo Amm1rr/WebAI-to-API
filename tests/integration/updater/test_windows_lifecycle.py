@@ -20,6 +20,7 @@ from ._harness import (  # noqa: E402
     REPO_ROOT,
     SERVICE_STUB,
     UPDATE_PY,
+    _production_platform,
     free_port,
     health_status,
     pid_alive,
@@ -55,6 +56,7 @@ def test_update_platform_imports_on_windows():
 
 def test_msvcrt_lock_acquire_contention_crash_release(repo, tmp_path):
     lock_path = str(tmp_path / "win-int.lock")
+    ready_path = str(tmp_path / "crasher.ready")
 
     import importlib.util
 
@@ -66,31 +68,56 @@ def test_msvcrt_lock_acquire_contention_crash_release(repo, tmp_path):
     spec.loader.exec_module(platform)
 
     handle = platform.acquire_lock(lock_path)
-    assert handle is not None
-    assert os.path.getsize(lock_path) >= 1  # byte-range initialized
+    contender = None
+    crasher = None
 
-    contender = subprocess.Popen(
-        [sys.executable, "-c",
-         "import sys, time;"
-         "sys.path.insert(0, sys.argv[1]);"
-         "from update_platform import acquire_lock;"
-         "h = acquire_lock(sys.argv[2]);"
-         "print('CONTENTED' if h is None else 'ACQUIRED');"
-         "time.sleep(0.2);",
-         os.path.join(REPO_ROOT, "scripts"), lock_path],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    out, _ = contender.communicate(timeout=30)
-    assert "CONTENTED" in out  # exact errno recorded by unit suite
+    def reap(process):
+        if process.poll() is None:
+            process.kill()
+        try:
+            return process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return process.communicate(timeout=5)
 
-    handle.release()
-    reacquired = platform.acquire_lock(lock_path)
-    assert reacquired is not None
-    reacquired.release()
+    try:
+        assert handle is not None
+        assert os.path.getsize(lock_path) >= 1  # byte-range initialized
 
-    # Crash-release: holder signals READY only after acquiring the lock;
-    # the parent verifies ownership before killing it.
-    holder_source = """
+        contender = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time;"
+             "sys.path.insert(0, sys.argv[1]);"
+             "from update_platform import acquire_lock;"
+             "h = acquire_lock(sys.argv[2]);"
+             "print('CONTENTED' if h is None else 'ACQUIRED');"
+             "time.sleep(0.2);",
+             os.path.join(REPO_ROOT, "scripts"), lock_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            out, err = contender.communicate(timeout=30)
+        except subprocess.TimeoutExpired as error:
+            out, err = reap(contender)
+            raise AssertionError(
+                f"contender did not exit: stdout={out!r} stderr={err!r}"
+            ) from error
+        assert "CONTENTED" in out, (
+            f"contender output={out!r} stderr={err!r}"
+        )
+
+        handle.release()
+        handle = None
+        reacquired = platform.acquire_lock(lock_path)
+        try:
+            assert reacquired is not None
+        finally:
+            if reacquired is not None:
+                reacquired.release()
+
+        # Crash-release: holder signals readiness through a file only after
+        # acquiring the lock; the parent uses bounded process-aware polling.
+        holder_source = """
 import sys
 import time
 
@@ -103,27 +130,59 @@ while True:
         break
     time.sleep(0.05)
 
-print("READY", flush=True)
+with open(sys.argv[3], "w", encoding="ascii") as ready:
+    ready.write("READY")
+    ready.flush()
 time.sleep(60)
 """
-    crasher = subprocess.Popen(
-        [sys.executable, "-c", holder_source,
-         os.path.join(REPO_ROOT, "scripts"), lock_path],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    ready_line = crasher.stdout.readline().strip()
-    if ready_line != "READY":
-        stderr_tail = crasher.stderr.read() if crasher.stderr else ""
-        crasher.kill()
-        raise AssertionError(
-            f"crash holder died before READY: {ready_line!r} {stderr_tail}"
+        crasher = subprocess.Popen(
+            [sys.executable, "-c", holder_source,
+             os.path.join(REPO_ROOT, "scripts"), lock_path, ready_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-    crasher.kill()  # abrupt death while owning the kernel lock
-    crasher.wait(timeout=5)
+        ready_deadline = time.monotonic() + 30
+        while time.monotonic() < ready_deadline:
+            if os.path.exists(ready_path):
+                break
+            if crasher.poll() is not None:
+                out, err = reap(crasher)
+                raise AssertionError(
+                    "crash holder exited before READY: "
+                    f"returncode={crasher.returncode!r} "
+                    f"stdout={out!r} stderr={err!r}"
+                )
+            remaining = ready_deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(0.05, remaining))
+        else:
+            out, err = reap(crasher)
+            raise AssertionError(
+                "crash holder did not become READY: "
+                f"returncode={crasher.returncode!r} "
+                f"stdout={out!r} stderr={err!r}"
+            )
 
-    final = platform.acquire_lock(lock_path)
-    assert final is not None  # kernel released on crash
-    final.release()
+        crasher.kill()  # abrupt death while owning the kernel lock
+        out, err = reap(crasher)
+        assert crasher.returncode is not None, (
+            f"crash holder was not reaped: stdout={out!r} stderr={err!r}"
+        )
+
+        final = platform.acquire_lock(lock_path)
+        try:
+            assert final is not None  # kernel released on crash
+        finally:
+            if final is not None:
+                final.release()
+    finally:
+        if handle is not None:
+            handle.release()
+        for process in (contender, crasher):
+            if process is not None and process.poll() is None:
+                try:
+                    reap(process)
+                except subprocess.TimeoutExpired:
+                    pass
 
 
 def test_windows_liveness_real_children(repo):
@@ -541,7 +600,7 @@ def _stub_start_command_static(port):
 
 
 def test_real_poetry_lifecycle_through_updater_stop(
-    repo, tracked_processes,
+    repo, tracked_processes, monkeypatch,
 ):
     """Real `poetry run python src/run.py` on Windows, stopped by the updater.
 
@@ -551,8 +610,10 @@ def test_real_poetry_lifecycle_through_updater_stop(
     IPC metadata, and `updater --stop` must complete via IPC — force
     fallback is a test failure, not an accepted outcome.
     """
+    import importlib.util
     import json
     import shutil
+    from app.shutdown_transport import identify_server
 
     poetry = shutil.which("poetry")
     if poetry is None:
@@ -561,33 +622,37 @@ def test_real_poetry_lifecycle_through_updater_stop(
     port = free_port()
     url = f"http://127.0.0.1:{port}/health"
     run_py = os.path.join(REPO_ROOT, "src", "run.py")
-    spawn_argv = [
-        poetry, "run", "python", run_py,
-        "--host", "127.0.0.1", "--port", str(port),
-    ]
-
-    # Same isolated environment as the updater: identical WEBAI_* state,
-    # PID/log paths, and RUNTIME_DIR for shutdown-control.json.
-    server_env = repo.env()
-
-    log = open(repo.log_file, "ab")
-    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-    proc = subprocess.Popen(
-        spawn_argv,
-        cwd=REPO_ROOT,  # real project root so Poetry resolves its own venv
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        env=server_env,
-        creationflags=creationflags,
-    )
-    log.close()
-    tracked_processes(proc)
-    with open(repo.pid_file, "w") as handle:
-        handle.write(str(proc.pid))  # outer PID is what the updater manages
-
     control_file = os.path.join(repo.runtime_dir, "shutdown-control.json")
+    server_env = repo.env()
+    for key in (
+        "WEBAI_ROOT",
+        "WEBAI_PID_FILE",
+        "WEBAI_LOG_FILE",
+        "WEBAI_LOCK_FILE",
+        "RUNTIME_DIR",
+        "WEBAI_HEALTH_TIMEOUT",
+        "WEBAI_HEALTH_INTERVAL",
+    ):
+        monkeypatch.setenv(key, server_env[key])
+    spec = importlib.util.spec_from_file_location("update_real_poetry", UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.ROOT = REPO_ROOT
+    module.PID_FILE = repo.pid_file
+    module.LOG_FILE = repo.log_file
+    module.LOCK_FILE = repo.lock_file
+    module.SHUTDOWN_CONTROL_FILE = control_file
+    module.START_COMMAND = (
+        f'"{poetry}" run python "{run_py}" '
+        f'--host 127.0.0.1 --port {port}'
+    )
+
+    proc = None
+    authoritative_pid = None
     stopped_cleanly = False
     try:
+        proc = module.start_service()
+        tracked_processes(proc)
         assert wait_health(url, timeout=90, process=proc), (
             f"process_exit={proc.poll()!r}; log:\n"
             f"{open(repo.log_file, encoding='utf-8', errors='replace').read()}"
@@ -606,6 +671,9 @@ def test_real_poetry_lifecycle_through_updater_stop(
                     and candidate["token"]
                     and isinstance(candidate.get("port"), int)
                     and candidate["port"] > 0
+                    and isinstance(candidate.get("pid"), int)
+                    and not isinstance(candidate["pid"], bool)
+                    and candidate["pid"] > 0
                 ):
                     control = candidate
                     break
@@ -616,6 +684,10 @@ def test_real_poetry_lifecycle_through_updater_stop(
             "Poetry-launched server never published shutdown metadata in "
             f"{repo.runtime_dir}"
         )
+        authoritative_pid = control["pid"]
+        assert identify_server(control_file) == authoritative_pid
+        assert pid_alive(authoritative_pid)
+        assert read_pid(repo) == authoritative_pid
 
         # Graceful stop is MANDATORY: scoped log evidence + no fallback.
         log_offset = os.path.getsize(repo.log_file)
@@ -640,6 +712,7 @@ def test_real_poetry_lifecycle_through_updater_stop(
         ), "no graceful lifecycle evidence appended by the final stop"
 
         assert wait_process_exit(proc, timeout=30)
+        assert wait_pid_gone_windows(authoritative_pid)
         assert not os.path.exists(repo.pid_file)
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and os.path.exists(control_file):
@@ -663,7 +736,7 @@ def test_real_poetry_lifecycle_through_updater_stop(
                 repo.run_updater(["--stop"], timeout=60)
             except Exception:
                 pass  # contained: never masks the original failure
-            if proc.poll() is None:
+            if proc is not None and proc.poll() is None:
                 proc.terminate()
                 if not wait_process_exit(proc, timeout=10):
                     proc.kill()
@@ -673,20 +746,34 @@ def test_real_poetry_lifecycle_through_updater_stop(
                             "CLEANUP LIMITATION: outer Poetry process "
                             "could not be reaped after kill."
                         )
-            # The PID file names the OUTER Poetry PID; after it dies the
-            # inner uvicorn PID is not directly known to this harness, so
-            # child cleanup can only be verified, not forced by PID.
+            if authoritative_pid is None:
+                try:
+                    with open(control_file, encoding="utf-8") as handle:
+                        candidate = json.load(handle)
+                    candidate_pid = candidate.get("pid")
+                    if isinstance(candidate_pid, int) and not isinstance(
+                        candidate_pid, bool
+                    ) and candidate_pid > 0:
+                        authoritative_pid = candidate_pid
+                except (OSError, ValueError, TypeError):
+                    pass
+            if authoritative_pid is not None and pid_alive(authoritative_pid):
+                try:
+                    _production_platform().force_kill(authoritative_pid)
+                    assert wait_pid_gone_windows(authoritative_pid)
+                except Exception as error:
+                    print(
+                        "CLEANUP LIMITATION: authoritative PID force-stop "
+                        f"failed: {error}"
+                    )
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
                 if not port_serving(port):
                     break
                 time.sleep(0.2)
             else:
-                # Known limitation (see audit notes): no scoped handle to
-                # the inner server PID once Poetry is gone. Surface loudly
-                # without masking any original assertion failure.
                 print(
                     "CLEANUP LIMITATION: WebAI server still serving on "
                     f"port {port} after updater stop and outer-process "
-                    "reap; inner PID is not tracked by the harness."
+                    "reap; authoritative PID cleanup failed."
                 )

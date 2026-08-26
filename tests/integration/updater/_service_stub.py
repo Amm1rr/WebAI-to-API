@@ -2,8 +2,9 @@
 
 Serves /health 200 (or a forced failure status when the health-failure
 marker file contains an integer status). Exits cleanly on SIGTERM/SIGINT so
-POSIX graceful-stop flows observe a real drain. Writes a ready-file after
-bind when READY_FILE is provided (startup-race tests).
+POSIX graceful-stop flows observe a real drain. On Windows, publishes real
+shutdown metadata and exits through loopback graceful-shutdown IPC. Writes a
+ready-file after bind when READY_FILE is provided (startup-race tests).
 
 Environment:
     HEALTH_FAIL_FILE   optional path; integer contents override /health status
@@ -67,4 +68,30 @@ server = LoopbackHTTPServer(("127.0.0.1", PORT), Handler)
 if READY_FILE:
     with open(READY_FILE, "w") as handle:
         handle.write("ready")
-server.serve_forever()
+
+listener = None
+if sys.platform == "win32":
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    sys.path.insert(0, os.path.join(repo_root, "src"))
+    from app.shutdown_transport import ShutdownListener
+
+    def _request_shutdown(_reason):
+        server.shutdown()
+        return True
+
+    listener = ShutdownListener(
+        callback=_request_shutdown,
+        control_file=os.path.join(
+            os.environ.get("RUNTIME_DIR", "runtime"),
+            "shutdown-control.json",
+        ),
+    )
+    listener.start()
+
+try:
+    server.serve_forever()
+finally:
+    if listener is not None:
+        listener.stop()

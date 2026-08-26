@@ -315,7 +315,9 @@ def wait_process_exit(process, timeout=20.0):
         return False
 
 
-def cleanup_managed_service(repo, service_url, service_port, extra_ports=()):
+def cleanup_managed_service(
+    repo, service_url, service_port, extra_ports=(), process=None
+):
     """Stop updater-created service and verify all owned state is gone."""
     try:
         pid = read_pid(repo)
@@ -334,7 +336,9 @@ def cleanup_managed_service(repo, service_url, service_port, extra_ports=()):
                 f"{stopped.stdout}{stopped.stderr}"
             )
 
-    if pid is not None:
+    if process is not None and (pid is None or pid == process.pid):
+        assert wait_process_exit(process)
+    elif pid is not None:
         assert wait_pid_gone(pid)
     assert not os.path.exists(repo.pid_file)
     for port in dict.fromkeys((service_port, *extra_ports)):

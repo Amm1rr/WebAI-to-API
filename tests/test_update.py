@@ -11,6 +11,7 @@ Each test builds a temporary origin (bare repo) plus two clones:
 """
 
 import http.server
+import json
 import os
 import socket
 import socketserver
@@ -1150,6 +1151,401 @@ def _load_update_module_for(repo, monkeypatch=None):
     return module
 
 
+def _load_windows_adoption_module(repo):
+    module = _load_update_module_for(repo)
+    module.IS_WINDOWS = True
+    module.SHUTDOWN_CONTROL_FILE = str(repo.base / "shutdown-control.json")
+    return module
+
+
+def _write_windows_metadata(module, pid):
+    with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"port": 12345, "token": "listener-token", "pid": pid}, handle)
+
+
+@pytest.mark.parametrize("launcher_alive", [True, False])
+def test_windows_existing_service_reconciles_authoritative_pid(
+    repo, monkeypatch, launcher_alive
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    server_pid = 202
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    _write_windows_metadata(module, server_pid)
+
+    monkeypatch.setattr(
+        module,
+        "platform_pid_alive",
+        lambda pid: launcher_alive if pid == launcher_pid else pid == server_pid,
+    )
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: server_pid,
+    )
+
+    assert module.running_service_pid() == server_pid
+    assert _pid_from(repo.pid_file) == server_pid
+
+
+def test_windows_existing_service_same_pid_is_noop(repo, monkeypatch):
+    module = _load_windows_adoption_module(repo)
+    pid = 202
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(pid))
+    _write_windows_metadata(module, pid)
+    liveness_calls = []
+    monkeypatch.setattr(
+        module,
+        "platform_pid_alive",
+        lambda candidate: (liveness_calls.append(candidate) or True),
+    )
+    monkeypatch.setattr(
+        module,
+        "_write_pid_file",
+        lambda _pid: pytest.fail("same PID must not be rewritten"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: pytest.fail(
+            "same PID must not require identity"
+        ),
+    )
+
+    assert module.running_service_pid() == pid
+    assert _pid_from(repo.pid_file) == pid
+    assert liveness_calls == [pid, pid]
+
+
+def test_windows_existing_service_malformed_metadata_preserves_pid(
+    repo, monkeypatch
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    with open(module.SHUTDOWN_CONTROL_FILE, "wb") as handle:
+        handle.write(b"not-json")
+    monkeypatch.setattr(module, "platform_pid_alive", lambda _pid: True)
+
+    assert module.running_service_pid() == launcher_pid
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+def test_windows_existing_service_legacy_metadata_preserves_pid(
+    repo, monkeypatch
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"port": 12345, "token": "legacy-token"}, handle)
+    monkeypatch.setattr(module, "platform_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: pytest.fail(
+            "legacy metadata must not require identity"
+        ),
+    )
+
+    assert module.running_service_pid() == launcher_pid
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+def test_windows_existing_service_dead_metadata_pid_is_not_adopted(
+    repo, monkeypatch
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    _write_windows_metadata(module, 202)
+    monkeypatch.setattr(
+        module, "platform_pid_alive", lambda pid: pid == launcher_pid
+    )
+
+    assert module.running_service_pid() == launcher_pid
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+@pytest.mark.parametrize(
+    "launcher_alive, identity_pid, expected",
+    [
+        (True, None, 101),
+        (False, None, None),
+        (True, 303, 101),
+        (False, 303, None),
+    ],
+)
+def test_windows_existing_service_unproven_identity_is_not_adopted(
+    repo, monkeypatch, launcher_alive, identity_pid, expected
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    server_pid = 202
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    _write_windows_metadata(module, server_pid)
+    monkeypatch.setattr(
+        module,
+        "platform_pid_alive",
+        lambda pid: launcher_alive if pid == launcher_pid else True,
+    )
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: identity_pid,
+    )
+
+    assert module.running_service_pid() == expected
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+def test_windows_existing_service_metadata_liveness_failure_is_clean(
+    repo, monkeypatch
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    server_pid = 202
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    _write_windows_metadata(module, server_pid)
+
+    def fake_alive(pid):
+        if pid == launcher_pid:
+            return True
+        raise module.PlatformOperationError(OSError("probe failed"))
+
+    monkeypatch.setattr(module, "platform_pid_alive", fake_alive)
+
+    with pytest.raises(module.UpdateError, match="metadata PID 202 liveness"):
+        module.running_service_pid()
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+def test_windows_existing_service_pid_rewrite_failure_is_clean(
+    repo, monkeypatch
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    server_pid = 202
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(launcher_pid))
+    _write_windows_metadata(module, server_pid)
+    monkeypatch.setattr(module, "platform_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: server_pid,
+    )
+
+    def fail_write(_pid):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(module, "_write_pid_file", fail_write)
+
+    with pytest.raises(module.UpdateError, match="reconcile service PID file"):
+        module.running_service_pid()
+    assert _pid_from(repo.pid_file) == launcher_pid
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"port": 1, "token": "t"},
+        {"port": 1, "token": "t", "pid": True},
+        {"port": 1, "token": "t", "pid": 0},
+        {"port": 1, "token": "t", "pid": -1},
+        {"port": 1, "token": "t", "pid": "42"},
+        b"not-json",
+    ],
+)
+def test_windows_adoption_rejects_invalid_server_pid_metadata(repo, metadata):
+    module = _load_windows_adoption_module(repo)
+    raw = metadata if isinstance(metadata, bytes) else json.dumps(metadata).encode()
+
+    assert module._parse_shutdown_metadata(raw) is None
+
+
+def test_windows_adoption_rejects_stale_metadata(repo):
+    module = _load_windows_adoption_module(repo)
+    stale = {"port": 1, "token": "old", "pid": 4242}
+    raw = json.dumps(stale).encode()
+    with open(module.SHUTDOWN_CONTROL_FILE, "wb") as handle:
+        handle.write(raw)
+    module.WINDOWS_METADATA_WAIT_SECONDS = 0
+
+    with pytest.raises(module.UpdateError, match="fresh live server PID"):
+        module._adopt_windows_server_pid(1111, raw)
+
+
+@pytest.mark.parametrize("server_pid", [101, 202])
+def test_windows_start_adopts_fresh_live_server_pid(
+    repo, monkeypatch, server_pid
+):
+    module = _load_windows_adoption_module(repo)
+    launcher_pid = 101
+    stale = {"port": 1, "token": "old", "pid": 404}
+    fresh = {"port": 2, "token": "new", "pid": server_pid}
+    with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+        json.dump(stale, handle)
+
+    class FakeProcess:
+        pid = launcher_pid
+
+        def __init__(self):
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            return None
+
+    process = FakeProcess()
+
+    def fake_spawn(_argv, _cwd, log_handle):
+        log_handle.close()
+        with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+            json.dump(fresh, handle)
+        return process
+
+    monkeypatch.setattr(module, "parse_start_command", lambda: ["launcher"])
+    monkeypatch.setattr(module, "platform_spawn_detached", fake_spawn)
+    monkeypatch.setattr(module, "platform_pid_alive", lambda pid: True)
+    identity_calls = []
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: (
+            identity_calls.append(True) or fresh["pid"]
+        ),
+    )
+
+    started = module.start_service()
+
+    assert started is process
+    assert _pid_from(repo.pid_file) == server_pid
+    assert not process.killed
+    assert identity_calls == ([] if server_pid == launcher_pid else [True])
+
+
+@pytest.mark.parametrize("identity_pid", [None, 303])
+def test_windows_start_rejects_unproven_different_pid(
+    repo, monkeypatch, identity_pid
+):
+    module = _load_windows_adoption_module(repo)
+    module.WINDOWS_METADATA_WAIT_SECONDS = 1
+    module.WINDOWS_METADATA_POLL_SECONDS = 0.1
+    clock = _FakeClock()
+    monkeypatch.setattr(module.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(module.time, "sleep", clock.sleep)
+
+    launcher_pid = 101
+    server_pid = 202
+    stale = {"port": 1, "token": "old", "pid": 404}
+    fresh = {"port": 2, "token": "new", "pid": server_pid}
+    with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+        json.dump(stale, handle)
+
+    class FakeProcess:
+        pid = launcher_pid
+
+        def __init__(self):
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            return None
+
+    process = FakeProcess()
+    force_calls = []
+
+    def fake_spawn(_argv, _cwd, log_handle):
+        log_handle.close()
+        with open(module.SHUTDOWN_CONTROL_FILE, "w", encoding="utf-8") as handle:
+            json.dump(fresh, handle)
+        return process
+
+    monkeypatch.setattr(module, "parse_start_command", lambda: ["launcher"])
+    monkeypatch.setattr(module, "platform_spawn_detached", fake_spawn)
+    monkeypatch.setattr(module, "platform_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        module,
+        "_identify_windows_server",
+        lambda *_args, **_kwargs: identity_pid,
+    )
+    monkeypatch.setattr(
+        module,
+        "platform_force_kill",
+        lambda pid: force_calls.append(pid),
+    )
+
+    with pytest.raises(module.UpdateError, match="identity"):
+        module.start_service()
+
+    assert process.killed
+    assert force_calls == []
+    assert not os.path.exists(module.PID_FILE)
+
+
+def test_windows_adoption_requires_live_server_pid(repo):
+    module = _load_windows_adoption_module(repo)
+    raw = json.dumps({"port": 1, "token": "new", "pid": 202}).encode()
+    with open(module.SHUTDOWN_CONTROL_FILE, "wb") as handle:
+        handle.write(raw)
+    module.WINDOWS_METADATA_WAIT_SECONDS = 0
+
+    with pytest.raises(module.UpdateError, match="fresh live server PID"):
+        module._adopt_windows_server_pid(101, b"old")
+
+
+def test_windows_adoption_failure_cleans_launcher(repo, monkeypatch):
+    module = _load_windows_adoption_module(repo)
+    module.WINDOWS_METADATA_WAIT_SECONDS = 0
+
+    class FakeProcess:
+        pid = 101
+
+        def __init__(self):
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            return None
+
+    process = FakeProcess()
+    monkeypatch.setattr(module, "parse_start_command", lambda: ["launcher"])
+    monkeypatch.setattr(
+        module,
+        "platform_spawn_detached",
+        lambda _argv, _cwd, log_handle: (log_handle.close(), process)[1],
+    )
+
+    with pytest.raises(module.UpdateError, match="fresh live server PID"):
+        module.start_service()
+
+    assert process.killed
+    assert not os.path.exists(module.PID_FILE)
+
+
+def test_pid_file_publish_is_atomic(repo):
+    module = _load_windows_adoption_module(repo)
+
+    module._write_pid_file(202)
+
+    assert _pid_from(repo.pid_file) == 202
+    assert not list(repo.base.glob(f".{repo.pid_file.name}.*"))
+
+
 def test_docker_normal_update_is_refused(repo, monkeypatch, capsys):
     repo.remote_set_version("2.0")
     head_before = repo.head()
@@ -1171,7 +1567,9 @@ def test_docker_stop_with_running_service_succeeds(repo, monkeypatch):
         rc = module.main(["--stop"])
 
         assert rc == 0
-        assert not repo.pid_alive(old_pid)
+        process = repo._processes[old_pid]
+        process.wait(timeout=5)
+        assert process.poll() is not None
         assert not repo.pid_file.exists()
     finally:
         repo.cleanup_pids(old_pid)
@@ -1706,7 +2104,6 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
     old_pid = repo.start_fake_service()
     previous_sha = repo.head()
     spawned = {}
-    real_platform_spawn = None
 
     class FakePopen:
         def __init__(self, pid):
@@ -1716,14 +2113,24 @@ def test_rollback_restart_uses_windows_spawn_path(repo, monkeypatch):
             pass
 
     try:
-        module = _load_update_module_for(repo)
-        module.IS_WINDOWS = True
+        module, _ipc_calls, _force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+                repo, monkeypatch,
+                ipc_results=[],
+                alive_sequence=[True, False, True, False],
+            )
+        )
         module.START_COMMAND = (
             '"C:\\Python\\python.exe" -c "import time; time.sleep(30)"'
         )
         module.HEALTH_TIMEOUT = 1
         module.HEALTH_INTERVAL = 0.1
         module.SHUTDOWN_CONTROL_FILE = str(repo.base / "shutdown-control.json")
+        monkeypatch.setattr(
+            module,
+            "_adopt_windows_server_pid",
+            lambda launcher_pid, _previous_raw: launcher_pid,
+        )
         health_results = iter([False, True])
         monkeypatch.setattr(
             module,

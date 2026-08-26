@@ -133,7 +133,7 @@ def die(message, code=1):
 
 
 def running_service_pid():
-    """PID from PID_FILE when that process is alive; stale files yield None."""
+    """Return live service PID, reconciling Windows listener metadata."""
     try:
         pid = int(open(PID_FILE).read().strip())
     except (OSError, ValueError):
@@ -144,10 +144,13 @@ def running_service_pid():
         raise UpdateError(
             f"Cannot query service PID {pid} liveness: {error}"
         ) from error
+    if IS_WINDOWS:
+        return _reconcile_windows_service_pid(pid, alive)
     return pid if alive else None
 
 
 _SEND_SHUTDOWN = None
+_IDENTIFY_SERVER = None
 
 # Phase 4 client default; the per-call timeout is capped by remaining grace
 # budget so one IPC attempt can never stretch the stop beyond ~10s wall clock.
@@ -155,6 +158,8 @@ WINDOWS_IPC_TIMEOUT_SECONDS = 3.0
 WINDOWS_STOP_BUDGET_SECONDS = 10.0
 WINDOWS_FORCE_CONFIRM_TIMEOUT_SECONDS = 3.0
 WINDOWS_FORCE_CONFIRM_INTERVAL_SECONDS = 0.1
+WINDOWS_METADATA_WAIT_SECONDS = 10.0
+WINDOWS_METADATA_POLL_SECONDS = 0.1
 
 
 def _send_windows_shutdown(control_file, timeout=None):
@@ -172,6 +177,229 @@ def _send_windows_shutdown(control_file, timeout=None):
         globals()["ShutdownTransportError"] = transport_error
         _SEND_SHUTDOWN = send
     return _SEND_SHUTDOWN(control_file, timeout=timeout)
+
+
+def _identify_windows_server(control_file, timeout=None):
+    """Return authenticated listener PID, or None when identity is unproven."""
+    global _IDENTIFY_SERVER
+    if _IDENTIFY_SERVER is None:
+        src_dir = os.path.join(os.path.dirname(SCRIPT_DIR), "src")
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from app.shutdown_transport import (
+            ShutdownTransportError as transport_error,
+            identify_server,
+        )
+
+        globals()["ShutdownTransportError"] = transport_error
+        _IDENTIFY_SERVER = identify_server
+    if timeout is None:
+        timeout = WINDOWS_IPC_TIMEOUT_SECONDS
+    try:
+        return _IDENTIFY_SERVER(control_file, timeout=timeout)
+    except ShutdownTransportError:
+        return None
+
+
+def _read_shutdown_metadata_raw():
+    """Read control metadata bytes, preserving freshness identity."""
+    try:
+        with open(SHUTDOWN_CONTROL_FILE, "rb") as handle:
+            return handle.read()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise UpdateError(
+            f"Cannot read shutdown control file {SHUTDOWN_CONTROL_FILE}: {error}"
+        ) from error
+
+
+def _parse_shutdown_metadata(raw):
+    """Return validated shutdown metadata, or None while incomplete."""
+    if raw is None:
+        return None
+    try:
+        metadata = json.loads(raw)
+    except (UnicodeDecodeError, ValueError, TypeError):
+        return None
+    if not isinstance(metadata, dict):
+        return None
+
+    port = metadata.get("port")
+    token = metadata.get("token")
+    pid = metadata.get("pid")
+    if isinstance(port, bool) or not isinstance(port, int) or port <= 0:
+        return None
+    if not isinstance(token, str) or not token:
+        return None
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return None
+    return metadata
+
+
+def _reconcile_windows_service_pid(pid, pid_file_alive):
+    """Repair a Windows PID file from a live, strictly valid listener PID."""
+    raw = _read_shutdown_metadata_raw()
+    metadata = _parse_shutdown_metadata(raw)
+    if metadata is None:
+        return pid if pid_file_alive else None
+
+    metadata_pid = metadata["pid"]
+    try:
+        metadata_alive = platform_pid_alive(metadata_pid)
+    except PlatformOperationError as error:
+        raise UpdateError(
+            f"Cannot query shutdown metadata PID {metadata_pid} liveness: "
+            f"{error}"
+        ) from error
+    if not metadata_alive:
+        return pid if pid_file_alive else None
+    if metadata_pid == pid:
+        return pid
+
+    if _metadata_pid_authenticated(raw, metadata):
+        try:
+            _write_pid_file(metadata_pid)
+        except OSError as error:
+            raise UpdateError(
+                f"Cannot reconcile service PID file {PID_FILE}: {error}"
+            ) from error
+        return metadata_pid
+    return pid if pid_file_alive else None
+
+
+def _metadata_pid_authenticated(raw, metadata, timeout=None):
+    """Require listener identity to match metadata and remain unchanged."""
+    identity = _identify_windows_server(
+        SHUTDOWN_CONTROL_FILE,
+        timeout=timeout,
+    )
+    return (
+        identity == metadata["pid"]
+        and _read_shutdown_metadata_raw() == raw
+    )
+
+
+def _adopt_windows_server_pid(launcher_pid, previous_raw):
+    """Wait for fresh control metadata and return its live server PID."""
+    deadline = time.monotonic() + WINDOWS_METADATA_WAIT_SECONDS
+    last_reason = "shutdown metadata was not published"
+    while time.monotonic() < deadline:
+        raw = _read_shutdown_metadata_raw()
+        if raw is not None and (previous_raw is None or raw != previous_raw):
+            metadata = _parse_shutdown_metadata(raw)
+            if metadata is not None:
+                # Atomic publication should make this stable; reject a file
+                # replaced during validation instead of adopting mixed state.
+                if _read_shutdown_metadata_raw() != raw:
+                    last_reason = "shutdown metadata changed during validation"
+                else:
+                    server_pid = metadata["pid"]
+                    try:
+                        if platform_pid_alive(server_pid):
+                            if server_pid == launcher_pid:
+                                return server_pid
+                            remaining = deadline - time.monotonic()
+                            identity_timeout = max(
+                                0.001,
+                                min(WINDOWS_IPC_TIMEOUT_SECONDS, remaining),
+                            )
+                            if _metadata_pid_authenticated(
+                                raw,
+                                metadata,
+                                timeout=identity_timeout,
+                            ):
+                                return server_pid
+                            last_reason = (
+                                "shutdown metadata PID identity was not "
+                                "authenticated"
+                            )
+                        else:
+                            last_reason = (
+                                f"shutdown metadata PID {server_pid} is not alive"
+                            )
+                    except PlatformOperationError as error:
+                        raise UpdateError(
+                            f"Cannot query adopted server PID {server_pid} "
+                            f"liveness: {error}"
+                        ) from error
+            else:
+                last_reason = "shutdown metadata is malformed or incomplete"
+        elif raw is not None:
+            last_reason = "shutdown metadata is stale"
+
+        try:
+            launcher_alive = platform_pid_alive(launcher_pid)
+        except PlatformOperationError as error:
+            raise UpdateError(
+                f"Cannot query launcher PID {launcher_pid} liveness: {error}"
+            ) from error
+        if not launcher_alive:
+            last_reason = "launcher exited before fresh server metadata appeared"
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(WINDOWS_METADATA_POLL_SECONDS, remaining))
+
+    raise UpdateError(
+        "Started service did not publish a fresh live server PID within "
+        f"{WINDOWS_METADATA_WAIT_SECONDS:.1f}s ({last_reason})."
+    )
+
+
+def _write_pid_file(pid):
+    """Atomically publish PID_FILE in its existing directory."""
+    directory = os.path.dirname(PID_FILE) or "."
+    basename = os.path.basename(PID_FILE) or "service.pid"
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{basename}.", dir=directory, text=True
+    )
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(str(pid))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, PID_FILE)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _remove_pid_file_if_matches(pid):
+    try:
+        with open(PID_FILE, encoding="utf-8") as handle:
+            current = handle.read().strip()
+    except (OSError, ValueError):
+        return
+    if current != str(pid):
+        return
+    try:
+        os.unlink(PID_FILE)
+    except OSError:
+        pass
+
+
+def _cleanup_started_process(process, server_pid=None):
+    """Best-effort cleanup for a process whose startup contract failed."""
+    if server_pid is not None and server_pid != process.pid:
+        try:
+            platform_force_kill(server_pid)
+        except (OSError, PlatformOperationError):
+            pass
+    try:
+        process.kill()
+    except (AttributeError, OSError):
+        pass
+    wait = getattr(process, "wait", None)
+    if wait is not None:
+        try:
+            wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 # Normalized Windows IPC outcomes; "unreachable" covers missing/stale/malformed
@@ -342,6 +570,9 @@ def parse_start_command():
 def start_service():
     say("Starting WebAI-to-API in the background...")
     argv = parse_start_command()
+    previous_control_raw = (
+        _read_shutdown_metadata_raw() if IS_WINDOWS else None
+    )
     try:
         log = open(LOG_FILE, "ab")
     except OSError as error:
@@ -355,13 +586,25 @@ def start_service():
         raise UpdateError(
             f"Cannot start service with '{START_COMMAND}': {error.user_message}"
         ) from error
+    authoritative_pid = process.pid
     try:
-        with open(PID_FILE, "w") as handle:
-            handle.write(str(process.pid))
+        _write_pid_file(process.pid)
+        if IS_WINDOWS:
+            authoritative_pid = _adopt_windows_server_pid(
+                process.pid, previous_control_raw
+            )
+            _write_pid_file(authoritative_pid)
+    except UpdateError:
+        cleanup_pid = authoritative_pid if authoritative_pid != process.pid else None
+        _cleanup_started_process(process, cleanup_pid)
+        _remove_pid_file_if_matches(process.pid)
+        raise
     except OSError as error:
-        process.kill()
+        cleanup_pid = authoritative_pid if authoritative_pid != process.pid else None
+        _cleanup_started_process(process, cleanup_pid)
+        _remove_pid_file_if_matches(process.pid)
         raise UpdateError(f"Cannot write PID file {PID_FILE}: {error}") from error
-    say(f"Started (PID {process.pid}); logs at {LOG_FILE}")
+    say(f"Started (PID {authoritative_pid}); logs at {LOG_FILE}")
     return process
 
 

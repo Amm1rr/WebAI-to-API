@@ -34,6 +34,7 @@ def _start_managed(repo, tracked_processes, svc):
         list(svc["start_argv"]),
         tracked_processes,
         ready_url=svc["url"],
+        env=repo.env(),
     )
     with open(repo.pid_file, "w") as handle:
         handle.write(str(proc.pid))
@@ -59,7 +60,9 @@ def test_no_op_when_local_equals_remote(repo, tracked_processes, service_env_ove
         assert "poetry install" not in (noop.stdout + noop.stderr).lower()
         assert health_status(svc["url"]) == 200
     finally:
-        cleanup_managed_service(repo, svc["url"], svc["port"])
+        cleanup_managed_service(
+            repo, svc["url"], svc["port"], process=proc
+        )
 
 
 def test_update_success_moves_head_and_restarts_service(

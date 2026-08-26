@@ -8,11 +8,14 @@ updater) request graceful shutdown of the running server:
     client -> 127.0.0.1:<ephemeral port> -> ApplicationServer.request_shutdown("ipc")
 
 Design contract (Phase 4):
-- stdlib only, one verb, one line per direction
+- stdlib only, two verbs, one line per direction
 - listener binds strictly to 127.0.0.1 with an OS-assigned ephemeral port
-- random per-process token gates the single accepted command
+- random per-process token gates both commands
+- `IDENTIFY <token>` returns the listener PID without side effects
+- `SHUTDOWN <token>` invokes the application shutdown callback
 - endpoint identity is published atomically to
-  <RUNTIME_DIR>/shutdown-control.json as {"port": <int>, "token": "<hex>"}
+  <RUNTIME_DIR>/shutdown-control.json as {"port": <int>, "token": "<hex>",
+  "pid": <int>}
 - cleanup removes the control file only if it still belongs to this
   listener (token match); stale files after force-kill are harmless
 
@@ -41,7 +44,7 @@ class ShutdownTransportError(Exception):
 
 
 class ShutdownListener:
-    """Loopback TCP listener translating one command into `callback("ipc")`.
+    """Loopback TCP listener serving authenticated shutdown/identity commands.
 
     The callback receives the literal reason string "ipc" and must be safe
     to call from a foreign thread (ApplicationServer.request_shutdown is).
@@ -112,9 +115,9 @@ class ShutdownListener:
         parent = os.path.dirname(self._control_file)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        payload = json.dumps({"port": port, "token": self._token}).encode(
-            "utf-8"
-        )
+        payload = json.dumps(
+            {"port": port, "token": self._token, "pid": os.getpid()}
+        ).encode("utf-8")
         temp_file = self._control_file + ".tmp"
         with open(temp_file, "wb") as handle:
             handle.write(payload)
@@ -198,20 +201,18 @@ class ShutdownListener:
             return
         line = data[:newline_index].decode("utf-8", errors="replace").strip()
         parts = line.split(" ")
-        if len(parts) != 2 or parts[0] != "SHUTDOWN":
-            return  # malformed command: no callback, no response
-        if parts[1] != self._token:
+        if len(parts) != 2 or parts[1] != self._token:
             return  # wrong token: no callback, no response
+        if parts[0] == "IDENTIFY":
+            conn.sendall(f"PID {os.getpid()}\n".encode("ascii"))
+            return
+        if parts[0] != "SHUTDOWN":
+            return  # malformed command: no callback, no response
         response = _OK if self._callback("ipc") else _RETRY
         conn.sendall(response)
 
 
-def send_shutdown(control_file, timeout=3.0):
-    """Send the shutdown command; returns "ok" or "retry".
-
-    Raises ShutdownTransportError for missing/invalid metadata, connection
-    failures, timeouts, or unexpected responses.
-    """
+def _read_control_metadata(control_file, validate_pid=False):
     try:
         with open(control_file, "rb") as handle:
             raw = handle.read()
@@ -234,6 +235,23 @@ def send_shutdown(control_file, timeout=3.0):
         raise ShutdownTransportError(
             f"Invalid shutdown control file {control_file}: bad token"
         )
+    if validate_pid and isinstance(metadata, dict) and "pid" in metadata:
+        pid = metadata["pid"]
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            raise ShutdownTransportError(
+                f"Invalid shutdown control file {control_file}: bad pid"
+            )
+    return port, token
+
+
+def send_shutdown(control_file, timeout=3.0):
+    """Send the shutdown command; returns "ok" or "retry".
+
+    Raises ShutdownTransportError for missing/invalid metadata, connection
+    failures, timeouts, or unexpected responses. Legacy metadata without a
+    PID remains valid; a PID is validated when present.
+    """
+    port, token = _read_control_metadata(control_file, validate_pid=True)
 
     try:
         with socket.create_connection((CONTROL_HOST, port), timeout=timeout) as conn:
@@ -254,6 +272,39 @@ def send_shutdown(control_file, timeout=3.0):
     raise ShutdownTransportError(
         f"Unexpected shutdown response: {response!r}"
     )
+
+
+def identify_server(control_file, timeout=3.0):
+    """Return listener-owned PID from an authenticated identity response."""
+    port, token = _read_control_metadata(control_file)
+    try:
+        with socket.create_connection((CONTROL_HOST, port), timeout=timeout) as conn:
+            conn.settimeout(timeout)
+            conn.sendall(f"IDENTIFY {token}\n".encode("ascii"))
+            response = _recv_line(conn)
+    except (OSError, TimeoutError) as error:
+        raise ShutdownTransportError(
+            f"Cannot reach identity endpoint on {CONTROL_HOST}:{port}: "
+            f"{error!r}"
+        ) from error
+
+    text = response.decode("ascii", errors="replace").strip()
+    parts = text.split(" ")
+    if len(parts) != 2 or parts[0] != "PID":
+        raise ShutdownTransportError(
+            f"Unexpected identity response: {response!r}"
+        )
+    pid_text = parts[1]
+    if not pid_text.isascii() or not pid_text.isdigit():
+        raise ShutdownTransportError(
+            f"Invalid identity response: {response!r}"
+        )
+    pid = int(pid_text)
+    if pid <= 0:
+        raise ShutdownTransportError(
+            f"Invalid identity response: {response!r}"
+        )
+    return pid
 
 
 def _recv_line(conn):

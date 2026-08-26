@@ -9,6 +9,7 @@ import pytest
 from app.shutdown_transport import (
     ShutdownListener,
     ShutdownTransportError,
+    identify_server,
     send_shutdown,
 )
 
@@ -83,12 +84,15 @@ def test_wrong_token_never_calls_callback(tmp_path):
     b"GARBAGE\n",
     b"SHUTDOWN\n",
     b"SHUTDOWN extra token parts\n",
+    b"IDENTIFY\n",
+    b"IDENTIFY extra token parts\n",
     b"shutdown wrong-case token\n",
 ])
 def test_malformed_requests_rejected_silently(tmp_path, payload):
     listener, calls = make_listener(tmp_path)
     try:
-        raw_request(control_port(listener._control_file), payload)
+        response = raw_request(control_port(listener._control_file), payload)
+        assert response in (b"", None)
         assert calls == []
     finally:
         listener.stop()
@@ -145,6 +149,7 @@ def test_control_file_published_after_listen_with_real_port_and_token(tmp_path):
         assert isinstance(data["port"], int) and data["port"] > 0
         assert isinstance(data["token"], str) and len(data["token"]) == 32
         assert data["token"] == listener._token
+        assert data["pid"] == os.getpid()
     finally:
         listener.stop()
 
@@ -217,6 +222,57 @@ def test_send_shutdown_returns_ok(tmp_path):
         listener.stop()
 
 
+def test_identify_returns_listener_pid_without_shutdown_side_effect(tmp_path):
+    listener, calls = make_listener(tmp_path)
+    try:
+        assert identify_server(listener._control_file) == os.getpid()
+        assert calls == []
+    finally:
+        listener.stop()
+
+
+def test_identify_accepts_legacy_metadata_without_pid(tmp_path):
+    listener, calls = make_listener(tmp_path)
+    try:
+        with open(listener._control_file, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        metadata.pop("pid")
+        with open(listener._control_file, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+
+        assert identify_server(listener._control_file) == os.getpid()
+        assert calls == []
+    finally:
+        listener.stop()
+
+
+def test_identify_wrong_token_does_not_identify(tmp_path):
+    listener, calls = make_listener(tmp_path)
+    try:
+        assert raw_request(
+            control_port(listener._control_file),
+            b"IDENTIFY wrong-token\n",
+        ) in (b"", None)
+        assert calls == []
+    finally:
+        listener.stop()
+
+
+def test_send_shutdown_accepts_legacy_metadata_without_pid(tmp_path):
+    listener, calls = make_listener(tmp_path, results=(True,))
+    try:
+        with open(listener._control_file, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        metadata.pop("pid")
+        with open(listener._control_file, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+
+        assert send_shutdown(listener._control_file) == "ok"
+        assert calls == ["ipc"]
+    finally:
+        listener.stop()
+
+
 def test_send_shutdown_normalizes_retry(tmp_path):
     listener, _ = make_listener(tmp_path, results=(False,))
     try:
@@ -237,6 +293,9 @@ def test_missing_control_file_raises_clean_error(tmp_path):
     b'{"port": -5, "token": "t"}',
     b'{"port": true, "token": "t"}',
     b'{"port": 12345}',
+    b'{"port": 12345, "token": "t", "pid": true}',
+    b'{"port": 12345, "token": "t", "pid": 0}',
+    b'{"port": 12345, "token": "t", "pid": "42"}',
 ])
 def test_malformed_control_files_raise_clean_error(tmp_path, content):
     control = tmp_path / "bad.json"
@@ -251,7 +310,9 @@ def test_unavailable_endpoint_raises_clean_error(tmp_path):
     dead_port = sock.getsockname()[1]
     sock.close()  # port now (almost certainly) unroutable
     control = tmp_path / "dead.json"
-    control.write_text(json.dumps({"port": dead_port, "token": "t"}))
+    control.write_text(
+        json.dumps({"port": dead_port, "token": "t", "pid": os.getpid()})
+    )
     with pytest.raises(ShutdownTransportError, match="reach"):
         send_shutdown(str(control))
 
@@ -263,7 +324,9 @@ def test_unexpected_response_raises_clean_error(tmp_path):
     fake.listen(1)
     port = fake.getsockname()[1]
     control = tmp_path / "weird.json"
-    control.write_text(json.dumps({"port": port, "token": "t"}))
+    control.write_text(
+        json.dumps({"port": port, "token": "t", "pid": os.getpid()})
+    )
 
     def garbage_server():
         conn, _ = fake.accept()
@@ -281,6 +344,32 @@ def test_unexpected_response_raises_clean_error(tmp_path):
         fake.close()
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [b"PID nope\n", b"PID 0\n", b"PID 1 extra\n", b"NOPE\n"],
+)
+def test_identify_rejects_malformed_response(tmp_path, payload):
+    control, fake, thread = _fake_responder(tmp_path, payload)
+    try:
+        with pytest.raises(ShutdownTransportError):
+            identify_server(control)
+        thread.join(3)
+    finally:
+        fake.close()
+
+
+def test_identify_unavailable_endpoint_raises_clean_error(tmp_path):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    dead_port = sock.getsockname()[1]
+    sock.close()
+    control = tmp_path / "dead-identity.json"
+    control.write_text(json.dumps({"port": dead_port, "token": "t"}))
+
+    with pytest.raises(ShutdownTransportError, match="identity endpoint"):
+        identify_server(str(control))
+
+
 # --- Fix 1: bounded client response reads ------------------------------------
 
 
@@ -291,7 +380,9 @@ def _fake_responder(tmp_path, payload, delay=0.0):
     fake.listen(1)
     port = fake.getsockname()[1]
     control = tmp_path / "raw.json"
-    control.write_text(json.dumps({"port": port, "token": "t"}))
+    control.write_text(
+        json.dumps({"port": port, "token": "t", "pid": os.getpid()})
+    )
 
     def serve():
         conn, _ = fake.accept()

@@ -98,10 +98,16 @@ Linux/macOS sends graceful POSIX termination first, waits within a bounded grace
 window, and force-kills only as fallback.
 
 Windows uses graceful loopback shutdown IPC through
-`runtime/shutdown-control.json`, retries within a bounded approximately
-10-second liveness budget, and waits for accepted shutdown to reach actual
-process exit. Force termination is only a fallback; Windows graceful shutdown
-does not use POSIX signals.
+`runtime/shutdown-control.json`. Metadata contains port, token, and the actual
+server PID; fresh metadata is adopted before post-start health validation, with
+token-authenticated listener identity required when adoption changes PID
+authority.
+When resolving an existing service, a live metadata PID repairs a stale
+launcher PID in the updater PID file before stop or update decisions.
+PID-less legacy metadata remains usable for graceful shutdown.
+The updater retries within a bounded approximately 10-second liveness budget
+and waits for accepted shutdown to reach actual process exit. Force termination
+is only a fallback; Windows graceful shutdown does not use POSIX signals.
 
 The Windows launcher selects `py -3.12`, then `py -3.11`, then `python`.
 
