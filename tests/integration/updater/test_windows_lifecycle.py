@@ -41,6 +41,30 @@ def _updater_env(repo, **overrides):
     return repo.env(**overrides)
 
 
+def _disable_background_update_check(root, request):
+    """Keep a server's startup update check from contending with its stop."""
+    path = os.path.join(root, "config.conf")
+    try:
+        with open(path, "rb") as handle:
+            original = handle.read()
+    except FileNotFoundError:
+        original = None
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("[General]\ncheck_updates = false\n")
+
+    def restore():
+        if original is None:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+        else:
+            with open(path, "wb") as handle:
+                handle.write(original)
+
+    request.addfinalizer(restore)
+
+
 def test_update_platform_imports_on_windows():
     import importlib.util
 
@@ -206,7 +230,7 @@ def test_windows_liveness_real_children(repo):
     assert platform.pid_alive(4_000_000) is False  # invalid/nonexistent
 
 
-def test_graceful_ipc_stop_real_server(repo, tracked_processes):
+def test_graceful_ipc_stop_real_server(repo, tracked_processes, request):
     """Full chain: server -> control file -> --stop -> graceful exit."""
     from app.shutdown_transport import identify_server
 
@@ -219,6 +243,7 @@ def test_graceful_ipc_stop_real_server(repo, tracked_processes):
         "--port", str(port),
     ]
 
+    _disable_background_update_check(repo.work, request)
     proc = spawn_service(repo, server_argv, tracked_processes,
                          ready_url=url, ready_timeout=60,
                          env=repo.env())
@@ -442,7 +467,7 @@ def test_update_windows_wrapper_real_execution(repo):
     assert not os.path.exists(repo.pid_file)
 
 
-def test_spaces_checkout_end_to_end_windows(tmp_path, tracked_processes):
+def test_spaces_checkout_end_to_end_windows(tmp_path, tracked_processes, request):
     """Real ApplicationServer lifecycle under spaced checkout/runtime paths."""
     from ._harness import IntegrationRepo
 
@@ -458,6 +483,7 @@ def test_spaces_checkout_end_to_end_windows(tmp_path, tracked_processes):
         sys.executable, run_py, "--host", "127.0.0.1",
         "--port", str(port_a),
     ]
+    _disable_background_update_check(repo.work, request)
     old_proc = spawn_service(
         repo, seed_argv, tracked_processes,
         ready_url=url_a, ready_timeout=60, env=repo.env(),
@@ -651,7 +677,7 @@ def _stub_start_command_static(port):
 
 
 def test_real_poetry_lifecycle_through_updater_stop(
-    repo, tracked_processes, monkeypatch,
+    repo, tracked_processes, monkeypatch, request,
 ):
     """Real `poetry run python src/run.py` on Windows, stopped by the updater.
 
@@ -697,6 +723,7 @@ def test_real_poetry_lifecycle_through_updater_stop(
         f'"{poetry}" run python "{run_py}" '
         f'--host 127.0.0.1 --port {port}'
     )
+    _disable_background_update_check(REPO_ROOT, request)
 
     proc = None
     authoritative_pid = None
