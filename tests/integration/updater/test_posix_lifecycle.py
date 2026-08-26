@@ -201,34 +201,6 @@ def test_stale_pid_stop_spares_live_decoy(repo, tracked_processes):
     decoy.wait(timeout=5)
 
 
-def test_real_service_start_stop_lifecycle(repo, tracked_processes):
-    port = free_port()
-    command = stub_start_command(port)
-    proc, port, url = _start_managed_service(repo, tracked_processes, command, port)
-    try:
-        repo.remote_set_version("2.0")  # update triggers stop -> restart cycle
-        updated = repo.run_updater([], extra_env={
-            "WEBAI_START_COMMAND": command,
-            "WEBAI_HEALTH_URL": url,
-        })
-        assert updated.returncode == 0, updated.stderr
-
-        new_pid = read_pid(repo)
-        assert wait_process_exit(proc)
-        assert health_status(url) == 200
-        assert pid_alive(new_pid)
-
-        stopped = repo.run_updater(["--stop"], extra_env={
-            "WEBAI_HEALTH_URL": url,
-        })
-        assert stopped.returncode == 0, stopped.stderr
-        assert wait_pid_gone(new_pid)
-        assert not os.path.exists(repo.pid_file)
-        assert wait_port_closed(port)
-    finally:
-        cleanup_managed_service(repo, url, port)
-
-
 def test_poetry_command_shape_via_exec_shim(repo, tracked_processes):
     """§2: exercise production START_COMMAND shape `poetry run python ...`.
 

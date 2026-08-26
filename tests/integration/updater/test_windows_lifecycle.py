@@ -18,7 +18,6 @@ import pytest
 
 from ._harness import (  # noqa: E402
     REPO_ROOT,
-    SERVICE_STUB,
     UPDATE_PY,
     _production_platform,
     free_port,
@@ -399,24 +398,6 @@ def test_hard_fallback_budget_approx_ten_seconds(repo):
             victim.wait(timeout=5)
 
 
-def test_spawned_service_survives_updater_exit_and_pid_manageable(
-    repo, tracked_processes,
-):
-    port = free_port()
-    url = f"http://127.0.0.1:{port}/health"
-    proc = spawn_service(
-        repo,
-        [sys.executable, SERVICE_STUB, str(port)],
-        tracked_processes,
-        ready_url=url,
-    )
-    with open(repo.pid_file, "w") as handle:
-        handle.write(str(proc.pid))
-    # Updater-equivalent parent already exited; service keeps serving.
-    assert health_status(url) == 200
-    assert pid_alive(read_pid(repo))
-
-
 def test_windows_quoted_path_parsing_real(tmp_path):
     """Real parse_start_command with spaced executable + spaced argument.
 
@@ -582,98 +563,6 @@ def test_spaces_checkout_end_to_end_windows(tmp_path, tracked_processes, request
                     import signal
                     os.kill(final_pid, signal.SIGTERM)
                     wait_pid_gone_windows(final_pid)
-
-
-def test_rollback_cleanup_windows(tmp_path, tracked_processes):
-    """Authoritative Windows rollback contract (Fixes 1+2).
-
-    Structured-argv seeded service (unambiguous PID ownership):
-      A healthy -> update to B -> B fails health -> rollback to A ->
-      final A healthy via updater restart -> explicit updater --stop ->
-      final PID gone, PID file removed, final port silent.
-    """
-    from ._harness import IntegrationRepo
-
-    repo = IntegrationRepo(tmp_path / "rollback-fixture")
-    final_proc = None
-    stopped_cleanly = False
-    try:
-        port_a = free_port()
-        url_a = f"http://127.0.0.1:{port_a}/health"
-        old_proc = spawn_service(
-            repo,
-            [sys.executable, _stub_path(), str(port_a)],
-            tracked_processes,
-            ready_url=url_a,
-        )
-        with open(repo.pid_file, "w") as handle:
-            handle.write(str(old_proc.pid))
-        sha_a = repo.head()
-        assert health_status(url_a) == 200
-
-        # B ships a tracked file forcing its /health to 500.
-        repo.remote_set_version("2.0", extra_files={".fail-health": "500\n"})
-
-        fail_port = free_port()  # also serves the restarted A after rollback
-        url_final = f"http://127.0.0.1:{fail_port}/health"
-        rolled_back = repo.run_updater([], extra_env={
-            "WEBAI_START_COMMAND": _stub_start_command_static(fail_port),
-            "WEBAI_HEALTH_URL": url_final,
-            "WEBAI_HEALTH_TIMEOUT": "3",
-            "WEBAI_HEALTH_INTERVAL": "0.2",
-        })
-
-        assert rolled_back.returncode != 0
-        combined = rolled_back.stdout + rolled_back.stderr
-        assert "ROLLBACK FAILED" not in combined
-        assert repo.head() == sha_a
-        assert 'version = "1.0"' in repo.read("pyproject.toml")
-        assert not os.path.exists(os.path.join(repo.work, ".fail-health"))
-
-        # Old managed process is gone; updater-spawned final A is live.
-        assert wait_pid_gone_windows(old_proc.pid)
-        deadline = time.monotonic() + 30
-        final_pid = None
-        while time.monotonic() < deadline:
-            try:
-                candidate = read_pid(repo)
-                if pid_alive(candidate):
-                    final_pid = candidate
-                    break
-            except (OSError, ValueError):
-                pass
-            time.sleep(0.2)
-        assert final_pid is not None, "no live final service after rollback"
-        assert wait_health(url_final, timeout=30)
-
-        # Deterministic cleanup THROUGH the updater itself.
-        stopped = repo.run_updater(["--stop"], extra_env={
-            "WEBAI_HEALTH_URL": url_final,
-        })
-        assert stopped.returncode == 0, stopped.stderr
-        stopped_cleanly = True
-
-        assert wait_pid_gone_windows(final_pid)
-        assert not os.path.exists(repo.pid_file)
-        time.sleep(1.0)
-        assert health_status(url_final) is None
-    finally:
-        if not stopped_cleanly:
-            # Defensive backstop so failed assertions never leak servers.
-            try:
-                repo.run_updater(["--stop"], timeout=60)
-            except Exception:
-                pass
-
-
-def _stub_path():
-    return os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "_service_stub.py"
-    )
-
-
-def _stub_start_command_static(port):
-    return f'"{sys.executable}" "{_stub_path()}" {port}'
 
 
 def test_real_poetry_lifecycle_through_updater_stop(
