@@ -28,6 +28,18 @@ class Colors:
     BOLD = "\033[1m" if _use_color else ""
 
 
+def configure_startup_output() -> None:
+    """Make redirected startup output safe for Unicode text."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, TypeError, ValueError):
+            pass
+
+
 def _read_project_metadata() -> Tuple[str, str]:
     """Read the project name and version from pyproject metadata."""
     if not tomli:

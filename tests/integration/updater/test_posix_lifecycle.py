@@ -5,6 +5,7 @@ Linux-only /proc expectations are asserted here.
 """
 
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -22,15 +23,16 @@ pytestmark = [
 ]
 
 from ._harness import (  # noqa: E402
+    cleanup_managed_service,
     UPDATE_PY,
     free_port,
     health_status,
     pid_alive,
-    port_serving,
     read_pid,
     spawn_service,
     stub_start_command,
     wait_health,
+    wait_port_closed,
     wait_process_exit,
     wait_pid_gone,
 )
@@ -40,7 +42,7 @@ REPO_ROOT = os.path.dirname(
 )
 
 
-def _start_managed_service(repo, tracked, command, port):
+def _start_managed_service(repo, tracked, command, port, env=None):
     """Start service like the updater would, then record its PID file.
 
     The updater only starts/stops services around an actual update, so
@@ -50,7 +52,7 @@ def _start_managed_service(repo, tracked, command, port):
 
     url = f"http://127.0.0.1:{port}/health"
     proc = spawn_service(
-        repo, ["/bin/sh", "-c", command], tracked, ready_url=url,
+        repo, shlex.split(command), tracked, ready_url=url, env=env,
     )
     with open(repo.pid_file, "w") as handle:
         handle.write(str(proc.pid))
@@ -151,26 +153,28 @@ def test_real_service_start_stop_lifecycle(repo, tracked_processes):
     port = free_port()
     command = stub_start_command(port)
     proc, port, url = _start_managed_service(repo, tracked_processes, command, port)
+    try:
+        repo.remote_set_version("2.0")  # update triggers stop -> restart cycle
+        updated = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": command,
+            "WEBAI_HEALTH_URL": url,
+        })
+        assert updated.returncode == 0, updated.stderr
 
-    repo.remote_set_version("2.0")  # update triggers stop -> restart cycle
-    updated = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": command,
-        "WEBAI_HEALTH_URL": url,
-    })
-    assert updated.returncode == 0, updated.stderr
+        new_pid = read_pid(repo)
+        assert wait_process_exit(proc)
+        assert health_status(url) == 200
+        assert pid_alive(new_pid)
 
-    new_pid = read_pid(repo)
-    assert wait_process_exit(proc)
-    assert health_status(url) == 200
-    assert pid_alive(new_pid)
-
-    stopped = repo.run_updater(["--stop"], extra_env={
-        "WEBAI_HEALTH_URL": url,
-    })
-    assert stopped.returncode == 0, stopped.stderr
-    assert wait_pid_gone(new_pid)
-    assert not os.path.exists(repo.pid_file)
-    assert not port_serving(port)
+        stopped = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": url,
+        })
+        assert stopped.returncode == 0, stopped.stderr
+        assert wait_pid_gone(new_pid)
+        assert not os.path.exists(repo.pid_file)
+        assert wait_port_closed(port)
+    finally:
+        cleanup_managed_service(repo, url, port)
 
 
 def test_poetry_command_shape_via_exec_shim(repo, tracked_processes):
@@ -200,43 +204,57 @@ def test_poetry_command_shape_via_exec_shim(repo, tracked_processes):
         f"--host 127.0.0.1 --port {{port}}"
     )
     path_env = f"{bin_dir}:{os.environ.get('PATH', '')}"
+    boot_env = {**os.environ, "PATH": path_env}
 
     # Boot A directly (shim shape) so the updater has something to manage.
     boot_port = free_port()
     probe_command = start_command.format(port=boot_port)
     proc, port_a, url_a = _start_managed_service(
-        repo, tracked_processes, probe_command, boot_port
+        repo, tracked_processes, probe_command, boot_port, env=boot_env
     )
-    cmdline_path = f"/proc/{proc.pid}/cmdline"
-    if os.path.exists(cmdline_path):  # linux evidence; skip on darwin
-        with open(cmdline_path, "rb") as handle:
-            cmdline = handle.read().decode(errors="replace")
-        assert "run.py" in cmdline  # §19: PID *is* the server process
+    cleanup_url, cleanup_port = url_a, port_a
+    cleanup_ports = (boot_port,)
+    try:
+        cmdline_path = f"/proc/{proc.pid}/cmdline"
+        if os.path.exists(cmdline_path):  # linux evidence; skip on darwin
+            with open(cmdline_path, "rb") as handle:
+                cmdline = handle.read().decode(errors="replace")
+            assert "run.py" in cmdline  # §19: PID *is* the server process
 
-    # Update with the real default-shape command as the restart command.
-    repo.remote_set_version("2.0")
-    restart_port = free_port()
-    restart_url = f"http://127.0.0.1:{restart_port}/health"
-    updated = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": start_command.format(port=restart_port),
-        "WEBAI_HEALTH_URL": restart_url,
-        "PATH": path_env,
-    })
-    assert updated.returncode == 0, (
-        updated.stderr or open(repo.log_file).read()
-    )
-    new_pid = read_pid(repo)
-    assert wait_process_exit(proc)
-    assert pid_alive(new_pid)
-    assert health_status(restart_url) == 200
+        # Update with the real default-shape command as the restart command.
+        repo.remote_set_version("2.0")
+        restart_port = free_port()
+        restart_url = f"http://127.0.0.1:{restart_port}/health"
+        updated = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": start_command.format(port=restart_port),
+            "WEBAI_HEALTH_URL": restart_url,
+            "PATH": path_env,
+        })
+        cleanup_url, cleanup_port = restart_url, restart_port
+        cleanup_ports = (boot_port, restart_port)
+        assert updated.returncode == 0, (
+            updated.stderr
+            or open(repo.log_file, encoding="utf-8", errors="replace").read()
+        )
+        new_pid = read_pid(repo)
+        assert wait_process_exit(proc)
+        assert pid_alive(new_pid)
+        assert health_status(restart_url) == 200
 
-    stopped = repo.run_updater(["--stop"], extra_env={
-        "WEBAI_HEALTH_URL": restart_url,
-        "PATH": path_env,
-    })
-    assert stopped.returncode == 0, stopped.stderr
-    assert wait_pid_gone(new_pid)
-    assert not port_serving(restart_port)
+        stopped = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": restart_url,
+            "PATH": path_env,
+        })
+        assert stopped.returncode == 0, stopped.stderr
+        assert wait_pid_gone(new_pid)
+        assert wait_port_closed(restart_port)
+    finally:
+        cleanup_managed_service(
+            repo,
+            cleanup_url,
+            cleanup_port,
+            extra_ports=cleanup_ports,
+        )
 
 
 def test_real_server_via_run_py_boots_and_stops(repo, tracked_processes):
@@ -251,41 +269,54 @@ def test_real_server_via_run_py_boots_and_stops(repo, tracked_processes):
         repo, tracked_processes, start_command_tpl.format(port=boot_port),
         boot_port,
     )
-    assert wait_health(boot_url, timeout=40)
-    assert health_status(boot_url) == 200
+    cleanup_url, cleanup_port = boot_url, boot_port
+    cleanup_ports = (boot_port,)
+    try:
+        assert wait_health(boot_url, timeout=40, process=proc)
+        assert health_status(boot_url) == 200
 
-    repo.remote_set_version("2.0")
-    restart_port = free_port()
-    restart_url = f"http://127.0.0.1:{restart_port}/health"
-    updated = repo.run_updater([], extra_env={
-        "WEBAI_START_COMMAND": start_command_tpl.format(port=restart_port),
-        "WEBAI_HEALTH_URL": restart_url,
-        "WEBAI_HEALTH_TIMEOUT": "40",
-    })
-    assert updated.returncode == 0, (
-        updated.stderr or open(repo.log_file).read()
-    )
+        repo.remote_set_version("2.0")
+        restart_port = free_port()
+        restart_url = f"http://127.0.0.1:{restart_port}/health"
+        updated = repo.run_updater([], extra_env={
+            "WEBAI_START_COMMAND": start_command_tpl.format(port=restart_port),
+            "WEBAI_HEALTH_URL": restart_url,
+            "WEBAI_HEALTH_TIMEOUT": "40",
+        })
+        cleanup_url, cleanup_port = restart_url, restart_port
+        cleanup_ports = (boot_port, restart_port)
+        assert updated.returncode == 0, (
+            updated.stderr
+            or open(repo.log_file, encoding="utf-8", errors="replace").read()
+        )
 
-    new_pid = read_pid(repo)
-    assert pid_alive(new_pid)
-    assert health_status(restart_url) == 200
+        new_pid = read_pid(repo)
+        assert pid_alive(new_pid)
+        assert health_status(restart_url) == 200
 
-    # Scope evidence to THIS final stop only (byte offsets need binary mode).
-    log_offset = os.path.getsize(repo.log_file)
+        # Scope evidence to THIS final stop only (byte offsets need binary mode).
+        log_offset = os.path.getsize(repo.log_file)
 
-    stopped = repo.run_updater(["--stop"], extra_env={
-        "WEBAI_HEALTH_URL": restart_url,
-    })
-    assert stopped.returncode == 0, stopped.stderr
-    assert wait_pid_gone(new_pid)
+        stopped = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": restart_url,
+        })
+        assert stopped.returncode == 0, stopped.stderr
+        assert wait_pid_gone(new_pid)
 
-    with open(repo.log_file, "rb") as handle:
-        handle.seek(log_offset)
-        tail = handle.read().decode("utf-8", errors="replace")
-    assert ("Application shutdown requested" in tail
-            or "FastAPI application lifespan shutdown executing." in tail)
-    assert health_status(restart_url) is None
-    assert not port_serving(restart_port)
+        with open(repo.log_file, "rb") as handle:
+            handle.seek(log_offset)
+            tail = handle.read().decode("utf-8", errors="replace")
+        assert ("Application shutdown requested" in tail
+                or "FastAPI application lifespan shutdown executing." in tail)
+        assert health_status(restart_url) is None
+        assert wait_port_closed(restart_port)
+    finally:
+        cleanup_managed_service(
+            repo,
+            cleanup_url,
+            cleanup_port,
+            extra_ports=cleanup_ports,
+        )
 
 
 def test_update_linux_macos_wrapper_forwards_arguments(repo):
@@ -358,7 +389,10 @@ def test_real_poetry_process_tree_and_graceful_stop(
         handle.write(str(proc.pid))  # outer PID is what the updater manages
 
     try:
-        assert wait_health(url, timeout=60), open(repo.log_file).read()
+        assert wait_health(url, timeout=60, process=proc), (
+            f"process_exit={proc.poll()!r}; log:\n"
+            f"{open(repo.log_file, encoding='utf-8', errors='replace').read()}"
+        )
         assert pid_alive(proc.pid)
 
         if sys.platform == "linux":
@@ -376,12 +410,7 @@ def test_real_poetry_process_tree_and_graceful_stop(
         assert wait_process_exit(proc, timeout=30)
         assert not os.path.exists(repo.pid_file)
 
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if not port_serving(port):
-                break
-            time.sleep(0.2)
-        else:
+        if not wait_port_closed(port, timeout=15.0):
             tree_note = children_before if sys.platform == "linux" else "n/a"
             raise AssertionError(
                 "orphan WebAI server still serving after updater --stop "

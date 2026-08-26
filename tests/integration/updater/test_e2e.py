@@ -15,14 +15,13 @@ import time
 import pytest
 
 from ._harness import (  # noqa: E402
+    cleanup_managed_service,
     health_status,
     pid_alive,
-    port_serving,
     read_pid,
     spawn_service,
     wait_health,
     wait_process_exit,
-    wait_pid_gone,
 )
 
 pytestmark = [pytest.mark.timeout(180)]
@@ -41,59 +40,26 @@ def _start_managed(repo, tracked_processes, svc):
     return proc
 
 
-def wait_port_closed(port, timeout=5.0, interval=0.1):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not port_serving(port):
-            return True
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(min(interval, remaining))
-    return not port_serving(port)
-
-
-def _cleanup_managed_service(repo, svc):
-    """Stop updater-created service and verify no lifecycle state remains."""
-    try:
-        pid = read_pid(repo)
-    except (OSError, ValueError):
-        pid = None
-
-    if os.path.exists(repo.pid_file):
-        stopped = repo.run_updater(
-            ["--stop"],
-            extra_env={"WEBAI_HEALTH_URL": svc["url"]},
-            timeout=60,
-        )
-        if stopped.returncode != 0:
-            raise AssertionError(
-                "cleanup updater --stop failed:\n"
-                f"{stopped.stdout}{stopped.stderr}"
-            )
-
-    if pid is not None:
-        assert wait_pid_gone(pid)
-    assert not os.path.exists(repo.pid_file)
-    assert wait_port_closed(svc["port"])
-
-
 def test_no_op_when_local_equals_remote(repo, tracked_processes, service_env_overrides):
     svc = service_env_overrides
     proc = _start_managed(repo, tracked_processes, svc)
 
-    # Versions are equal in a fresh fixture -> pure no-op.
-    noop = repo.run_updater([], extra_env={
-        "WEBAI_HEALTH_URL": svc["url"],
-        "WEBAI_HEALTH_TIMEOUT": "3",
-        "WEBAI_HEALTH_INTERVAL": "0.2",
-    })
+    try:
+        # Versions are equal in a fresh fixture -> pure no-op.
+        noop = repo.run_updater([], extra_env={
+            "WEBAI_HEALTH_URL": svc["url"],
+            "WEBAI_HEALTH_TIMEOUT": "3",
+            "WEBAI_HEALTH_INTERVAL": "0.2",
+        })
 
-    assert noop.returncode == 0, noop.stderr
-    assert proc.poll() is None                      # service untouched
-    assert int(open(repo.pid_file).read()) == proc.pid  # not restarted
-    assert "Stopping WebAI-to-API" not in noop.stdout + noop.stderr
-    assert "poetry install" not in (noop.stdout + noop.stderr).lower()
-    assert health_status(svc["url"]) == 200
+        assert noop.returncode == 0, noop.stderr
+        assert proc.poll() is None                      # service untouched
+        assert int(open(repo.pid_file).read()) == proc.pid  # not restarted
+        assert "Stopping WebAI-to-API" not in noop.stdout + noop.stderr
+        assert "poetry install" not in (noop.stdout + noop.stderr).lower()
+        assert health_status(svc["url"]) == 200
+    finally:
+        cleanup_managed_service(repo, svc["url"], svc["port"])
 
 
 def test_update_success_moves_head_and_restarts_service(
@@ -120,7 +86,7 @@ def test_update_success_moves_head_and_restarts_service(
         assert health_status(svc["url"]) == 200
         assert wait_process_exit(old_proc, timeout=10)
     finally:
-        _cleanup_managed_service(repo, svc)
+        cleanup_managed_service(repo, svc["url"], svc["port"])
 
 
 def test_rollback_restores_previous_release_when_new_version_fails_health(
@@ -167,7 +133,7 @@ def test_rollback_restores_previous_release_when_new_version_fails_health(
         assert wait_health(svc["url"], timeout=30)
         assert pid_alive(pid_b)
     finally:
-        _cleanup_managed_service(repo, svc)
+        cleanup_managed_service(repo, svc["url"], svc["port"])
 
 
 def test_explicit_spaces_checkout_end_to_end(tmp_path, tracked_processes,
@@ -198,4 +164,4 @@ def test_explicit_spaces_checkout_end_to_end(tmp_path, tracked_processes,
         assert wait_health(svc["url"], timeout=30)
         assert wait_process_exit(old_proc, timeout=20)
     finally:
-        _cleanup_managed_service(repo, svc)
+        cleanup_managed_service(repo, svc["url"], svc["port"])

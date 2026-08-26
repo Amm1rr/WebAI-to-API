@@ -529,7 +529,11 @@ def test_windows_liveness_unknown_openerror_raises(monkeypatch):
     with pytest.raises(platform.PlatformOperationError) as excinfo:
         platform.pid_alive(888)
     assert excinfo.value.phase == "liveness"
-    assert excinfo.value.original_error.errno == 1455
+    error = excinfo.value.original_error
+    if os.name == "nt":
+        assert error.winerror == 1455
+    else:
+        assert 1455 in error.args
     assert fake.closed == []  # nothing to close: never opened
 
 
@@ -538,8 +542,11 @@ def test_windows_liveness_query_failure_raises_normalized(monkeypatch):
     with pytest.raises(platform.PlatformOperationError) as excinfo:
         platform.pid_alive(777)
     assert excinfo.value.phase == "liveness"
-    # winerror attr only exists on Windows builds; errno carries the code
-    assert excinfo.value.original_error.errno == 6
+    error = excinfo.value.original_error
+    if os.name == "nt":
+        assert error.winerror == 6
+    else:
+        assert 6 in error.args
     assert len(fake.closed) == 1  # valid HANDLE closed on failure path too
 
 

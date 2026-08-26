@@ -8,7 +8,11 @@ import threading
 import uvicorn
 # --- App and Service Imports ---
 from app.config import CONFIG, get_runtime_dir, resolve_logging_config
-from app.utils.startup import print_server_info, print_gemini_preflight_status
+from app.utils.startup import (
+    configure_startup_output,
+    print_gemini_preflight_status,
+    print_server_info,
+)
 
 
 def configure_windows_event_loop_policy():
@@ -127,6 +131,7 @@ def run_server(config):
 if __name__ == "__main__":
     # Fix: Set the asyncio event loop policy for Windows.
     configure_windows_event_loop_policy()
+    configure_startup_output()
 
     parser = argparse.ArgumentParser(
         description="Run the WebAI-to-API server."

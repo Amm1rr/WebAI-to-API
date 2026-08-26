@@ -67,17 +67,30 @@ def health_status(url, timeout=2.0):
         return None
 
 
-def wait_health(url, timeout=30.0, interval=0.2, expect=200):
+def wait_health(url, timeout=30.0, interval=0.2, expect=200, process=None):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if health_status(url) == expect:
             return True
+        if process is not None and process.poll() is not None:
+            return False
         time.sleep(interval)
     return False
 
 
 def port_serving(port):
     return health_status(f"http://127.0.0.1:{port}/health") is not None
+
+
+def wait_port_closed(port, timeout=5.0, interval=0.1):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not port_serving(port):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(interval, remaining))
+    return not port_serving(port)
 
 
 class IntegrationRepo:
@@ -217,9 +230,14 @@ def spawn_service(repo, command, tracked, ready_url=None, ready_timeout=30.0,
     )
     log.close()
     tracked(proc)
-    if ready_url and not wait_health(ready_url, timeout=ready_timeout):
+    if ready_url and not wait_health(
+        ready_url, timeout=ready_timeout, process=proc
+    ):
+        with open(repo.log_file, encoding="utf-8", errors="replace") as handle:
+            log_contents = handle.read()
         raise RuntimeError(
-            f"service did not become healthy; log:\n{open(repo.log_file).read()}"
+            "service did not become healthy; "
+            f"process_exit={proc.poll()!r}; log:\n{log_contents}"
         )
     return proc
 
@@ -295,3 +313,31 @@ def wait_process_exit(process, timeout=20.0):
         return True
     except subprocess.TimeoutExpired:
         return False
+
+
+def cleanup_managed_service(repo, service_url, service_port, extra_ports=()):
+    """Stop updater-created service and verify all owned state is gone."""
+    try:
+        pid = read_pid(repo)
+    except (OSError, ValueError):
+        pid = None
+
+    if os.path.exists(repo.pid_file):
+        stopped = repo.run_updater(
+            ["--stop"],
+            extra_env={"WEBAI_HEALTH_URL": service_url},
+            timeout=60,
+        )
+        if stopped.returncode != 0:
+            raise AssertionError(
+                "cleanup updater --stop failed:\n"
+                f"{stopped.stdout}{stopped.stderr}"
+            )
+
+    if pid is not None:
+        assert wait_pid_gone(pid)
+    assert not os.path.exists(repo.pid_file)
+    for port in dict.fromkeys((service_port, *extra_ports)):
+        assert wait_port_closed(port), (
+            f"service endpoint still serving on port {port}"
+        )

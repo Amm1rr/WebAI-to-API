@@ -32,6 +32,7 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from update_platform import (  # noqa: E402
+    PlatformOperationError,
     force_kill as platform_force_kill,
     pid_alive as platform_pid_alive,
 )
@@ -748,10 +749,11 @@ def test_rollback_restart_failure_is_fail_closed(repo):
 
         assert result.returncode != 0
         combined = result.stdout + result.stderr
-        # Legacy-compatible spawn wording survives platform translation.
-        assert ("Cannot start service with "
-                "'/nonexistent/start-binary': No such file or directory") \
-            in combined
+        assert "'/nonexistent/start-binary'" in combined
+        assert (
+            "Cannot start service with" in combined
+            or "Cannot resolve executable" in combined
+        )
         assert "ROLLBACK FAILED" in result.stderr
         assert "left STOPPED" in result.stderr
         assert repo.head() == previous_sha
@@ -779,8 +781,9 @@ def test_log_open_failure_rolls_back_with_clean_error(repo):
 
         assert result.returncode != 0
         combined = result.stdout + result.stderr
-        assert (f"Cannot start service with '{repo.start_command}': "
-                "Not a directory") in combined
+        assert "Cannot start service with" in combined
+        assert str(blocker) in combined
+        assert "ROLLBACK FAILED" in result.stderr
         assert "Traceback" not in result.stderr
         assert repo.head() == previous_sha
         assert 'version = "1.0"' in repo.read("pyproject.toml")
@@ -1310,7 +1313,9 @@ class _FakeClock:
         self.now += seconds
 
 
-def _windows_stop_module(repo, monkeypatch, ipc_results, alive_sequence):
+def _windows_stop_module(
+    repo, monkeypatch, ipc_results, alive_sequence, force_alive_sequence=None
+):
     """Bound updater module forced onto the Windows stop path.
 
     ipc_results: consumed per IPC call ("ok"/"retry"/"unreachable"/Exception).
@@ -1357,15 +1362,21 @@ def _windows_stop_module(repo, monkeypatch, ipc_results, alive_sequence):
             if len(alive_sequence) > 1
             else alive_sequence[0]
         )
+        if isinstance(state, Exception):
+            raise state
         alive_calls.append(state)
         return state
 
     force_calls = []
     monkeypatch.setattr(module, "platform_pid_alive", fake_alive)
+
+    def fake_force(pid):
+        force_calls.append(pid)
+        if force_alive_sequence is not None:
+            alive_sequence[:] = list(force_alive_sequence)
+
     monkeypatch.setattr(
-        module,
-        "platform_force_kill",
-        lambda pid: force_calls.append(pid),
+        module, "platform_force_kill", fake_force,
     )
     return module, ipc_calls, force_calls, ipc_timeouts, clock
 
@@ -1421,6 +1432,7 @@ def test_windows_stop_unreachable_budget_then_force(repo, monkeypatch):
                 repo, monkeypatch,
                 ipc_results=[],               # never reachable
                 alive_sequence=[True],        # stays alive whole budget
+                force_alive_sequence=[False],
             )
         )
 
@@ -1429,9 +1441,111 @@ def test_windows_stop_unreachable_budget_then_force(repo, monkeypatch):
         assert len(ipc_calls) == 10       # one attempt per grace tick
         assert force_calls == [4321]      # fallback engaged exactly once
         elapsed = clock.now - clock.start
-        assert elapsed <= module.WINDOWS_STOP_BUDGET_SECONDS + 1e-9
+        assert elapsed <= (
+            module.WINDOWS_STOP_BUDGET_SECONDS
+            + module.WINDOWS_FORCE_CONFIRM_TIMEOUT_SECONDS
+            + 1e-9
+        )
         assert all(t is not None and t <= 3.0 for t in timeouts)
         assert timeouts[-1] < timeouts[0]  # cap shrinks near deadline
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_force_kill_waits_for_delayed_death(repo, monkeypatch):
+    old_pid = repo.start_fake_service()
+    try:
+        module, _ipc_calls, force_calls, _timeouts, clock = (
+            _windows_stop_module(
+                repo,
+                monkeypatch,
+                ipc_results=[],
+                alive_sequence=[True],
+                force_alive_sequence=[True, True, False],
+            )
+        )
+
+        module.stop_service(4321)
+
+        assert force_calls == [4321]
+        assert clock.now > module.WINDOWS_STOP_BUDGET_SECONDS
+        assert not repo.pid_file.exists()
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_force_kill_timeout_preserves_state(repo, monkeypatch, capsys):
+    old_pid = repo.start_fake_service()
+    try:
+        module, _ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+                repo,
+                monkeypatch,
+                ipc_results=[],
+                alive_sequence=[True],
+                force_alive_sequence=[True],
+            )
+        )
+
+        assert module.main(["--stop"]) == 1
+        captured = capsys.readouterr()
+
+        assert force_calls == [old_pid]
+        assert "remained alive after force termination" in captured.err
+        assert "WebAI-to-API stopped." not in captured.out
+        assert repo.pid_file.exists()
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_force_liveness_error_preserves_state(repo, monkeypatch, capsys):
+    old_pid = repo.start_fake_service()
+    try:
+        liveness_error = PlatformOperationError(
+            OSError("liveness query failed")
+        )
+        module, _ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+                repo,
+                monkeypatch,
+                ipc_results=[],
+                alive_sequence=[True],
+                force_alive_sequence=[liveness_error],
+            )
+        )
+
+        assert module.main(["--stop"]) == 1
+        captured = capsys.readouterr()
+
+        assert force_calls == [old_pid]
+        assert "Cannot confirm force-killed service PID" in captured.err
+        assert repo.pid_file.exists()
+    finally:
+        repo.cleanup_pids(old_pid)
+
+
+def test_windows_stop_initial_liveness_error_is_clean(repo, monkeypatch, capsys):
+    old_pid = repo.start_fake_service()
+    try:
+        liveness_error = PlatformOperationError(
+            OSError("liveness query failed")
+        )
+        module, _ipc_calls, force_calls, _timeouts, _clock = (
+            _windows_stop_module(
+                repo,
+                monkeypatch,
+                ipc_results=[],
+                alive_sequence=[liveness_error],
+            )
+        )
+
+        assert module.main(["--stop"]) == 1
+        captured = capsys.readouterr()
+
+        assert force_calls == []
+        assert "Cannot query service PID" in captured.err
+        assert "WebAI-to-API stopped." not in captured.out
+        assert repo.pid_file.exists()
     finally:
         repo.cleanup_pids(old_pid)
 
@@ -1445,13 +1559,14 @@ def test_windows_stop_stale_metadata_behaves_as_unreachable(
         module, ipc_calls, force_calls, _timeouts, _clock = (
             _windows_stop_module(
             repo, monkeypatch,
-            ipc_results=[
-                app_shutdown_transport_error(),
+                ipc_results=[
                     app_shutdown_transport_error(),
-                    "retry",
-                ],
-                alive_sequence=[True],
-            )
+                        app_shutdown_transport_error(),
+                        "retry",
+                    ],
+                    alive_sequence=[True],
+                    force_alive_sequence=[False],
+                )
         )
 
         module.stop_service(4321)

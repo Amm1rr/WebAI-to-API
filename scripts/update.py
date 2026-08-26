@@ -138,7 +138,13 @@ def running_service_pid():
         pid = int(open(PID_FILE).read().strip())
     except (OSError, ValueError):
         return None
-    return pid if platform_pid_alive(pid) else None
+    try:
+        alive = platform_pid_alive(pid)
+    except PlatformOperationError as error:
+        raise UpdateError(
+            f"Cannot query service PID {pid} liveness: {error}"
+        ) from error
+    return pid if alive else None
 
 
 _SEND_SHUTDOWN = None
@@ -147,6 +153,8 @@ _SEND_SHUTDOWN = None
 # budget so one IPC attempt can never stretch the stop beyond ~10s wall clock.
 WINDOWS_IPC_TIMEOUT_SECONDS = 3.0
 WINDOWS_STOP_BUDGET_SECONDS = 10.0
+WINDOWS_FORCE_CONFIRM_TIMEOUT_SECONDS = 3.0
+WINDOWS_FORCE_CONFIRM_INTERVAL_SECONDS = 0.1
 
 
 def _send_windows_shutdown(control_file, timeout=None):
@@ -234,15 +242,42 @@ def _stop_service_posix(pid):
             ) from error
 
 
+def _confirm_windows_force_stop(pid):
+    """Require a dead process before reporting a hard stop as successful."""
+    deadline = time.monotonic() + WINDOWS_FORCE_CONFIRM_TIMEOUT_SECONDS
+    while True:
+        try:
+            if not platform_pid_alive(pid):
+                return
+        except PlatformOperationError as error:
+            raise UpdateError(
+                f"Cannot confirm force-killed service PID {pid}: {error}"
+            ) from error
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise UpdateError(
+                f"Service PID {pid} remained alive after force termination."
+            )
+        time.sleep(min(WINDOWS_FORCE_CONFIRM_INTERVAL_SECONDS, remaining))
+
+
 def _stop_service_windows(pid):
-    # Single ~10s wall-clock budget (monotonic): IPC ticks interleave with
-    # liveness polls, each IPC call's timeout is capped by the remaining
-    # budget so it can never stretch the stop. "ok" stops further sends;
-    # process exit is the only success proof; hard kill is fallback only.
+    # Single ~10s graceful wall-clock budget (monotonic): IPC ticks interleave
+    # with liveness polls, each IPC call's timeout is capped by the remaining
+    # budget so it can never stretch the graceful phase. "ok" stops further
+    # sends; process exit is the only success proof. Hard-kill confirmation has
+    # its own short bounded window after the graceful phase.
     deadline = time.monotonic() + WINDOWS_STOP_BUDGET_SECONDS
     accepted = False
     while time.monotonic() < deadline:
-        if not platform_pid_alive(pid):
+        try:
+            alive = platform_pid_alive(pid)
+        except PlatformOperationError as error:
+            raise UpdateError(
+                f"Cannot query service PID {pid} liveness: {error}"
+            ) from error
+        if not alive:
             return
         if not accepted:
             ipc_timeout = min(
@@ -263,6 +298,7 @@ def _stop_service_windows(pid):
         raise UpdateError(
             f"Cannot force-kill service PID {pid}: {error}"
         ) from error
+    _confirm_windows_force_stop(pid)
 
 
 def _strip_matching_double_quotes(token):

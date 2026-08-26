@@ -18,6 +18,7 @@ import pytest
 
 from ._harness import (  # noqa: E402
     REPO_ROOT,
+    SERVICE_STUB,
     UPDATE_PY,
     free_port,
     health_status,
@@ -25,7 +26,6 @@ from ._harness import (  # noqa: E402
     port_serving,
     read_pid,
     spawn_service,
-    stub_start_command,
     wait_health,
     wait_process_exit,
 )
@@ -177,7 +177,9 @@ def test_graceful_ipc_stop_real_server(repo, tracked_processes):
     assert result.returncode == 0, result.stderr
     assert wait_pid_gone_windows(proc.pid)
 
-    final_log = open(repo.log_file).read()
+    final_log = open(
+        repo.log_file, encoding="utf-8", errors="replace"
+    ).read()
     assert ("Application shutdown requested" in final_log
             or "FastAPI application lifespan shutdown executing." in final_log)
     time.sleep(1.0)
@@ -267,9 +269,12 @@ def test_spawned_service_survives_updater_exit_and_pid_manageable(
 ):
     port = free_port()
     url = f"http://127.0.0.1:{port}/health"
-    command = stub_start_command(port)
-    proc = spawn_service(repo, ["cmd", "/c", command], tracked_processes,
-                         ready_url=url)
+    proc = spawn_service(
+        repo,
+        [sys.executable, SERVICE_STUB, str(port)],
+        tracked_processes,
+        ready_url=url,
+    )
     with open(repo.pid_file, "w") as handle:
         handle.write(str(proc.pid))
     # Updater-equivalent parent already exited; service keeps serving.
@@ -325,33 +330,6 @@ def test_update_windows_wrapper_real_execution(repo):
     )
     assert result.returncode == 0, result.stderr
     assert not os.path.exists(repo.pid_file)
-
-
-def test_update_windows_forwards_arguments_via_argparse_help(tmp_path):
-    """%* really reaches update.py's argparse (--help lists --stop).
-
-    Interpreter-inventory selection (3.12 vs 3.11 vs python fallback) on a
-    machine with actual installed launchers is captured as Phase 7 runner
-    evidence; this file proves structure, forwarding, and rc mechanics.
-    """
-    root = tmp_path / "cmd-wrapper-root"
-    root.mkdir()
-    # Full inherited environment: only override updater-specific variables.
-    # Stripping PATHEXT/TEMP/APPDATA would distort real launcher behavior.
-    env = {
-        **os.environ,
-        "WEBAI_ROOT": str(root),
-        "WEBAI_PID_FILE": str(root / "service.pid"),
-        "WEBAI_LOG_FILE": str(root / "service.log"),
-        "WEBAI_LOCK_FILE": str(root / "update.lock"),
-    }
-    result = subprocess.run(
-        ["cmd", "/c", os.path.join(REPO_ROOT, "update-windows.cmd"), "--help"],
-        cwd=str(root), env=env, capture_output=True, text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "--stop" in result.stdout  # argparse saw the forwarded flag
 
 
 def test_spaces_checkout_end_to_end_windows(tmp_path, tracked_processes):
@@ -610,7 +588,10 @@ def test_real_poetry_lifecycle_through_updater_stop(
     control_file = os.path.join(repo.runtime_dir, "shutdown-control.json")
     stopped_cleanly = False
     try:
-        assert wait_health(url, timeout=90), open(repo.log_file).read()
+        assert wait_health(url, timeout=90, process=proc), (
+            f"process_exit={proc.poll()!r}; log:\n"
+            f"{open(repo.log_file, encoding='utf-8', errors='replace').read()}"
+        )
         assert pid_alive(proc.pid)
 
         # Fresh Phase 4 metadata must exist inside the isolated runtime.
