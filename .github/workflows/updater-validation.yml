@@ -33,7 +33,7 @@ jobs:
           poetry --version
           git --version
       - name: Install dependencies (locked)
-        run: poetry install --sync
+        run: poetry sync
       - name: Full test suite (includes updater integration)
         run: poetry run pytest -q --durations=30 --durations-min=0.5
 
@@ -57,7 +57,7 @@ jobs:
           bash --version | head -1
           uname -a
       - name: Install dependencies (locked)
-        run: poetry install --sync
+        run: poetry sync
       - name: Focused suites + updater integration
         run: >
           poetry run pytest -q --durations=30 --durations-min=0.5
@@ -103,7 +103,7 @@ jobs:
         run: py -3.11 --version
         continue-on-error: true
       - name: Install dependencies (locked)
-        run: poetry install --sync
+        run: poetry sync
       - name: Focused suites + updater integration
         run: >
           poetry run pytest -q --durations=30 --durations-min=0.5
