@@ -570,13 +570,24 @@ def test_pure_version_bump_does_not_sync_dependencies(repo):
     assert repo.poetry_calls() == []
 
 
-def test_metadata_only_change_with_version_bump_does_not_sync(repo):
-    repo.remote_set_version("2.0", description="brand new description text")
+@pytest.mark.parametrize(
+    ("new_kwargs", "changed"),
+    [
+        ({"description": "brand new description text"}, False),
+        ({"playwright": "^1.61.0"}, True),
+        ({"group_dev": {"pytest": "^8.5"}}, True),
+        ({"project_deps": ["httpx>=0.29"]}, True),
+        ({"optional_deps": {"socks": ["aiohttp-socks>=0.11"]}}, True),
+        ({"dep_groups": {"dev": ["pytest>=8.4"]}}, True),
+        ({"requires": ">=3.12,<3.13"}, True),
+    ],
+)
+def test_dependency_signature_change_decision(new_kwargs, changed):
+    module = _fresh_update_module("update_signature_unit")
+    old = module._dependency_signature(make_pyproject("1.0"))
+    new = module._dependency_signature(make_pyproject("2.0", **new_kwargs))
 
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert repo.poetry_calls() == []
+    assert (old != new) is changed
 
 
 def test_poetry_dependency_change_triggers_sync(repo):
@@ -589,51 +600,10 @@ def test_poetry_dependency_change_triggers_sync(repo):
     assert not any("playwright" in call for call in repo.poetry_calls())
 
 
-def test_poetry_group_change_triggers_sync(repo):
-    repo.remote_set_version("2.0", group_dev={"pytest": "^8.5"})
+def test_unparseable_dependency_signature_fails_safe_to_changed():
+    module = _fresh_update_module("update_signature_invalid")
 
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert any("install --sync" in call for call in repo.poetry_calls())
-
-
-def test_project_dependencies_change_triggers_sync(repo):
-    repo.remote_set_version("2.0", project_deps=["httpx>=0.29"])
-
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert any("install --sync" in call for call in repo.poetry_calls())
-
-
-def test_optional_dependencies_change_triggers_sync(repo):
-    repo.remote_set_version(
-        "2.0", optional_deps={"socks": ["aiohttp-socks>=0.11"]}
-    )
-
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert any("install --sync" in call for call in repo.poetry_calls())
-
-
-def test_dependency_groups_change_triggers_sync(repo):
-    repo.remote_set_version("2.0", dep_groups={"dev": ["pytest>=8.4"]})
-
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert any("install --sync" in call for call in repo.poetry_calls())
-
-
-def test_requires_python_change_triggers_sync(repo):
-    repo.remote_set_version("2.0", requires=">=3.12,<3.13")
-
-    result = repo.run_updater()
-
-    assert result.returncode == 0
-    assert any("install --sync" in call for call in repo.poetry_calls())
+    assert module._dependency_signature("NOT [VALID TOML") is None
 
 
 def test_lock_only_change_with_version_bump_syncs_and_installs_playwright(repo):
@@ -666,138 +636,169 @@ def test_unparseable_old_pyproject_fails_safe_to_sync(repo):
 # --- Service lifecycle ----------------------------------------------------
 
 
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason=(
-        "generic fake service does not publish required Windows shutdown "
-        "metadata; real Windows update/restart lifecycle is covered by "
-        "dedicated integration tests"
-    ),
-)
-def test_running_service_is_stopped_updated_restarted(repo):
-    health = FlakyHealth(fail_first=0)
-    old_pid = repo.start_fake_service()
-    try:
-        repo.remote_set_version("2.0")
-        result = repo.run_updater(extra_env={
-            "WEBAI_HEALTH_URL": health.url,
-            "WEBAI_HEALTH_TIMEOUT": "5",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
+def test_running_service_is_stopped_updated_restarted(repo, monkeypatch):
+    """Orchestration contract: stop old -> switch -> start new -> healthy.
+    Stop/spawn/health mechanics themselves are owned by the dedicated
+    platform and integration suites; this asserts the state transitions."""
+    module = _load_update_module_for(repo)
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
+    starts = []
 
-        assert result.returncode == 0
-        new_pid = _pid_from(repo.pid_file)
-        assert new_pid != old_pid
-        assert repo.pid_alive(new_pid)
-    finally:
-        health.stop()
-        repo.cleanup_pids(old_pid)
+    def fake_start():
+        starts.append(True)
+        module._write_pid_file(5151)
 
-
-def test_previously_stopped_service_remains_stopped(repo):
+    monkeypatch.setattr(module, "start_service", fake_start)
+    monkeypatch.setattr(module, "wait_for_health", lambda *_args: True)
     repo.remote_set_version("2.0")
 
-    result = repo.run_updater()
+    assert module.main([]) == 0
 
-    assert result.returncode == 0
+    assert state["terminated"] == [old_pid]
+    assert starts == [True]
+    assert _pid_from(repo.pid_file) == 5151
+
+
+def test_previously_stopped_service_remains_stopped(repo, monkeypatch):
+    module = _load_update_module_for(repo)
+    monkeypatch.setattr(module, "stop_service", _forbidden("stop_service"))
+    repo.remote_set_version("2.0")
+
+    assert module.main([]) == 0
+
     assert not repo.pid_file.exists()
 
 
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason=(
-        "generic fake service lacks Windows shutdown IPC; Windows hard-fallback "
-        "timing is intentionally slow; real Windows rollback behavior is covered "
-        "by dedicated integration tests"
-    ),
-)
-def test_health_failure_restores_previous_sha(repo):
-    service_pid = repo.start_fake_service()
+def test_health_failure_restores_previous_sha(repo, monkeypatch, capsys):
+    """Health-gate failure after a switched+started update triggers the full
+    rollback decision: previous release restored, updater exits nonzero."""
+    module = _load_update_module_for(repo)
     previous_sha = repo.head()
-    dead_port = _free_port()
-    try:
-        repo.remote_set_version("2.0")
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
+    starts = []
 
-        result = repo.run_updater(extra_env={
-            "WEBAI_HEALTH_URL": f"http://127.0.0.1:{dead_port}/health",
-            "WEBAI_HEALTH_TIMEOUT": "1",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
+    def failing_start():
+        starts.append(True)
+        state["alive"][5151] = True
+        module._write_pid_file(5151)
 
-        assert result.returncode != 0
-        assert "rolling back" in result.stderr.lower()
-        assert repo.head() == previous_sha
-        assert 'version = "1.0"' in repo.read("pyproject.toml")
-    finally:
-        repo.cleanup_pids(service_pid)
+    monkeypatch.setattr(module, "start_service", failing_start)
+    monkeypatch.setattr(module, "wait_for_health", lambda *_args: False)
+    repo.remote_set_version("2.0")
+
+    code = _run_main_expecting_exit(module)
+
+    assert code == 1
+    # Unhealthy instance from the failed update is stopped before restore.
+    assert state["terminated"] == [old_pid, 5151]
+    assert len(starts) == 2  # post-update attempt + rollback restart
+    assert repo.head() == previous_sha
+    assert 'version = "1.0"' in repo.read("pyproject.toml")
+    assert "update failed; rolling back" in capsys.readouterr().err.lower()
 
 
-def test_dependency_failure_restores_previous_sha(repo):
+def test_dependency_failure_restores_previous_sha(repo, monkeypatch):
+    module = _load_update_module_for(repo)
+    module.POETRY_COMMAND = str(
+        repo.poetry_cmd if os.name == "nt" else repo.poetry_bin / "poetry"
+    )
+    monkeypatch.setenv("FAKE_POETRY_EXIT", "3")
+    monkeypatch.setenv("POETRY_CALLS_LOG", str(repo.poetry_log))
     previous_sha = repo.head()
     lock_before = repo.read("poetry.lock")
     repo.remote_set_version("2.0", playwright="^9.9.9")
 
-    result = repo.run_updater(extra_env={"FAKE_POETRY_EXIT": "3"})
+    code = _run_main_expecting_exit(module)
 
-    assert result.returncode != 0
+    assert code == 1
     assert repo.head() == previous_sha
     assert repo.read("poetry.lock") == lock_before
     assert len([c for c in repo.poetry_calls() if "install --sync" in c]) >= 2
 
 
-def test_rollback_restart_failure_is_fail_closed(repo):
-    old_pid = repo.start_fake_service()
+def test_rollback_dep_restoration_failure_leaves_service_stopped(
+    repo, monkeypatch, capsys,
+):
+    module = _load_update_module_for(repo)
+    module.POETRY_COMMAND = str(
+        repo.poetry_cmd if os.name == "nt" else repo.poetry_bin / "poetry"
+    )
+    monkeypatch.setenv("FAKE_POETRY_EXIT", "3")
+    monkeypatch.setenv("POETRY_CALLS_LOG", str(repo.poetry_log))
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
     previous_sha = repo.head()
-    try:
-        repo.remote_set_version("2.0")
-        result = repo.run_updater(extra_env={
-            "WEBAI_START_COMMAND": "/nonexistent/start-binary",
-            "WEBAI_HEALTH_TIMEOUT": "1",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
+    repo.remote_set_version("2.0", playwright="^9.9.9")
 
-        assert result.returncode != 0
-        combined = result.stdout + result.stderr
-        assert "'/nonexistent/start-binary'" in combined
-        assert (
-            "Cannot start service with" in combined
-            or "Cannot resolve executable" in combined
-        )
-        assert "ROLLBACK FAILED" in result.stderr
-        assert "left STOPPED" in result.stderr
-        assert repo.head() == previous_sha
-        assert "Traceback" not in result.stderr
-        assert not repo.pid_file.exists()
-        assert not repo.pid_alive(old_pid)
-    finally:
-        repo.cleanup_pids(old_pid)
+    code = _run_main_expecting_exit(module)
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "ROLLBACK FAILED" in captured.err
+    assert "left STOPPED" in captured.err
+    assert state["terminated"] == [old_pid]
+    assert not state["alive"][old_pid]
+    assert repo.head() == previous_sha
+    assert not repo.pid_file.exists()
 
 
-def test_log_open_failure_rolls_back_with_clean_error(repo):
+def test_rollback_restart_failure_is_fail_closed(repo, monkeypatch, capsys):
+    module = _load_update_module_for(repo)
+    module.START_COMMAND = "/nonexistent/start-binary"
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
+    previous_sha = repo.head()
+    repo.remote_set_version("2.0")
+
+    code = _run_main_expecting_exit(module)
+
+    assert code == 1
+    combined = capsys.readouterr()
+    text = combined.out + combined.err
+    assert "'/nonexistent/start-binary'" in text
+    assert (
+        "Cannot start service with" in text
+        or "Cannot resolve executable" in text
+    )
+    assert "ROLLBACK FAILED" in combined.err
+    assert "left STOPPED" in combined.err
+    assert repo.head() == previous_sha
+    assert "Traceback" not in combined.err
+    assert not repo.pid_file.exists()
+    assert not state["alive"][old_pid]
+
+
+def test_log_open_failure_rolls_back_with_clean_error(repo, monkeypatch, capsys):
     """Unwritable log path after code switch -> clean UpdateError + rollback."""
-    old_pid = repo.start_fake_service()
-    previous_sha = repo.head()
+    module = _load_update_module_for(repo)
     blocker = repo.base / "log-blocker"
     blocker.write_text("x")
+    module.LOG_FILE = str(blocker / "service.log")
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    _fake_service_lifecycle(module, monkeypatch, [old_pid])
+    previous_sha = repo.head()
     try:
         repo.remote_set_version("2.0")
-        result = repo.run_updater(extra_env={
-            "WEBAI_LOG_FILE": str(blocker / "service.log"),
-            "WEBAI_HEALTH_URL": f"http://127.0.0.1:{_free_port()}/health",
-            "WEBAI_HEALTH_TIMEOUT": "1",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
 
-        assert result.returncode != 0
-        combined = result.stdout + result.stderr
+        code = _run_main_expecting_exit(module)
+
+        assert code == 1
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
         assert "Cannot start service with" in combined
-        assert str(blocker) in combined
-        assert "ROLLBACK FAILED" in result.stderr
-        assert "Traceback" not in result.stderr
+        assert str(blocker) in combined  # Server log path in fail-closed text
+        assert "ROLLBACK FAILED" in captured.err
+        assert "Traceback" not in captured.err
         assert repo.head() == previous_sha
         assert 'version = "1.0"' in repo.read("pyproject.toml")
     finally:
-        repo.cleanup_pids(old_pid)
         if blocker.exists():
             blocker.unlink()
 
@@ -805,33 +806,27 @@ def test_log_open_failure_rolls_back_with_clean_error(repo):
 # --- Locking, stop command, guards ----------------------------------------
 
 
-def test_stop_command_stops_running_service(repo):
-    old_pid = repo.start_fake_service()
-    try:
-        result = repo.run_updater_extra(["--stop"]) if hasattr(
-            repo, "run_updater_extra"
-        ) else subprocess.run(
-            [sys.executable, UPDATE_PY, "--stop"],
-            capture_output=True, text=True, timeout=60, env=repo.env(),
-        )
+def test_stop_command_stops_running_service(repo, monkeypatch, capsys):
+    module = _load_update_module_for(repo)
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
 
-        assert result.returncode == 0
-        assert not repo.pid_alive(old_pid)
-        assert not repo.pid_file.exists()
-    finally:
-        repo.cleanup_pids(old_pid)
+    assert module.main(["--stop"]) == 0
+
+    assert state["terminated"] == [old_pid]
+    assert state["forced"] == []
+    assert not repo.pid_file.exists()
+    assert "WebAI-to-API stopped." in capsys.readouterr().out
 
 
-def test_stale_pid_file_cleaned_by_stop_command(repo):
-    repo.pid_file.write_text("999999999")
+def test_stale_pid_file_cleaned_by_stop_command(repo, capsys):
+    module = _load_update_module_for(repo)
+    _publish_pid(module, 999999999)
 
-    result = subprocess.run(
-        [sys.executable, UPDATE_PY, "--stop"],
-        capture_output=True, text=True, timeout=60, env=repo.env(),
-    )
+    assert module.main(["--stop"]) == 0
 
-    assert result.returncode == 0
-    assert "stale PID file" in result.stdout
+    assert "stale PID file" in capsys.readouterr().out
     assert not repo.pid_file.exists()
 
 
@@ -854,6 +849,58 @@ def _forbidden(step):
     def _fail(*_args, **_kwargs):
         pytest.fail(f"{step} must not run while updater lock is contended")
     return _fail
+
+
+def _fresh_update_module(name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, UPDATE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _fake_service_lifecycle(module, monkeypatch, live_pids=()):
+    """Fake service-boundary stop for generic orchestration tests.
+
+    Native POSIX/Windows stop mechanics are covered by dedicated
+    platform/integration suites; these tests must not enter either platform
+    stop budget.
+    """
+    state = {
+        "alive": {pid: True for pid in live_pids},
+        "terminated": [],
+        "forced": [],
+    }
+
+    def fake_stop(pid):
+        state["terminated"].append(pid)
+        state["alive"][pid] = False
+        try:
+            with open(module.PID_FILE, encoding="utf-8") as handle:
+                current = handle.read().strip()
+            if current == str(pid):
+                os.unlink(module.PID_FILE)
+        except FileNotFoundError:
+            pass
+
+    monkeypatch.setattr(module, "stop_service", fake_stop)
+    monkeypatch.setattr(
+        module, "platform_pid_alive",
+        lambda pid: state["alive"].get(pid, False),
+    )
+    return state
+
+
+def _publish_pid(module, pid):
+    with open(module.PID_FILE, "w", encoding="utf-8") as handle:
+        handle.write(str(pid))
+
+
+def _run_main_expecting_exit(module, argv=()):
+    """Run main() for flows ending in die(); returns the exit code."""
+    with pytest.raises(SystemExit) as excinfo:
+        module.main(list(argv))
+    return excinfo.value.code
 
 
 def _load_fast_wait_module(repo):
@@ -1186,76 +1233,70 @@ def test_non_colliding_ignored_files_remain_allowed(repo):
     assert open(os.path.join(logs_dir, "other.log")).read() == "kept\n"
 
 
-def test_rollback_dep_restoration_failure_leaves_service_stopped(repo):
-    old_pid = repo.start_fake_service()
-    previous_sha = repo.head()
-    try:
-        repo.remote_set_version("2.0", playwright="^9.9.9")
-        result = repo.run_updater(extra_env={"FAKE_POETRY_EXIT": "3"})
-
-        assert result.returncode != 0
-        assert "ROLLBACK FAILED" in result.stderr
-        assert "left STOPPED" in result.stderr
-        assert repo.head() == previous_sha
-        assert not repo.pid_file.exists()
-        assert not repo.pid_alive(old_pid)
-    finally:
-        repo.cleanup_pids(old_pid)
-
-
-def test_missing_poetry_executable_rolls_back_with_clean_error(repo):
+def test_missing_poetry_executable_rolls_back_with_clean_error(
+    repo, monkeypatch, capsys,
+):
+    module = _load_update_module_for(repo)
+    module.POETRY_COMMAND = "/nonexistent/poetry-missing"
     previous_sha = repo.head()
     lock_before = repo.read("poetry.lock")
     repo.remote_set_version("2.0", playwright="^9.9.9")
 
-    result = repo.run_updater(extra_env={
-        "WEBAI_POETRY": "/nonexistent/poetry-missing",
-    })
+    code = _run_main_expecting_exit(module)
 
-    assert result.returncode != 0
-    assert "Cannot execute '/nonexistent/poetry-missing'" in result.stderr
+    assert code == 1
+    assert "Cannot execute '/nonexistent/poetry-missing'" in capsys.readouterr().err
     assert repo.head() == previous_sha
     assert repo.read("poetry.lock") == lock_before
 
 
-def test_malformed_start_command_is_fail_closed_rollback(repo):
-    old_pid = repo.start_fake_service()
+def _run_fail_closed_start_test(repo, monkeypatch, start_command):
+    module = _load_update_module_for(repo)
+    module.START_COMMAND = start_command
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
     previous_sha = repo.head()
-    try:
-        repo.remote_set_version("2.0")
-        result = repo.run_updater(extra_env={
-            'WEBAI_START_COMMAND': 'poetry run "unclosed quote',
-            "WEBAI_HEALTH_TIMEOUT": "1",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
-
-        assert result.returncode != 0
-        assert "ROLLBACK FAILED" in result.stderr
-        assert "left STOPPED" in result.stderr
-        assert repo.head() == previous_sha
-        assert "Traceback" not in result.stderr
-        assert not repo.pid_file.exists()
-    finally:
-        repo.cleanup_pids(old_pid)
+    repo.remote_set_version("2.0")
+    return module, state, old_pid, previous_sha
 
 
-def test_empty_start_command_is_fail_closed_rollback(repo):
-    old_pid = repo.start_fake_service()
-    previous_sha = repo.head()
-    try:
-        repo.remote_set_version("2.0")
-        result = repo.run_updater(extra_env={
-            "WEBAI_START_COMMAND": "",
-            "WEBAI_HEALTH_TIMEOUT": "1",
-            "WEBAI_HEALTH_INTERVAL": "0.1",
-        })
+def test_malformed_start_command_is_fail_closed_rollback(
+    repo, monkeypatch, capsys,
+):
+    module, state, old_pid, previous_sha = _run_fail_closed_start_test(
+        repo, monkeypatch, 'poetry run "unclosed quote'
+    )
 
-        assert result.returncode != 0
-        assert "ROLLBACK FAILED" in result.stderr
-        assert "left STOPPED" in result.stderr
-        assert repo.head() == previous_sha
-    finally:
-        repo.cleanup_pids(old_pid)
+    code = _run_main_expecting_exit(module)
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "ROLLBACK FAILED" in captured.err
+    assert "left STOPPED" in captured.err
+    assert repo.head() == previous_sha
+    assert "Traceback" not in captured.err
+    assert not repo.pid_file.exists()
+    assert state["terminated"] == [old_pid]
+
+
+def test_empty_start_command_is_fail_closed_rollback(
+    repo, monkeypatch, capsys,
+):
+    module, state, old_pid, previous_sha = _run_fail_closed_start_test(
+        repo, monkeypatch, ""
+    )
+
+    code = _run_main_expecting_exit(module)
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "ROLLBACK FAILED" in captured.err
+    assert "left STOPPED" in captured.err
+    assert "START_COMMAND is empty" in captured.err
+    assert repo.head() == previous_sha
+    assert not repo.pid_file.exists()
+    assert state["terminated"] == [old_pid]
 
 
 def test_lock_file_open_failure_is_clean_error(repo):
@@ -1766,18 +1807,15 @@ def test_docker_normal_update_is_refused(repo, monkeypatch, capsys):
 
 
 def test_docker_stop_with_running_service_succeeds(repo, monkeypatch):
-    old_pid = repo.start_fake_service()
-    try:
-        module = _load_update_module_for(repo, monkeypatch)
-        rc = module.main(["--stop"])
+    module = _load_update_module_for(repo, monkeypatch)
+    old_pid = 4242
+    _publish_pid(module, old_pid)
+    state = _fake_service_lifecycle(module, monkeypatch, [old_pid])
 
-        assert rc == 0
-        process = repo._processes[old_pid]
-        process.wait(timeout=5)
-        assert process.poll() is not None
-        assert not repo.pid_file.exists()
-    finally:
-        repo.cleanup_pids(old_pid)
+    assert module.main(["--stop"]) == 0
+
+    assert state["terminated"] == [old_pid]
+    assert not repo.pid_file.exists()
 
 
 @POSIX_ONLY
