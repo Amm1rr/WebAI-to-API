@@ -208,6 +208,8 @@ def test_windows_liveness_real_children(repo):
 
 def test_graceful_ipc_stop_real_server(repo, tracked_processes):
     """Full chain: server -> control file -> --stop -> graceful exit."""
+    from app.shutdown_transport import identify_server
+
     port = free_port()
     url = f"http://127.0.0.1:{port}/health"
     server_argv = [
@@ -230,21 +232,70 @@ def test_graceful_ipc_stop_real_server(repo, tracked_processes):
         time.sleep(0.1)
     assert os.path.exists(control_file), "server never published control file"
 
-    result = repo.run_updater(["--stop"], extra_env={
-        "WEBAI_HEALTH_URL": url,
-    })
-    assert result.returncode == 0, result.stderr
-    assert wait_pid_gone_windows(proc.pid)
+    with open(control_file, encoding="utf-8") as handle:
+        control = json.load(handle)
+    assert isinstance(control.get("port"), int) and control["port"] > 0
+    assert isinstance(control.get("token"), str) and control["token"]
+    assert isinstance(control.get("pid"), int) and not isinstance(
+        control["pid"], bool
+    ) and control["pid"] > 0
+    launcher_pid = proc.pid
+    metadata_pid = control["pid"]
+    identify_pid = identify_server(control_file)
+    pid_file_before = read_pid(repo)
+    assert identify_pid == metadata_pid
+    assert pid_alive(metadata_pid)
 
-    final_log = open(
-        repo.log_file, encoding="utf-8", errors="replace"
-    ).read()
-    assert ("Application shutdown requested" in final_log
-            or "FastAPI application lifespan shutdown executing." in final_log)
-    time.sleep(1.0)
-    assert health_status(url) is None            # endpoint down after stop
-    assert not os.path.exists(control_file)      # owned metadata removed
-    assert not os.path.exists(repo.pid_file)
+    stopped_cleanly = False
+    try:
+        result = repo.run_updater(["--stop"], extra_env={
+            "WEBAI_HEALTH_URL": url,
+        })
+
+        def diagnostics():
+            return (
+                f"launcher_pid={launcher_pid}; metadata_pid={metadata_pid}; "
+                f"identify_pid={identify_pid}; pid_file_before={pid_file_before}; "
+                f"returncode={result.returncode}; stdout={result.stdout!r}; "
+                f"stderr={result.stderr!r}; proc.poll()={proc.poll()!r}; "
+                f"launcher_alive={pid_alive(launcher_pid)}; "
+                f"metadata_alive={pid_alive(metadata_pid)}; "
+                f"control_exists={os.path.exists(control_file)}; "
+                f"health={health_status(url)!r}; port_serving={port_serving(port)}"
+            )
+
+        assert result.returncode == 0, diagnostics()
+        assert wait_pid_gone_windows(metadata_pid), diagnostics()
+        assert not os.path.exists(repo.pid_file), diagnostics()
+        assert not os.path.exists(control_file), diagnostics()
+        assert health_status(url) is None, diagnostics()
+        assert not port_serving(port), diagnostics()
+
+        if launcher_pid == metadata_pid:
+            assert wait_process_exit(proc), diagnostics()
+        else:
+            assert wait_process_exit(proc), (
+                "Windows launcher/wrapper remained alive after authoritative "
+                f"WebAI server exit; {diagnostics()}"
+            )
+
+        final_log = open(
+            repo.log_file, encoding="utf-8", errors="replace"
+        ).read()
+        assert (
+            "Application shutdown requested" in final_log
+            or "FastAPI application lifespan shutdown executing." in final_log
+        ), diagnostics()
+        stopped_cleanly = True
+    finally:
+        if not stopped_cleanly and proc.poll() is None:
+            proc.terminate()
+            if not wait_process_exit(proc, timeout=10):
+                proc.kill()
+                wait_process_exit(proc, timeout=10)
+        if not stopped_cleanly and pid_alive(metadata_pid):
+            _production_platform().force_kill(metadata_pid)
+            wait_pid_gone_windows(metadata_pid)
 
 
 def test_startup_race_pid_before_listener_ready(repo, tracked_processes):
@@ -703,16 +754,27 @@ def test_real_poetry_lifecycle_through_updater_stop(
         )
         assert time.monotonic() - stop_started < 10.0
 
+        assert wait_pid_gone_windows(authoritative_pid), (
+            f"authoritative WebAI server remained alive after updater stop; "
+            f"authoritative_pid={authoritative_pid}; proc.poll()={proc.poll()!r}; "
+            f"stdout={stopped.stdout!r}; stderr={stopped.stderr!r}"
+        )
+        assert wait_process_exit(proc, timeout=30), (
+            "Poetry launcher remained alive after authoritative WebAI server "
+            f"exit; authoritative_pid={authoritative_pid}; "
+            f"proc.pid={proc.pid}; proc.poll()={proc.poll()!r}; "
+            f"authoritative_alive={pid_alive(authoritative_pid)}; "
+            f"stdout={stopped.stdout!r}; stderr={stopped.stderr!r}"
+        )
+
         with open(repo.log_file, "rb") as handle:
             handle.seek(log_offset)
             tail = handle.read().decode("utf-8", errors="replace")
         assert (
             "Application shutdown requested" in tail
             or "FastAPI application lifespan shutdown executing." in tail
-        ), "no graceful lifecycle evidence appended by the final stop"
+        ), "no graceful lifecycle evidence appended after confirmed exit"
 
-        assert wait_process_exit(proc, timeout=30)
-        assert wait_pid_gone_windows(authoritative_pid)
         assert not os.path.exists(repo.pid_file)
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and os.path.exists(control_file):
