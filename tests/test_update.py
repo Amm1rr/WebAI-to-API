@@ -666,6 +666,14 @@ def test_unparseable_old_pyproject_fails_safe_to_sync(repo):
 # --- Service lifecycle ----------------------------------------------------
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason=(
+        "generic fake service does not publish required Windows shutdown "
+        "metadata; real Windows update/restart lifecycle is covered by "
+        "dedicated integration tests"
+    ),
+)
 def test_running_service_is_stopped_updated_restarted(repo):
     health = FlakyHealth(fail_first=0)
     old_pid = repo.start_fake_service()
