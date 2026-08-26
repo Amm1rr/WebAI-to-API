@@ -61,11 +61,17 @@ jobs:
       - name: Focused suites + updater integration
         run: >
           poetry run pytest -q --durations=30 --durations-min=0.5
-          tests/test_update.py
+          tests/test_update.py::test_symlink_ancestor_collision_aborts
+          tests/test_update.py::test_updater_lock_blocks_second_instance
+          tests/test_update.py::test_stop_proceeds_after_transient_lock_release
+          tests/test_update.py::test_unexpected_flock_error_raises_platform_error
+          tests/test_update.py::test_tracked_symlink_in_head_remains_allowed
+          tests/test_update.py::test_docker_stop_blocked_by_active_updater_lock
+          tests/test_update.py::test_stop_ordering_terminate_wait_then_force
+          tests/test_update.py::test_stop_graceful_exit_skips_force_kill
+          tests/test_update.py::test_posix_parsing_unchanged
           tests/test_update_platform.py
-          tests/test_shutdown_transport.py
-          tests/test_server_shutdown.py
-          tests/integration/updater
+          tests/integration/updater/test_posix_lifecycle.py
 
   windows:
     name: Windows (focused + updater integration)
@@ -104,5 +110,5 @@ jobs:
           tests/test_update.py
           tests/test_update_platform.py
           tests/test_shutdown_transport.py
-          tests/test_server_shutdown.py
-          tests/integration/updater
+          tests/test_server_shutdown.py::test_windows_runner_uses_proactor_policy
+          tests/integration/updater/test_windows_lifecycle.py
