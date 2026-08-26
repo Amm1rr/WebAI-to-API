@@ -37,8 +37,8 @@ in `pyproject.toml` is the update trigger. If remote and local versions match,
 the updater intentionally does nothing.
 
 > On macOS, ensure `python3` resolves to Python 3.11 or 3.12 before running
-> the updater (e.g., via Homebrew or pyenv). Hosted macOS/Windows updater
-> validation is pending.
+> the updater (e.g., via Homebrew or pyenv). Hosted cross-platform updater
+> validation covers Linux, macOS, and Windows.
 
 ## Version bump discipline
 

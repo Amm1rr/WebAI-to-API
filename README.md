@@ -70,6 +70,37 @@ poetry run python src/run.py
 
 ---
 
+## Updating
+
+For host installations:
+
+**Linux / macOS**
+
+```bash
+./update-linux-macos.sh
+```
+
+**Windows**
+
+```cmd
+update-windows.cmd
+```
+
+> [!NOTE] The updater checks `origin/master` and installs the update when the remote
+`[project].version` differs from the locally installed version.
+
+For Docker deployments:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+See the [Updater Guide](docs/updating.md) for update checks, rollback behavior,
+locking, protected files, and platform-specific details.
+
+---
+
 ## Optional: Convenience Shortcuts
 
 WebAI-to-API includes a bootstrap utility and a Makefile for common setup tasks.
