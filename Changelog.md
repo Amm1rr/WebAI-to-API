@@ -1,15 +1,24 @@
 ### WebAI to API
 
+#### v0.6.0 – 2026-08-26
+
 #### Added
 
 - Added support for file attachments and generated artifacts, including images, videos, audio, and documents.
 - Added `POST /v1/temporary/chat/completions` for Gemini WebAPI temporary conversations that are not stored in Gemini history and do not create SQLite conversation snapshots.
+- Added support for `extended_thinking`.
+- Added automatic update checking and version updates.
 
 ##### Changed
 
 - Migrated the project licensing model to Apache License 2.0 as the sole project license.
 - Updated `/translate` to use Gemini temporary requests so translation conversations are not stored in Gemini history.
-- Updated README and OpenAPI documentation for temporary Gemini chat and translation behavior.
+
+##### Fixed
+
+- Fixed various minor and major issues.
+
+---
 
 #### v0.5.0 – 2026-06-01
 
