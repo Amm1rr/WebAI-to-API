@@ -207,7 +207,7 @@ class CrossPlatformCookieExtractor:
             
             with tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False) as temp_file:
                 temp_db_path = temp_file.name
-                shutil.copy2(cookies_db_path, temp_db_path)
+                shutil.copyfile(cookies_db_path, temp_db_path)
             
             try:
                 conn = sqlite3.connect(temp_db_path)
@@ -259,7 +259,7 @@ class CrossPlatformCookieExtractor:
             
             with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as temp_file:
                 temp_db_path = temp_file.name
-                shutil.copy2(cookies_db_path, temp_db_path)
+                shutil.copyfile(cookies_db_path, temp_db_path)
             
             try:
                 conn = sqlite3.connect(temp_db_path)

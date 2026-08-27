@@ -2,6 +2,7 @@ import ast
 import os
 import subprocess
 import shutil
+import stat
 import unittest
 import tempfile
 import json
@@ -48,9 +49,11 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.bootstrap_path = os.path.abspath("scripts/bootstrap.py")
         self.doctor_path = os.path.abspath("scripts/doctor.py")
         self.config_example_path = os.path.abspath("config.conf.example")
+        self.env_example_path = os.path.abspath(".env.example")
         
         # Copy example config to temp dir for tests
         shutil.copyfile(self.config_example_path, os.path.join(self.test_dir, "config.conf.example"))
+        shutil.copyfile(self.env_example_path, os.path.join(self.test_dir, ".env.example"))
 
     def tearDown(self):
         # Remove the temporary directory
@@ -86,6 +89,23 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.test_dir, "config.conf")))
         self.assertTrue(os.path.isdir(os.path.join(self.test_dir, "runtime")))
         self.assertTrue(os.path.isdir(os.path.join(self.test_dir, "runtime", "auth")))
+
+        if os.name == "posix":
+            for path in (
+                "runtime",
+                "runtime/auth",
+                "runtime/cache",
+                "runtime/conversations",
+            ):
+                self.assertEqual(
+                    stat.S_IMODE(os.stat(os.path.join(self.test_dir, path)).st_mode),
+                    0o700,
+                )
+            for path in ("config.conf", ".env"):
+                self.assertEqual(
+                    stat.S_IMODE(os.stat(os.path.join(self.test_dir, path)).st_mode),
+                    0o600,
+                )
         
         # Verify config content matches example
         with open(os.path.join(self.test_dir, "config.conf"), 'r') as f:
@@ -109,6 +129,45 @@ class TestBootstrapDoctor(unittest.TestCase):
         
         with open(config_path, 'r') as f:
             self.assertEqual(f.read(), "DUMMY")
+
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(os.stat(config_path).st_mode), 0o600)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+    def test_bootstrap_hardens_existing_state_without_overwriting(self):
+        config_path = os.path.join(self.test_dir, "config.conf")
+        env_path = os.path.join(self.test_dir, ".env")
+        with open(config_path, "w") as handle:
+            handle.write("KEEP CONFIG\n")
+        with open(env_path, "w") as handle:
+            handle.write("KEEP ENV\n")
+
+        runtime_paths = [
+            os.path.join(self.test_dir, "runtime"),
+            os.path.join(self.test_dir, "runtime", "auth"),
+            os.path.join(self.test_dir, "runtime", "cache"),
+            os.path.join(self.test_dir, "runtime", "conversations"),
+        ]
+        for path in runtime_paths:
+            os.makedirs(path, exist_ok=True)
+            os.chmod(path, 0o755)
+        os.chmod(config_path, 0o644)
+        os.chmod(env_path, 0o644)
+
+        command = ["python", self.bootstrap_path, "--no-install"]
+        first = subprocess.run(command, cwd=self.test_dir, capture_output=True, text=True)
+        second = subprocess.run(command, cwd=self.test_dir, capture_output=True, text=True)
+
+        self.assertEqual(first.returncode, 0)
+        self.assertEqual(second.returncode, 0)
+        with open(config_path) as handle:
+            self.assertEqual(handle.read(), "KEEP CONFIG\n")
+        with open(env_path) as handle:
+            self.assertEqual(handle.read(), "KEEP ENV\n")
+        for path in runtime_paths:
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(os.stat(config_path).st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(env_path).st_mode), 0o600)
 
     def test_doctor_fail_no_config(self):
         # Ensure no config in temp dir

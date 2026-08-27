@@ -34,12 +34,24 @@ RUNTIME_DIRS = [
     "runtime/cache",
     "runtime/conversations",
 ]
+PRIVATE_FILE_MODE = 0o600
+PRIVATE_DIR_MODE = 0o700
 
 def print_step(message):
     print(f"--> {message}")
 
 def print_error(message):
     print(f"ERROR: {message}", file=sys.stderr)
+
+def _harden_posix_mode(path, mode):
+    if os.name != "posix":
+        return True
+    try:
+        os.chmod(path, mode)
+    except OSError as error:
+        print_error(f"Cannot secure {path}: {error}")
+        return False
+    return True
 
 def check_python_version():
     current_version = sys.version_info[:2]
@@ -69,10 +81,20 @@ def setup_directories(check_mode=False):
             if check_mode:
                 print_step(f"[DRY-RUN] Would create directory: {dir_path}")
             else:
-                os.makedirs(dir_path, exist_ok=True)
+                try:
+                    if os.name == "posix":
+                        os.makedirs(dir_path, mode=PRIVATE_DIR_MODE, exist_ok=True)
+                    else:
+                        os.makedirs(dir_path, exist_ok=True)
+                except OSError as error:
+                    print_error(f"Cannot create directory {dir_path}: {error}")
+                    return False
                 print_step(f"Created directory: {dir_path}")
         else:
             print_step(f"Directory already exists: {dir_path}")
+        if not check_mode and not _harden_posix_mode(dir_path, PRIVATE_DIR_MODE):
+            return False
+    return True
 
 def setup_config(check_mode=False):
     # Handle config.conf
@@ -93,6 +115,9 @@ def setup_config(check_mode=False):
     else:
         print_step(f"{CONFIG_FILE} already exists. Skipping.")
 
+    if not check_mode and not _harden_posix_mode(CONFIG_FILE, PRIVATE_FILE_MODE):
+        return False
+
     # Handle .env
     if os.path.isdir(ENV_FILE):
         print_error(f"{ENV_FILE} exists but is a directory. Remove it and rerun bootstrap.")
@@ -109,6 +134,10 @@ def setup_config(check_mode=False):
                 print_step(f"Created {ENV_FILE} from {ENV_EXAMPLE}")
     else:
         print_step(f"{ENV_FILE} already exists. Skipping.")
+
+    if os.path.exists(ENV_FILE) and not check_mode:
+        if not _harden_posix_mode(ENV_FILE, PRIVATE_FILE_MODE):
+            return False
 
     return True
 
@@ -161,7 +190,8 @@ def main():
     if not check_poetry():
         sys.exit(1)
 
-    setup_directories(args.check)
+    if not setup_directories(args.check):
+        sys.exit(1)
     
     if not setup_config(args.check):
         sys.exit(1)

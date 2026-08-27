@@ -1,5 +1,8 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 import asyncio
+import os
+import stat
+from pathlib import Path
 
 import pytest
 from playwright.async_api import Error as PlaywrightError
@@ -193,6 +196,54 @@ async def test_gemini_setup_enable_persistence_without_bootstrap_still_requires_
         await session._setup()
 
     assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+async def test_save_state_hardens_auth_state_and_repeated_replacements(
+    mocker, monkeypatch, tmp_path
+):
+    from app.services.browser import session as session_module
+
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    state_path = auth_dir / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    os.chmod(auth_dir, 0o755)
+    os.chmod(state_path, 0o644)
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(auth_dir))
+
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    assert stat.S_IMODE(os.stat(auth_dir).st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+
+    written_paths = []
+
+    async def write_state(path):
+        written_paths.append(path)
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        Path(path).write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(side_effect=write_state)
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    await session.save_state()
+    assert state_path.read_text(encoding="utf-8") == '{"cookies": [], "origins": []}'
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+    assert len(written_paths) == 1
+    assert not list(auth_dir.glob(".gemini.json.*.tmp"))
+
+    os.chmod(state_path, 0o644)
+    await session.save_state()
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+    assert len(written_paths) == 2
 
 
 @pytest.mark.asyncio

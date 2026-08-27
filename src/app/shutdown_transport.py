@@ -114,17 +114,41 @@ class ShutdownListener:
     def _publish_control_file(self, port):
         parent = os.path.dirname(self._control_file)
         if parent:
-            os.makedirs(parent, exist_ok=True)
+            if os.name == "posix":
+                os.makedirs(parent, mode=0o700, exist_ok=True)
+                os.chmod(parent, 0o700)
+            else:
+                os.makedirs(parent, exist_ok=True)
         payload = json.dumps(
             {"port": port, "token": self._token, "pid": os.getpid()}
         ).encode("utf-8")
         temp_file = self._control_file + ".tmp"
-        with open(temp_file, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        # Same-directory rename: atomic on both POSIX and Windows.
-        os.replace(temp_file, self._control_file)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        fd = None
+        try:
+            fd = os.open(temp_file, flags, 0o600)
+            if os.name == "posix":
+                os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                fd = None
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Same-directory rename: atomic on both POSIX and Windows.
+            os.replace(temp_file, self._control_file)
+        except BaseException:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+            raise
 
     def _unlink_temp(self):
         try:
