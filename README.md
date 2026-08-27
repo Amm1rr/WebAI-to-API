@@ -42,22 +42,42 @@ Provides access to cloud-hosted AI models through a native API integration power
 
 > **Prerequisite:** Python 3.11–3.12 (see `pyproject.toml`).
 
-### 1. Install Dependencies
+### 1. Host Setup
+
+Run the setup wrapper from an existing Git checkout.
+
+**Linux / macOS**
+```bash
+./install.sh
+```
+
+**Windows PowerShell**
+```powershell
+.\install.ps1
+```
+
+The wrapper validates Python and Poetry, runs bootstrap (including project
+dependencies and Playwright Chromium) and diagnostics, and does not perform
+login or start the server.
+
+Manual setup alternative (without wrapper):
 ```bash
 poetry install
 poetry run playwright install chromium
+cp config.conf.example config.conf
 ```
 
 ### 2. Configuration
-```bash
-cp config.conf.example config.conf
-```
+The installer creates `config.conf` and `.env` from their example files when
+missing. Review `config.conf` and edit settings as needed; do not copy example
+files over existing configuration.
+
 *For detailed settings (including logging verbosity and access log configurations), see [Configuration Guide](docs/configuration.md).*
 
 
 ### 3. Authenticate
 ```bash
-python verify_login.py
+poetry run python verify_login.py
 ```
 
 ### 4. Start the Server
@@ -126,7 +146,7 @@ Gemini requires an authenticated Google session.
 ### 1. Browser Login (Recommended)
 1. Run the interactive login helper:
    ```bash
-   python verify_login.py
+   poetry run python verify_login.py
    ```
 2. Complete the sign-in process in the browser window.
 3. This creates `runtime/auth/gemini.json`, used by both backends.
