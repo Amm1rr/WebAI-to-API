@@ -1,5 +1,6 @@
 import ast
 import os
+import sys
 import subprocess
 import shutil
 import stat
@@ -8,6 +9,7 @@ import tempfile
 import json
 import importlib.util
 import pytest
+from types import SimpleNamespace
 
 
 def _load_bootstrap_module():
@@ -330,6 +332,55 @@ def test_doctor_check_python_version_matches_pyproject_contract(monkeypatch, cap
         assert f"Version {version[0]}.{version[1]} is unsupported" in captured.out
         assert "Python 3.11 to <3.13 is required" in captured.out
         assert "Run: poetry run python scripts/doctor.py" in captured.out
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_ok"),
+    [
+        ((3, 11, 9), False),
+        ((3, 11, 10), True),
+        ((3, 12, 3), False),
+        ((3, 12, 4), True),
+    ],
+)
+def test_windows_python_patch_contract_is_shared_by_bootstrap_and_doctor(
+    monkeypatch, capsys, version, expected_ok
+):
+    bootstrap = _load_bootstrap_module()
+    doctor = _load_doctor_module()
+    fake_sys = SimpleNamespace(
+        version_info=version + (0, 0, "final"),
+        platform="win32",
+        stderr=sys.stderr,
+    )
+    monkeypatch.setattr(bootstrap, "sys", fake_sys)
+    monkeypatch.setattr(doctor, "sys", fake_sys)
+
+    assert bootstrap.check_python_version() is expected_ok
+    assert doctor.check_python_version() is expected_ok
+
+    captured = capsys.readouterr()
+    if expected_ok:
+        assert "PASS" in captured.out
+    else:
+        assert "FAIL" in captured.out
+        assert "Windows Python 3.11.10+ or 3.12.4+" in captured.err
+        assert "Windows Python 3.11.10+ or 3.12.4+" in captured.out
+
+
+def test_posix_python_patch_contract_remains_major_minor_only(monkeypatch, capsys):
+    bootstrap = _load_bootstrap_module()
+    doctor = _load_doctor_module()
+    fake_sys = SimpleNamespace(
+        version_info=(3, 11, 0, 0, "final"),
+        platform="linux",
+    )
+    monkeypatch.setattr(bootstrap, "sys", fake_sys)
+    monkeypatch.setattr(doctor, "sys", fake_sys)
+
+    assert bootstrap.check_python_version() is True
+    assert doctor.check_python_version() is True
+    assert "PASS" in capsys.readouterr().out
 
 
 def test_check_playwright_found_path_uses_valid_script(monkeypatch, capsys):

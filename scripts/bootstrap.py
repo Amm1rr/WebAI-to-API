@@ -8,6 +8,13 @@ from pathlib import Path
 # Import platform utils
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "src"))
+
+from app.utils.python_version import (
+    SUPPORTED_RANGE_TEXT,
+    WINDOWS_SUPPORTED_RANGE_TEXT,
+    is_supported_python,
+)
 
 try:
     from platform_utils import get_linux_distro
@@ -15,15 +22,6 @@ except ImportError:
     def get_linux_distro():
         return None, "Unknown", False
 
-# Constants
-# Must mirror pyproject.toml requires-python (">=3.11,<3.13").
-# Guarded by tests/test_version_alignment.py::test_python_version_contract_alignment.
-REQUIRED_PYTHON_VERSION = (3, 11)
-MAX_PYTHON_VERSION = (3, 13)
-SUPPORTED_RANGE_TEXT = (
-    f"{REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to "
-    f"<{MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]}"
-)
 CONFIG_FILE = "config.conf"
 CONFIG_EXAMPLE = "config.conf.example"
 ENV_FILE = ".env"
@@ -54,18 +52,22 @@ def _harden_posix_mode(path, mode):
     return True
 
 def check_python_version():
-    current_version = sys.version_info[:2]
-    if current_version < REQUIRED_PYTHON_VERSION:
-        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
-        print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
-        return False
+    current_version = sys.version_info
+    platform_name = "nt" if sys.platform == "win32" else "posix"
+    if is_supported_python(current_version, platform_name=platform_name):
+        return True
 
-    if current_version >= MAX_PYTHON_VERSION:
+    if platform_name == "nt":
+        print_error(
+            f"Windows Python {WINDOWS_SUPPORTED_RANGE_TEXT} is required for "
+            "the secure Gemini WebAPI private cookie cache."
+        )
+    else:
         print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
-        print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
-        return False
-
-    return True
+    print_error(
+        f"Current version is {current_version[0]}.{current_version[1]}.{current_version[2]}."
+    )
+    return False
 
 def check_poetry():
     poetry_path = shutil.which("poetry")

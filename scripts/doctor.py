@@ -10,22 +10,19 @@ from pathlib import Path
 # Import platform utils
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "src"))
+
+from app.utils.python_version import (
+    SUPPORTED_RANGE_TEXT,
+    WINDOWS_SUPPORTED_RANGE_TEXT,
+    is_supported_python,
+)
 
 try:
     from platform_utils import get_linux_distro
 except ImportError:
     def get_linux_distro():
         return None, sys.platform, False
-
-# Constants
-# Must mirror pyproject.toml requires-python (">=3.11,<3.13").
-# Guarded by tests/test_version_alignment.py::test_python_version_contract_alignment.
-REQUIRED_PYTHON_VERSION = (3, 11)
-MAX_PYTHON_VERSION = (3, 13)
-SUPPORTED_RANGE_TEXT = (
-    f"{REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to "
-    f"<{MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]}"
-)
 
 # Colors
 class Colors:
@@ -45,15 +42,30 @@ def print_status(label, status, message="", color=Colors.ENDC):
         print(f"{' ':<20}           {line}")
 
 def check_python_version():
-    current_version = sys.version_info[:2]
+    current_version = sys.version_info
     version_text = f"{current_version[0]}.{current_version[1]}"
-    if REQUIRED_PYTHON_VERSION <= current_version < MAX_PYTHON_VERSION:
+    full_version_text = (
+        f"{current_version[0]}.{current_version[1]}.{current_version[2]}"
+    )
+    platform_name = "nt" if sys.platform == "win32" else "posix"
+    if is_supported_python(current_version, platform_name=platform_name):
         print_status("Python", "PASS", f"Version {version_text} is supported ({SUPPORTED_RANGE_TEXT})")
         return True
-    print_status("Python", "FAIL", (
-        f"Version {version_text} is unsupported. Python {SUPPORTED_RANGE_TEXT} is required. "
-        "Run: poetry run python scripts/doctor.py"
-    ), Colors.FAIL)
+
+    if platform_name == "nt":
+        message = (
+            f"Version {version_text} is unsupported on Windows (running {full_version_text}). "
+            f"Windows Python {WINDOWS_SUPPORTED_RANGE_TEXT} is required for the secure "
+            "Gemini WebAPI private cookie cache. "
+        )
+    else:
+        message = f"Version {version_text} is unsupported. Python {SUPPORTED_RANGE_TEXT} is required. "
+    print_status(
+        "Python",
+        "FAIL",
+        message + "Run: poetry run python scripts/doctor.py",
+        Colors.FAIL,
+    )
     return False
 
 def check_config():

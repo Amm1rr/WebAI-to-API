@@ -5,7 +5,17 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 Set-Location -LiteralPath $repoRoot
 
-$pythonProbe = 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)'
+$pythonProbe = @'
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path.cwd() / "src"))
+from app.utils.python_version import is_supported_python
+
+raise SystemExit(
+    0 if is_supported_python(sys.version_info, platform_name="nt") else 1
+)
+'@
 $pythonExecutable = $null
 $pythonArguments = @()
 
@@ -32,7 +42,7 @@ if ($null -eq $pythonExecutable) {
 }
 
 if ($null -eq $pythonExecutable) {
-    [Console]::Error.WriteLine("Python 3.11 or 3.12 is required, but no supported interpreter was found. Install Python 3.11 or 3.12, then rerun this script.")
+    [Console]::Error.WriteLine("Secure Python required: Windows Python 3.11.10+ or 3.12.4+ is required for the Gemini WebAPI private cookie cache. No secure supported interpreter was found. Upgrade Python, then rerun this script.")
     exit 1
 }
 

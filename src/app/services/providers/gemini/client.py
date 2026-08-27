@@ -5,6 +5,7 @@ import asyncio
 import inspect
 import shutil
 import stat
+import sys
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 from .webapi_client import MyGeminiClient
@@ -13,6 +14,10 @@ from app.config import CONFIG
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 from app.services.providers.gemini.auth_selector import GeminiAuthSelector
+from app.utils.python_version import (
+    WINDOWS_SUPPORTED_RANGE_TEXT,
+    is_supported_python,
+)
 
 # Import the specific exception to handle it gracefully
 class GeminiClientNotInitializedError(Exception):
@@ -170,6 +175,21 @@ def _harden_cache_directory(path: str) -> None:
         raise PermissionError(f"Gemini cache directory is not private: {path}")
 
 
+def _validate_gemini_python_version() -> None:
+    platform_name = "nt" if sys.platform == "win32" else "posix"
+    if platform_name != "nt" or is_supported_python(
+        sys.version_info,
+        platform_name=platform_name,
+    ):
+        return
+
+    current_version = ".".join(str(part) for part in sys.version_info[:3])
+    raise RuntimeError(
+        f"Gemini WebAPI private cookie cache requires Windows Python "
+        f"{WINDOWS_SUPPORTED_RANGE_TEXT}; current Python is {current_version}."
+    )
+
+
 def _reset_cache_state() -> None:
     global _gemini_cache_dir, _gemini_cache_dir_initialized
     global _gemini_previous_cookie_path, _gemini_previous_cookie_path_was_set
@@ -206,6 +226,8 @@ def _remove_owned_cache_directory() -> bool:
 def _ensure_gemini_cache_directory() -> str:
     global _gemini_cache_dir, _gemini_cache_dir_initialized
     global _gemini_previous_cookie_path, _gemini_previous_cookie_path_was_set
+
+    _validate_gemini_python_version()
 
     if _gemini_cache_dir is not None:
         if _gemini_cache_dir_initialized and _cache_directory_is_valid(_gemini_cache_dir):
@@ -409,6 +431,8 @@ async def init_gemini_client(
         client = None
 
         try:
+            _validate_gemini_python_version()
+
             # Step 1: Try config/store candidates in selector-defined priority order
             for candidate in GeminiAuthSelector.iter_candidates():
                 if candidate.supports_webapi_cookie_auth:

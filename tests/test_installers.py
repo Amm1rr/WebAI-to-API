@@ -194,6 +194,9 @@ def test_install_ps1_exposes_root_and_required_contract():
 
     assert "$PSScriptRoot" in content
     assert "Set-Location -LiteralPath" in content
+    assert "app.utils.python_version" in content
+    assert "is_supported_python" in content
+    assert 'platform_name="nt"' in content
     assert 'foreach ($version in @("3.12", "3.11"))' in content
     assert "Get-Command python" in content
     assert "Get-Command poetry" in content
@@ -217,29 +220,60 @@ set -eu
 name=$(basename "$0")
 printf '%s|%s|%s\n' "$name" "$PWD" "$*" >> "$FAKE_LOG"
 
+secure_version() {
+    case "${1:-}" in
+        3.11.[1-9][0-9]*|3.12.[4-9]|3.12.[1-9][0-9]*) return 0 ;;
+    esac
+    return 1
+}
+
 if [ "$name" = "py" ]; then
     case "${1:-}:${2:-}" in
-        -3.12:-c) [ "${FAKE_PY312_OK:-0}" = "1" ] ;;
-        -3.11:-c) [ "${FAKE_PY311_OK:-0}" = "1" ] ;;
+        -3.12:-c)
+            if secure_version "${FAKE_PY312_VERSION:-}"; then exit 0; fi
+            exit 1
+            ;;
+        -3.11:-c)
+            if secure_version "${FAKE_PY311_VERSION:-}"; then exit 0; fi
+            exit 1
+            ;;
         -3.12:scripts\\bootstrap.py|-3.12:scripts/bootstrap.py)
-            [ "${FAKE_PY312_OK:-0}" = "1" ] && exit "${FAKE_BOOTSTRAP_STATUS:-0}" ;;
+            if secure_version "${FAKE_PY312_VERSION:-}"; then exit "${FAKE_BOOTSTRAP_STATUS:-0}"; fi
+            exit 1
+            ;;
         -3.12:scripts\\doctor.py|-3.12:scripts/doctor.py)
-            [ "${FAKE_PY312_OK:-0}" = "1" ] && exit "${FAKE_DOCTOR_STATUS:-0}" ;;
+            if secure_version "${FAKE_PY312_VERSION:-}"; then exit "${FAKE_DOCTOR_STATUS:-0}"; fi
+            exit 1
+            ;;
         -3.11:scripts\\bootstrap.py|-3.11:scripts/bootstrap.py)
-            [ "${FAKE_PY311_OK:-0}" = "1" ] && exit "${FAKE_BOOTSTRAP_STATUS:-0}" ;;
+            if secure_version "${FAKE_PY311_VERSION:-}"; then exit "${FAKE_BOOTSTRAP_STATUS:-0}"; fi
+            exit 1
+            ;;
         -3.11:scripts\\doctor.py|-3.11:scripts/doctor.py)
-            [ "${FAKE_PY311_OK:-0}" = "1" ] && exit "${FAKE_DOCTOR_STATUS:-0}" ;;
+            if secure_version "${FAKE_PY311_VERSION:-}"; then exit "${FAKE_DOCTOR_STATUS:-0}"; fi
+            exit 1
+            ;;
     esac
     exit 1
 fi
 
 if [ "$name" = "python" ]; then
     case "${1:-}" in
-        -c) [ "${FAKE_PYTHON_OK:-0}" = "1" ] ;;
-        scripts\\bootstrap.py|scripts/bootstrap.py) exit "${FAKE_BOOTSTRAP_STATUS:-0}" ;;
-        scripts\\doctor.py|scripts/doctor.py) exit "${FAKE_DOCTOR_STATUS:-0}" ;;
+        -c)
+            if secure_version "${FAKE_PYTHON_VERSION:-}"; then exit 0; fi
+            exit 1
+            ;;
+        scripts\\bootstrap.py|scripts/bootstrap.py)
+            if secure_version "${FAKE_PYTHON_VERSION:-}"; then exit "${FAKE_BOOTSTRAP_STATUS:-0}"; fi
+            exit 1
+            ;;
+        scripts\\doctor.py|scripts/doctor.py)
+            if secure_version "${FAKE_PYTHON_VERSION:-}"; then exit "${FAKE_DOCTOR_STATUS:-0}"; fi
+            exit 1
+            ;;
     esac
 fi
+exit 1
 '''
 
 
@@ -250,25 +284,69 @@ if /I "%~nx0"=="python.cmd" goto python
 if /I "%~nx0"=="poetry.cmd" goto poetry
 exit /b 0
 :py
-if "%1"=="-3.12" if "%2"=="-c" if "%FAKE_PY312_OK%"=="1" exit /b 0
-if "%1"=="-3.11" if "%2"=="-c" if "%FAKE_PY311_OK%"=="1" exit /b 0
-if "%1"=="-3.12" if "%2"=="scripts\bootstrap.py" if "%FAKE_PY312_OK%"=="1" exit /b %FAKE_BOOTSTRAP_STATUS%
-if "%1"=="-3.12" if "%2"=="scripts\doctor.py" if "%FAKE_PY312_OK%"=="1" exit /b %FAKE_DOCTOR_STATUS%
-if "%1"=="-3.11" if "%2"=="scripts\bootstrap.py" if "%FAKE_PY311_OK%"=="1" exit /b %FAKE_BOOTSTRAP_STATUS%
-if "%1"=="-3.11" if "%2"=="scripts\doctor.py" if "%FAKE_PY311_OK%"=="1" exit /b %FAKE_DOCTOR_STATUS%
+if "%1"=="-3.12" if "%2"=="-c" (
+    call :secure "%FAKE_PY312_VERSION%"
+    if not errorlevel 1 exit /b 0
+)
+if "%1"=="-3.11" if "%2"=="-c" (
+    call :secure "%FAKE_PY311_VERSION%"
+    if not errorlevel 1 exit /b 0
+)
+if "%1"=="-3.12" if "%2"=="scripts\bootstrap.py" (
+    call :secure "%FAKE_PY312_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_BOOTSTRAP_STATUS%
+)
+if "%1"=="-3.12" if "%2"=="scripts\doctor.py" (
+    call :secure "%FAKE_PY312_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_DOCTOR_STATUS%
+)
+if "%1"=="-3.11" if "%2"=="scripts\bootstrap.py" (
+    call :secure "%FAKE_PY311_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_BOOTSTRAP_STATUS%
+)
+if "%1"=="-3.11" if "%2"=="scripts\doctor.py" (
+    call :secure "%FAKE_PY311_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_DOCTOR_STATUS%
+)
 exit /b 1
 :python
-if "%1"=="-c" if "%FAKE_PYTHON_OK%"=="1" exit /b 0
-if "%1"=="scripts\bootstrap.py" exit /b %FAKE_BOOTSTRAP_STATUS%
-if "%1"=="scripts\doctor.py" exit /b %FAKE_DOCTOR_STATUS%
-exit /b 0
+if "%1"=="-c" (
+    call :secure "%FAKE_PYTHON_VERSION%"
+    if not errorlevel 1 exit /b 0
+)
+if "%1"=="scripts\bootstrap.py" (
+    call :secure "%FAKE_PYTHON_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_BOOTSTRAP_STATUS%
+)
+if "%1"=="scripts\doctor.py" (
+    call :secure "%FAKE_PYTHON_VERSION%"
+    if not errorlevel 1 exit /b %FAKE_DOCTOR_STATUS%
+)
+exit /b 1
 :poetry
 if "%1"=="--version" exit /b %FAKE_POETRY_STATUS%
 exit /b 0
+:secure
+for /f "tokens=1-3 delims=." %%A in ("%~1") do (
+    if "%%A.%%B"=="3.11" if %%C GEQ 10 exit /b 0
+    if "%%A.%%B"=="3.12" if %%C GEQ 4 exit /b 0
+)
+exit /b 1
 '''
 
 
-def _powershell_fixture(tmp_path, *, py312=False, py311=False, python=False, bootstrap=0, doctor=0):
+def _powershell_fixture(
+    tmp_path,
+    *,
+    py312=False,
+    py311=False,
+    python=False,
+    py312_version=None,
+    py311_version=None,
+    python_version=None,
+    bootstrap=0,
+    doctor=0,
+):
     repo = tmp_path / "repo with spaces"
     (repo / "scripts").mkdir(parents=True)
     shutil.copy2(INSTALL_PS1, repo / "install.ps1")
@@ -290,9 +368,9 @@ def _powershell_fixture(tmp_path, *, py312=False, py311=False, python=False, boo
         {
             "PATH": f"{tools}{os.pathsep}{env.get('PATH', '')}",
             "FAKE_LOG": str(log),
-            "FAKE_PY312_OK": "1" if py312 else "0",
-            "FAKE_PY311_OK": "1" if py311 else "0",
-            "FAKE_PYTHON_OK": "1" if python else "0",
+            "FAKE_PY312_VERSION": py312_version or ("3.12.4" if py312 else ""),
+            "FAKE_PY311_VERSION": py311_version or ("3.11.10" if py311 else ""),
+            "FAKE_PYTHON_VERSION": python_version or ("3.12.4" if python else ""),
             "FAKE_BOOTSTRAP_STATUS": str(bootstrap),
             "FAKE_DOCTOR_STATUS": str(doctor),
             "FAKE_POETRY_STATUS": "0",
@@ -355,3 +433,50 @@ def test_install_ps1_propagates_phase_failure(tmp_path):
     assert result.returncode == 19
     assert "bootstrap failed" in result.stderr
     assert "Setup complete." not in result.stdout
+
+
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")
+@pytest.mark.parametrize(
+    ("py312_version", "py311_version", "python_version", "expected_status", "expected_runner"),
+    [
+        ("3.12.3", "3.11.10", None, 0, "-3.11"),
+        ("3.12.4", "3.11.9", None, 0, "-3.12"),
+        ("3.11.9", None, None, 1, None),
+        (None, None, "3.12.3", 1, None),
+        (None, None, "3.12.4", 0, "python"),
+    ],
+)
+def test_install_ps1_enforces_windows_python_patch_contract(
+    tmp_path,
+    py312_version,
+    py311_version,
+    python_version,
+    expected_status,
+    expected_runner,
+):
+    repo, log, env, outside = _powershell_fixture(
+        tmp_path,
+        py312_version=py312_version,
+        py311_version=py311_version,
+        python_version=python_version,
+    )
+    powershell = _powershell_executable()
+
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(repo / "install.ps1")],
+        cwd=outside,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == expected_status
+    if expected_runner is None:
+        assert "3.11.10+ or 3.12.4+" in result.stderr
+    else:
+        phase_calls = [
+            line for line in log.read_text(encoding="utf-8").splitlines()
+            if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
+        ]
+        assert len(phase_calls) == 2
+        assert all(expected_runner in line for line in phase_calls)

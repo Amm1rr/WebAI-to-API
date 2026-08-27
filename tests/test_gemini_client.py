@@ -1509,6 +1509,82 @@ async def test_gemini_cache_hardening_failure_fails_before_client_init(mocker, m
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("version", "platform_name", "expected_ok"),
+    [
+        ((3, 11, 9), "win32", False),
+        ((3, 11, 10), "win32", True),
+        ((3, 12, 3), "win32", False),
+        ((3, 12, 4), "win32", True),
+        ((3, 11, 0), "linux", True),
+    ],
+)
+async def test_gemini_cache_requires_secure_windows_python(
+    mocker, monkeypatch, version, platform_name, expected_ok
+):
+    candidate = make_mock_client("AVAILABLE")
+    mocker.patch("app.services.providers.gemini.client.CONFIG", enabled_gemini_config())
+    mocker.patch.object(
+        GeminiAuthSelector,
+        "iter_candidates",
+        return_value=iter([auth_candidate("startup", "config", "startup_psid")]),
+    )
+    constructor = mocker.patch(
+        "app.services.providers.gemini.client.MyGeminiClient",
+        return_value=candidate,
+    )
+    mkdtemp = mocker.patch.object(
+        gemini_client_module.tempfile,
+        "mkdtemp",
+        wraps=gemini_client_module.tempfile.mkdtemp,
+    )
+    monkeypatch.setattr(
+        gemini_client_module,
+        "sys",
+        SimpleNamespace(
+            version_info=version + (0, 0, "final"),
+            platform=platform_name,
+        ),
+    )
+    monkeypatch.delenv("GEMINI_COOKIE_PATH", raising=False)
+
+    result = await init_gemini_client()
+
+    assert result is expected_ok
+    if expected_ok:
+        constructor.assert_called_once()
+        await close_gemini_client()
+    else:
+        constructor.assert_not_called()
+        mkdtemp.assert_not_called()
+        assert "Windows Python 3.11.10+ or 3.12.4+" in gemini_client_module._initialization_error
+        assert "GEMINI_COOKIE_PATH" not in os.environ
+
+
+@pytest.mark.asyncio
+async def test_disabled_gemini_skips_windows_python_cache_guard(mocker, monkeypatch):
+    config = configparser.ConfigParser()
+    config.read_dict({"EnabledAI": {"gemini": "false"}, "Proxy": {"http_proxy": ""}})
+    mocker.patch("app.services.providers.gemini.client.CONFIG", config)
+    constructor = mocker.patch("app.services.providers.gemini.client.MyGeminiClient")
+    mkdtemp = mocker.patch.object(gemini_client_module.tempfile, "mkdtemp")
+    monkeypatch.setattr(
+        gemini_client_module,
+        "sys",
+        SimpleNamespace(
+            version_info=(3, 11, 9, 0, "final"),
+            platform="win32",
+        ),
+    )
+
+    assert await init_gemini_client() is False
+
+    constructor.assert_not_called()
+    mkdtemp.assert_not_called()
+    assert gemini_client_module._initialization_error == "Gemini client is disabled in config."
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("tamper", ["missing", "permissions"])
 async def test_active_gemini_cache_invalidation_fails_closed(mocker, monkeypatch, tamper):
     if tamper == "permissions" and os.name != "posix":
