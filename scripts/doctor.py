@@ -137,48 +137,82 @@ def check_playwright(is_arch_based=False):
         print_status("Playwright Pkg", "FAIL", f"Could not check playwright: {e}", Colors.FAIL)
         return False
 
-    # Check for chromium binaries using a lightweight script.
-    # Doctor intentionally performs a lightweight, side-effect-free check and does not launch Chromium.
+    # Check for Chromium binaries using a lightweight script.
+    # Doctor intentionally performs a side-effect-free check and does not launch Chromium.
     try:
-        # Check if the executable exists via playwright internal path resolver
-        check_script = (
-            "import asyncio; from playwright.async_api import async_playwright; "
-            "async def run():\n"
-            "  async with async_playwright() as p:\n"
-            "    try:\n"
-            "      executable = p.chromium.executable_path\n"
-            "      import os; print('ok' if os.path.exists(executable) else 'missing')\n"
-            "    except Exception as e:\n"
-            "      print(f'error:{e}')\n"
-            "asyncio.run(run())"
-        )
-        res = subprocess.run(["poetry", "run", "python", "-c", check_script], 
+        check_script = """\
+import asyncio
+import os
+from playwright.async_api import async_playwright
+
+async def verify_chromium():
+    async with async_playwright() as playwright:
+        try:
+            executable = playwright.chromium.executable_path
+        except NotImplementedError as error:
+            print(f"indeterminate:{error}")
+            return
+        print("found" if os.path.isfile(executable) else "missing")
+
+asyncio.run(verify_chromium())
+"""
+        res = subprocess.run(["poetry", "run", "python", "-c", check_script],
                              capture_output=True, text=True, timeout=10)
-        
-        output = res.stdout.strip()
-        if "ok" in output:
-            print_status("Chromium Bin", "PASS", "Chromium binaries found")
-            return True
-        elif "missing" in output:
-            print_status("Chromium Bin", "FAIL", "Chromium binaries missing. Run: poetry run playwright install chromium", Colors.FAIL)
-            return False
-        else:
-            # PR #2: Arch-aware Chromium diagnostics
-            if is_arch_based:
-                msg = (
-                    "Unable to verify Chromium installation on an Arch-based system.\n"
-                    "Playwright fallback browser builds are expected on this platform.\n"
-                    "If browser startup fails later, review Playwright Linux dependency requirements."
-                )
-            else:
-                msg = "Unable to determine Chromium status reliably. Run: poetry run playwright install chromium"
-            
-            print_status("Chromium Bin", "WARN", msg, Colors.WARNING)
-            return True  # WARN doesn't fail the whole doctor run
-    except Exception as e:
-        msg = f"Check failed: {e}. Run: poetry run playwright install chromium"
+    except Exception as error:
+        print_status(
+            "Chromium Bin",
+            "FAIL",
+            f"Chromium verification could not execute: {error}. "
+            "Run: poetry run playwright install chromium",
+            Colors.FAIL,
+        )
+        return False
+
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip()
+        if not detail:
+            detail = f"verification process exited with code {res.returncode}"
+        print_status(
+            "Chromium Bin",
+            "FAIL",
+            f"Chromium verification failed: {detail}. "
+            "Run: poetry run playwright install chromium",
+            Colors.FAIL,
+        )
+        return False
+
+    output = (res.stdout or "").strip()
+    if output == "found":
+        print_status("Chromium Bin", "PASS", "Chromium executable found")
+        return True
+    if output == "missing":
+        print_status(
+            "Chromium Bin",
+            "FAIL",
+            "Chromium executable is missing. Run: poetry run playwright install chromium",
+            Colors.FAIL,
+        )
+        return False
+    if is_arch_based and output.startswith("indeterminate:"):
+        detail = output.partition(":")[2].strip() or "unsupported Playwright platform behavior"
+        msg = (
+            "Unable to verify Chromium installation on an Arch-based system.\n"
+            "Playwright fallback browser builds are expected on this platform.\n"
+            f"Chromium path resolution was indeterminate: {detail}\n"
+            "If browser startup fails later, review Playwright Linux dependency requirements."
+        )
         print_status("Chromium Bin", "WARN", msg, Colors.WARNING)
         return True
+
+    detail = repr(output or "(no output)")
+    print_status(
+        "Chromium Bin",
+        "FAIL",
+        f"Chromium verification returned unexpected output: {detail}. "
+        "Run: poetry run playwright install chromium",
+        Colors.FAIL,
+    )
+    return False
 
 def check_auth_material(config):
     has_fail = False

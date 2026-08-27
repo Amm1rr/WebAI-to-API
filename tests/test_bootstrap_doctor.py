@@ -1,3 +1,4 @@
+import ast
 import os
 import subprocess
 import shutil
@@ -22,6 +23,20 @@ def _load_doctor_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _mock_playwright_checks(monkeypatch, chromium_result):
+    doctor = _load_doctor_module()
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(command, 0, "ok\n", "")
+        return chromium_result
+
+    monkeypatch.setattr(doctor.subprocess, "run", fake_run)
+    return doctor, calls
 
 class TestBootstrapDoctor(unittest.TestCase):
     def setUp(self):
@@ -256,6 +271,84 @@ def test_doctor_check_python_version_matches_pyproject_contract(monkeypatch, cap
         assert f"Version {version[0]}.{version[1]} is unsupported" in captured.out
         assert "Python 3.11 to <3.13 is required" in captured.out
         assert "Run: poetry run python scripts/doctor.py" in captured.out
+
+
+def test_check_playwright_found_path_uses_valid_script(monkeypatch, capsys):
+    result = subprocess.CompletedProcess([], 0, "found\n", "")
+    doctor, calls = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright() is True
+    ast.parse(calls[1][0][-1])
+    assert "Chromium executable found" in capsys.readouterr().out
+
+
+def test_check_playwright_missing_path_fails(monkeypatch, capsys):
+    result = subprocess.CompletedProcess([], 0, "missing\n", "")
+    doctor, _ = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "Chromium executable is missing" in captured
+
+
+@pytest.mark.parametrize("stdout", ["", "found\nextra\n", "unexpected\n"])
+def test_check_playwright_unexpected_output_fails(monkeypatch, capsys, stdout):
+    result = subprocess.CompletedProcess([], 0, stdout, "")
+    doctor, _ = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "unexpected output" in captured
+
+
+def test_check_playwright_verification_process_failure_fails(monkeypatch, capsys):
+    result = subprocess.CompletedProcess([], 1, "", "SyntaxError: invalid syntax")
+    doctor, _ = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "SyntaxError: invalid syntax" in captured
+
+
+def test_check_playwright_arch_indeterminate_result_warns(monkeypatch, capsys):
+    result = subprocess.CompletedProcess([], 0, "indeterminate: unsupported\n", "")
+    doctor, _ = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright(is_arch_based=True) is True
+    captured = capsys.readouterr().out
+    assert "WARN" in captured
+    assert "Arch-based system" in captured
+
+
+def test_check_playwright_arch_indeterminate_result_fails_elsewhere(monkeypatch, capsys):
+    result = subprocess.CompletedProcess([], 0, "indeterminate: unsupported\n", "")
+    doctor, _ = _mock_playwright_checks(monkeypatch, result)
+
+    assert doctor.check_playwright(is_arch_based=False) is False
+    assert "FAIL" in capsys.readouterr().out
+
+
+def test_doctor_main_fails_when_chromium_check_fails(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor, "check_python_version", lambda: True)
+    monkeypatch.setattr(doctor, "check_config", lambda: (True, object()))
+    monkeypatch.setattr(doctor, "check_env", lambda: True)
+    monkeypatch.setattr(doctor, "check_poetry", lambda: True)
+    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda: True)
+    monkeypatch.setattr(doctor, "check_platform", lambda: False)
+    monkeypatch.setattr(doctor, "check_playwright", lambda _is_arch_based: False)
+    monkeypatch.setattr(doctor, "check_auth_material", lambda _config: True)
+    monkeypatch.setattr(doctor, "check_port", lambda: True)
+    monkeypatch.setattr(doctor, "check_exposure", lambda: True)
+
+    with pytest.raises(SystemExit) as error:
+        doctor.main()
+
+    assert error.value.code == 1
+    assert "DIAGNOSTICS FAILED" in capsys.readouterr().out
 
 if __name__ == "__main__":
     unittest.main()
