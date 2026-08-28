@@ -11,20 +11,20 @@ The system SHALL support a configurable directory path named `auth_state_dir` fo
 - **THEN** it SHALL resolve the state file path inside the configured `auth_state_dir` directory utilizing a deterministic provider-specific state file naming convention (e.g., `gemini.json`, `openai.json`, `claude.json`)
 - **AND** it SHALL load the retrieved file into the Playwright `BrowserContext` on creation if the file exists
 
-#### Scenario: Fallback on missing state file
+#### Scenario: Missing state file during normal Playwright initialization
 - **WHEN** the resolved state file does not exist in the configured `auth_state_dir`
-- **THEN** the session initialization SHALL continue with a clean, unauthenticated `BrowserContext`
-- **AND** it SHALL NOT raise an error or crash the runtime engine
+- **THEN** normal Playwright session initialization SHALL fail explicitly because no Playwright-compatible storage-state candidate is available
+- **AND** an explicit bootstrap login context MAY start unauthenticated solely to create the state file
 
 ---
 
 ### Requirement: Session State Persistence Boundaries
-The system SHALL enforce the guarantee that no automatic persistent storage state rewrites occur during normal request execution. The runtime API service is permitted to mutate in-memory browser contexts and client states during request execution, but it SHALL NOT automatically overwrite or mutate the persistent state files on disk, nor SHALL it ever write to `config.conf` to store authentication cookies during active API requests. The on-demand login bootstrap service and the manual bootstrap utility SHALL act as the exclusive writers of the persistent state files. Any runtime-triggered state saving SHALL be executed only inside explicit, isolated login workflows or manual bootstrap, and normal request execution paths MUST NOT execute background or active persistence tasks.
+The system SHALL keep persistent storage-state rewrites disabled by default during normal runtime API execution. The runtime API service is permitted to mutate in-memory browser contexts and client states, but it SHALL NOT write to `config.conf` to store authentication cookies. Explicit login/bootstrap workflows may save persistent state; an opt-in `ENABLE_AUTOSAVE=true` may enable the session autosave loop when persistence is enabled.
 
 #### Scenario: In-memory context mutation without persistent rewrite
 - **WHEN** a client completions request is processed and performs in-memory modifications (such as page creation or session cookie adjustments in browser memory)
-- **THEN** the runtime API service SHALL NOT execute any file-level write, save, or overwrite operations on the persistent state files in `auth_state_dir`
-- **AND** the filesystem-backed state file SHALL remain unmodified upon request completion or cancellation
+- **THEN** the default runtime API service SHALL NOT execute automatic file-level state writes during the request
+- **AND** the filesystem-backed state file SHALL remain unmodified unless an explicit persistence workflow or opt-in autosave is enabled
 
 #### Scenario: Shared Session Infrastructure Layer Ownership
 - **WHEN** a state file is loaded or saved
@@ -33,7 +33,7 @@ The system SHALL enforce the guarantee that no automatic persistent storage stat
 
 #### Scenario: Safe atomic state serialization
 - **WHEN** the manual bootstrap utility or shared session infrastructure layer writes the session state to disk
-- **THEN** it SHALL write the JSON payload to `{provider}.json.tmp` inside the `auth_state_dir`
+- **THEN** it SHALL write the JSON payload to a randomized temporary file in the same `auth_state_dir`
 - **AND** it SHALL execute a physical `fsync` on the file descriptor
 - **AND** it SHALL atomically replace the target `{provider}.json` file using an atomic rename operation
 
@@ -66,16 +66,17 @@ During application shutdown, the FastAPI server lifespan cleanup SHALL close the
 - **AND** the Python process SHALL exit cleanly without leaving orphaned Chromium zombie processes
 
 ### Requirement: Priority Auth Loading and Legacy Fallback
-The system SHALL support a prioritized authentication loading hierarchy that guarantees backward compatibility for legacy installations. When initializing a Gemini provider pathway, the system SHALL first attempt to load cookies from the canonical state file `runtime/auth/gemini.json`. If missing or invalid, the system SHALL fallback to load read-only from the legacy `[Cookies]` section of `config.conf` and log an official deprecation warning, while exposing a migration-needed status flag.
+The system SHALL support a prioritized authentication loading hierarchy that guarantees backward compatibility for legacy installations. When initializing a Gemini provider pathway, `GeminiAuthSelector` SHALL enumerate candidates in this order: `[Gemini]` config, legacy `[Cookies]` config, then the configured canonical state file `auth_state_dir/gemini.json` (default `runtime/auth/gemini.json`). Backend implementations decide which candidates are usable. Playwright requires the JSON storage-state candidate; WebAPI cookie auth may use the config candidates and supported browser discovery.
 
-#### Scenario: Primary loading from canonical state file
-- **WHEN** a Gemini session boots and a valid `runtime/auth/gemini.json` file is present
-- **THEN** the system SHALL load the authentication state from this file
-- **AND** it SHALL bypass any fallback check of legacy config sections
+#### Scenario: Provider-configured source ordering
+- **WHEN** a Gemini session boots
+- **THEN** the system SHALL evaluate `[Gemini]` config before legacy `[Cookies]` config and the configured canonical state file
+- **AND** Playwright SHALL select only a valid JSON storage-state candidate
 
-#### Scenario: Fallback to legacy configuration with migration warning
-- **WHEN** a Gemini session boots and `runtime/auth/gemini.json` is missing but legacy `[Cookies]` are configured inside `config.conf`
-- **THEN** the system SHALL load the legacy cookies read-only, boot the session successfully, log a clear deprecation warning
-- **AND** it SHALL expose the `migration_needed: true` status flag in the auth status payload
-- **AND** the system SHALL NOT write to the filesystem or trigger automatic background state file serialization
-
+#### Scenario: Legacy configuration fallback
+- **WHEN** higher-priority `[Gemini]` config is unavailable and legacy `[Cookies]` are present inside `config.conf`
+- **THEN** WebAPI authentication MAY attempt the legacy cookie candidate
+- **AND** the candidate SHALL be marked legacy and `migration_needed: true`
+- **AND** Playwright SHALL NOT treat legacy cookie configuration as storage state
+- **AND** candidate presence SHALL NOT guarantee successful authentication; backend validation SHALL determine whether it is usable
+- **AND** the system SHALL NOT promote legacy cookies to the canonical JSON file automatically

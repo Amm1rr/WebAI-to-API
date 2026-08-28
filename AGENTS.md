@@ -110,7 +110,7 @@ AI Agents working on this runtime MUST adhere to these strict constraints:
 1.  **Never Bypass ManagedPage**: Raw Playwright page lifecycle management or manual semaphore handling is forbidden.
 2.  **No Resurrection**: Never attempt to re-initialize or "self-heal" after `is_shutting_down` is set; the active engine lifecycle cannot be resurrected.
 3.  **Strict Generation Invalidation**: Always invalidate all context references, `PersistentTab` objects, and active leases on generation mismatch; never attempt reuse of stale pages.
-4.  **No Lock-Order Violations**: Adhere to the 4-level lock hierarchy; never `await` under `registry_lock`.
+4.  **No Lock-Order Violations**: Adhere to the five-level lock hierarchy (`management_lock` -> `init_lock` -> `_cleanup_lock` -> `registry_lock` -> `PersistentTab._lock`); never `await` under `registry_lock`.
 5.  **Never Reuse Poisoned Pages**: Invalidation of crashed or corrupted tabs is terminal and irreversible.
 6.  **No Orphan Tasks**: Ensure all async tasks are tracked, request-scoped, and cleaned up during teardown.
 7.  **Fail Fast**: Raise `RuntimeError` immediately if liveness invariants are violated or terminal shutdown is in progress.

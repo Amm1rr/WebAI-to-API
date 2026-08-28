@@ -15,7 +15,7 @@ The **Docker Deployment Model** provides environment parity across development, 
 
 - **Container Configuration**: Standardizes execution runtime, Python path structures, and logging pipelines.
 - **Orchestration Boundaries**: Manages production-hardened process execution, port exposures, and automatic recovery boundaries.
-- **Persistence Policies**: Standardizes volume mounts to ensure browser session profiles survive container lifecycles.
+- **Persistence Policies**: Standardizes volume mounts to ensure browser authentication storage state and conversation snapshots survive container lifecycles.
 
 ---
 
@@ -49,7 +49,7 @@ The service is defined in `docker-compose.yml` for production execution:
 - **Host Interface Exposure**: The host IP remains unspecified, so changing `WEB_PORT` changes only the published port number and not exposure scope.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
 - **UID/GID Contract**: Native Linux deployments should build with `APP_UID` and `APP_GID` matching the host user that owns `runtime/`.
-- **Persistent Runtime State**: Mounts `./config.conf` (read-only) and `./runtime` into the container to preserve application settings, browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.
+- **Persistent Runtime State**: Mounts `./config.conf` (read-only) and `./runtime` into the container to preserve application settings, browser authentication state, conversation snapshots, and applicable shutdown metadata. Application logs are emitted to stdout/stderr.
 
 ### 3.2 Runtime Topology
 
@@ -63,16 +63,25 @@ The current deployment model operates in a single-worker configuration:
 
 ## 4. Storage & Session Persistence
 
-Browser session data is persisted through mounted volumes, ensuring it survives container rollbacks, redeployments, and normal container restarts.
+Browser authentication storage state and local conversation snapshots are
+persisted through mounted volumes, ensuring they survive container
+recreation, redeployments, and normal container restarts.
 
 ### 4.1 Ephemeral vs. Persistent Boundaries
-- **Ephemeral assets**: Source files, dependencies, and internal Playwright page caches are stored in transient container layers and discarded on container rebuilds.
+- **Ephemeral assets**: Source files and dependencies are stored in image layers. The Gemini WebAPI dependency cookie cache is lifecycle-scoped system temporary state, not application state persisted by the `runtime` bind mount.
 - **Persistent runtime files**:
   - **`config.conf`**: Application settings (mounted read-only).
-  - **`runtime/auth/gemini.json`**: Cookies and session state.
+  - **`runtime/auth/gemini.json`**: Default Playwright storage state; a configured `auth_state_dir` may use another path.
   - **`runtime/conversations/`**: SQLite conversation snapshots.
-  - **`runtime/cache/`**: Runtime-generated cache.
+  - **`runtime/cache/`**: Bootstrap-created runtime directory layout; not the Gemini WebAPI dependency cookie cache.
   - **Logs**: Application logs are streamed to stdout/stderr.
+
+The Gemini WebAPI dependency cookie cache uses an application-owned random
+directory in system temporary storage. It is lifecycle-scoped, shared by
+active and retired generations in one lifecycle, cleaned after generations and
+leases drain, and removed after completely failed initialization when unused.
+The runtime restores any previous `GEMINI_COOKIE_PATH` value. POSIX cache
+directories are private; Windows relies on the supported Python patch floor.
 
 ### 4.2 Storage Mounts
 - **Bind mount configuration**:
@@ -80,7 +89,15 @@ Browser session data is persisted through mounted volumes, ensuring it survives 
   - Maps the local host path `./runtime` to `/app/runtime`.
 - **Host file precondition**: Compose does not create missing bind sources; `config.conf` and `runtime/` must exist, while `.env` is required by `env_file`.
 - **Host preflight**: The canonical `make up` and `make up-attach` targets require `runtime/` to exist before Docker starts, preventing daemon-created root-owned bind sources.
-- **Volume persistence**: Runtime-generated state files are written within the mounted volume, surviving container recreation.
+- **Volume persistence**: Authentication state and conversation snapshots are written within the mounted volume, surviving container recreation.
+
+The default conversation database is
+`runtime/conversations/conversation_snapshots.db`; `CONVERSATION_SNAPSHOT_DB`
+may select another path. Snapshot writes use SQLite WAL mode and
+`synchronous=FULL`. On POSIX, the project-owned database and existing SQLite
+sidecars are private (`0600`). Custom existing database parent directories are
+not forcibly changed to `0700`; Windows uses operating-system ACL behavior
+instead of POSIX mode bits.
 
 ---
 
@@ -106,7 +123,11 @@ To verify container state and session authorization:
 
 ### 6.1 Playwright Authentication for Production
 
-The Playwright backend requires pre-generated authentication state for Docker deployments. The browser-based login flow requires a display environment and must be run on the HOST machine, not inside the Docker container.
+The Docker process can start without pre-generated Playwright authentication
+state. The Playwright backend requires a valid persisted storage-state candidate
+before authenticated browser operations. The browser-based login flow requires
+a display environment and must be run on the HOST machine, not inside the
+Docker container.
 
 **Production Authentication Workflow:**
 
@@ -122,12 +143,16 @@ The Playwright backend requires pre-generated authentication state for Docker de
    ls runtime/auth/gemini.json
    ```
 
-4. Start the Docker container (it will consume the auth state via volume mount):
+4. Start or restart the Docker container (it will consume the auth state via volume mount):
    ```bash
    make up
    ```
 
-The `./runtime:/app/runtime` volume mount ensures `runtime/auth/gemini.json` is available inside the container at `/app/runtime/auth/gemini.json`, where the Playwright context automatically loads the authentication cookies.
+The `./runtime:/app/runtime` volume mount ensures the default
+`runtime/auth/gemini.json` is available inside the container at
+`/app/runtime/auth/gemini.json`, where the Playwright context loads the
+authentication state. Custom auth paths must remain inside the mounted runtime
+tree or be provided through an equivalent mount.
 
 **Note:** The `/v1/auth/login` endpoint is NOT supported in Docker deployments because it requires a headful display environment.
 
@@ -144,12 +169,12 @@ WebAI-to-API supports two distinct authentication approaches:
 
 **Gemini Playwright Backend:**
 - Drives real Chromium browser via Playwright
-- Requires `runtime/auth/gemini.json` authentication state file
+- Requires the configured `auth_state_dir/gemini.json` storage-state file (default: `runtime/auth/gemini.json`)
 - State file generated by `verify_login.py` on HOST machine
 - Docker container consumes state file via volume mount
 - Provides maximum resilience against web UI changes
 
-**Authentication State File (`runtime/auth/gemini.json`):**
+**Authentication State File (default `runtime/auth/gemini.json`):**
 
 This file contains Playwright `storageState` data including:
 - Google authentication cookies
@@ -190,19 +215,30 @@ Because the production-only container maps only persistent runtime state directo
 
 **Q: Where is authentication stored?**
 
-A: Authentication state is stored in `runtime/auth/gemini.json` on the host machine. The Docker container accesses this file via the `./runtime:/app/runtime` volume mount defined in `docker-compose.yml`.
+A: Authentication state is stored in the configured `auth_state_dir` on the
+host machine, defaulting to `runtime/auth/gemini.json`. The Docker container
+accesses the default path via the `./runtime:/app/runtime` volume mount defined
+in `docker-compose.yml`.
 
 **Q: Does authentication survive container recreation?**
 
-A: Yes. Because `runtime/auth/gemini.json` is stored in the `./runtime` directory on the host (not inside the container), authentication persists across:
+A: Yes. Because the default `runtime/auth/gemini.json` is stored in the
+`./runtime` directory on the host (not inside the container), authentication
+persists across:
 - Container restarts (`docker compose restart`)
 - Container recreation (`docker compose down && docker compose up -d`)
 - Image rebuilds (`make build`)
 
-Authentication is only lost if the `./runtime` directory is deleted from the host machine.
+Authentication is only lost if the configured auth state is deleted or its
+Docker mount is removed from the host machine.
 
 **Q: Can I generate authentication after starting the container?**
 
-A: Yes. Run `poetry run python verify_login.py` on your host machine, then restart the container with `make stop && make up`. The updated authentication state is picked up when the Docker container restarts, because Playwright loads runtime/auth/gemini.json only when creating a new browser context.
+A: Yes. Run `poetry run python verify_login.py` on your host machine, then
+restart the container with `make stop && make up`. The updated authentication
+state is picked up when the Docker container restarts, because Playwright loads
+the configured auth state only when creating a new browser context.
 
-**Note:** Updating runtime/auth/gemini.json while the container is already running does not hot-reload the active Playwright context. Restart the container after re-running verify_login.py.
+**Note:** Updating the configured auth state while the container is already
+running does not hot-reload the active Playwright context. Restart the
+container after re-running `verify_login.py`.

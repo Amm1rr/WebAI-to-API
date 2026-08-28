@@ -18,7 +18,7 @@ The system SHALL maintain a centralized, thread-safe, and cached authentication 
 ---
 
 ### Requirement: On-Demand API-Driven Login Workflow
-The system SHALL provide an API-driven, controlled login workflow that replaces manual out-of-band utility executions. The `AuthManager` SHALL own and orchestrate the login workflow via `AuthManager.run_login_flow()`. When triggered, `AuthManager` SHALL use the existing browser/session primitives of `BrowserEngine` to launch Chromium in a controlled, isolated headful process (when local), navigate to the Gemini app, and monitor for user authentication. The workflow MUST preserve all existing runtime contracts.
+The system SHALL provide an API-driven, controlled login workflow alongside the manual host utility. The `AuthManager` SHALL own and orchestrate the API workflow via `AuthManager.run_login_flow()`. When triggered, `AuthManager` SHALL use the existing browser/session primitives of `BrowserEngine` to launch Chromium in a controlled, isolated headful process (when local), navigate to the Gemini app, and monitor for user authentication. The workflow MUST preserve all existing runtime contracts.
 
 #### Scenario: Successful on-demand login completion
 - **WHEN** an administrator triggers the login endpoint `/v1/auth/login` and completes Google sign-in in the browser window
@@ -32,7 +32,7 @@ The system SHALL provide an API-driven, controlled login workflow that replaces 
 ---
 
 ### Requirement: Authentication Concurrency Coordination
-The `AuthManager` SHALL implement the `AuthCoordinationLock` abstraction to coordinate active logins. The system SHALL support process-bound in-memory locking (`InMemoryAuthLock`) as the default, and SHALL support swapping the backend via configuration (`auth_lock_backend = in_memory` under `[Playwright]`) to a distributed lock backend (such as Redis or Postgres) in multi-worker or scaled SaaS environments.
+The `AuthManager` SHALL implement the `AuthCoordinationLock` abstraction to coordinate active logins. The system SHALL use process-bound in-memory locking (`InMemoryAuthLock`) by default. The `auth_lock_backend` setting under `[Playwright]` SHALL accept the configured backend name, warn, and fall back to `in_memory` when a distributed backend is not implemented. Multi-worker or scaled SaaS deployments therefore require an externally provided distributed-lock implementation before relying on cross-process login coordination.
 
 #### Scenario: Concurrent login requests debounced via coordination lock
 - **WHEN** multiple concurrent API requests trigger the login workflow simultaneously
@@ -54,4 +54,3 @@ The `AuthManager` SHALL implement the `AuthCoordinationLock` abstraction to coor
 - **THEN** the system SHALL immediately reject the request with an unauthenticated message (HTTP 401)
 - **BUT WHEN** the request target allows an unauthenticated guest session (e.g. standard `gemini-webapi` chat request without history tracking)
 - **THEN** the system SHALL allow the request to proceed in guest-mode fallback
-

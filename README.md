@@ -40,7 +40,8 @@ Provides access to cloud-hosted AI models through a native API integration power
 
 ## Quick Start
 
-> **Prerequisite:** Python 3.11–3.12 (see `pyproject.toml`).
+> **Prerequisite:** Python `>=3.11,<3.13` (see `pyproject.toml`).
+> **Windows:** Python `3.11.10+` or `3.12.4+` is required for secure Gemini WebAPI temporary cookie-cache handling. Linux and macOS require only the supported Python range above.
 
 ### 1. Host Setup
 
@@ -62,10 +63,11 @@ login or start the server.
 
 Manual setup alternative (without wrapper):
 ```bash
-poetry install
-poetry run playwright install chromium
-cp config.conf.example config.conf
+python scripts/bootstrap.py
 ```
+
+Bootstrap creates `config.conf`, `.env` when its example exists, and the required
+`runtime/` directory tree before installing dependencies and Chromium.
 
 ### 2. Configuration
 The installer creates `config.conf` and `.env` from their example files when
@@ -115,6 +117,9 @@ For Docker deployments:
 git pull
 APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
 ```
+
+Docker keeps the application port at `6969`. `WEB_PORT` changes only the host
+port; its default is also `6969`.
 
 Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and `runtime/`
 exist. Non-Linux hosts can use the documented defaults or their Docker Desktop

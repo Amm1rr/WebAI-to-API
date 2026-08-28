@@ -12,6 +12,10 @@ Required software:
 * Docker Compose
 * GNU Make (optional)
 
+Host Python `>=3.11,<3.13` and Poetry are also required when using the
+bootstrap utility or host Playwright login. On Windows, use Python `3.11.10+`
+or `3.12.4+` for Gemini WebAPI temporary cookie-cache isolation.
+
 ---
 
 ## Environment Configuration
@@ -29,16 +33,25 @@ Run the bootstrap utility to create default configurations:
 python scripts/bootstrap.py
 ```
 
-Alternatively, copy the examples manually:
+Alternatively, copy the examples manually. On POSIX hosts, apply private modes:
 
 ```bash
 cp .env.example .env
 cp config.conf.example config.conf
+mkdir -p runtime
+chmod 600 .env config.conf
+chmod 700 runtime
 ```
 
-**Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. They must exist as files on your host machine before starting the container; Compose rejects missing bind-mount sources. Run `python scripts/bootstrap.py` to ensure they are correctly initialized. 
+**Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. `config.conf`, `.env`, and `runtime/` must exist on the host before starting the container; Compose rejects missing bind-mount sources. The canonical setup is `python scripts/bootstrap.py`, which creates this state without overwriting existing configuration.
 
-Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
+The `chmod` commands are POSIX-specific. Windows users should use
+`python scripts/bootstrap.py` and normal Windows filesystem ACL behavior.
+
+Changes to `config.conf` or `.env` on the host are reflected after the
+container is restarted or recreated as applicable; an image rebuild is not
+required for configuration-only updates. Do NOT commit `config.conf` or `.env`
+as they may contain secrets.
 
 ### Host Port
 
@@ -49,6 +62,9 @@ WEB_PORT=8080
 ```
 
 Then access the service at `http://localhost:8080`. This changes only the host-facing port; the application still listens on container port `6969`, and no application configuration change is required. Host-interface exposure remains unchanged because the Compose mapping does not specify a host IP.
+
+The commands below use the default host port `6969`. If `WEB_PORT` is set,
+replace `6969` with its configured value; the container port remains `6969`.
 
 ### Container UID/GID
 
@@ -64,18 +80,19 @@ Changing these values requires an image rebuild. Do not use `chown -R` or broad
 permissions on `runtime/`; the container must use the host user's existing
 private ownership and modes.
 
+On POSIX systems, bootstrap and runtime storage harden project-owned runtime
+directories to `0700` and sensitive files to `0600`, including auth state,
+conversation databases, SQLite sidecars, and applicable shutdown metadata.
+Windows uses inherited and CPython-created ACLs instead; the project does not
+implement custom ACL manipulation. These protections do not protect against
+root or administrator access. Do not use `chmod 777`.
+
 `make up` and `make up-attach` require `runtime/` to already exist. Run
 `python scripts/bootstrap.py` first rather than allowing Docker to create the
 bind-mount source directory.
 
-**Note:** `.env` is untracked and user-owned. If a `git pull` reports a conflict on `.env`, your local copy is preserved; resolve with:
-
-```bash
-cp .env .env.backup
-git restore .env
-git pull
-mv .env.backup .env
-```
+`.env`, `config.conf`, and `runtime/` are user-owned local state. They are not
+updated by the repository; keep them in place when pulling or rebuilding.
 
 ### Container Logging Controls
 
@@ -144,7 +161,8 @@ make stop
 
 ## Playwright Authentication
 
-Playwright-based models require browser authentication before the container starts.
+The Docker process may start without a Playwright auth JSON. Playwright-based
+authenticated operations require a valid persisted storage-state candidate.
 
 Authentication must be generated on the host machine.
 
@@ -153,9 +171,7 @@ Authentication must be generated on the host machine.
 Install dependencies and prepare the environment:
 
 ```bash
-poetry install
-poetry run playwright install chromium
-cp config.conf.example config.conf
+python scripts/bootstrap.py
 ```
 
 *Note: You can also use `make setup` as a shortcut.*
@@ -163,7 +179,7 @@ cp config.conf.example config.conf
 Run the authentication workflow:
 
 ```bash
-python verify_login.py
+poetry run python verify_login.py
 ```
 
 A browser window will open.
@@ -177,6 +193,9 @@ Authentication state will be stored in:
 ```text
 runtime/auth/gemini.json
 ```
+
+This is the default path. Use the configured `[Playwright].auth_state_dir` or
+`AUTH_STATE_DIR` override when applicable.
 
 Verify the file exists:
 
@@ -200,6 +219,8 @@ Verify authentication status:
 ```bash
 curl http://localhost:6969/v1/auth/status
 ```
+
+Use the configured `WEB_PORT` instead of `6969` when a custom host port is set.
 
 ---
 
@@ -237,8 +258,9 @@ The Docker configuration uses bind mounts to persist data and load settings:
 ### 1. Configuration (`config.conf`)
 The `config.conf` file is mounted **read-only**. It contains your backend selections, manual cookies, and engine tuning. Because it is mounted at runtime, it is NOT baked into the Docker image, ensuring your secrets remain on your host machine.
 
-### 2. Authentication State (`runtime/auth/gemini.json`)
-Authentication generated by `verify_login.py` is stored in the `runtime/` directory.
+### 2. Authentication State
+Authentication generated by `verify_login.py` is stored at the configured
+`auth_state_dir`, defaulting to `runtime/auth/gemini.json`.
 
 ### 3. Lifecycle
 As long as these files/directories are preserved on the host, configuration and authentication survive:
@@ -267,7 +289,8 @@ make up
 
 Authentication is loaded when a new Playwright browser context is created.
 
-Updating `runtime/auth/gemini.json` while the container is running does not update existing browser contexts.
+Updating the configured auth state file while the container is running does not
+update existing browser contexts.
 
 ---
 
@@ -302,10 +325,28 @@ After generating a new authentication state, restart the container so a new brow
 The `runtime` directory stores persistent runtime state, including:
 
 * Authentication state
-* Session persistence
-* Runtime cache data
+* Gemini WebAPI conversation snapshots
+* Windows shutdown metadata where applicable
 
-For Playwright deployments, preserving this directory is recommended.
+`runtime/cache/` is created by bootstrap as part of the runtime directory
+layout. It is not the Gemini WebAPI dependency cookie cache. For Playwright
+deployments, preserving the `runtime` directory is recommended.
+
+## Gemini WebAPI Temporary Cache
+
+Gemini WebAPI dependency cookie data uses an application-owned random
+temporary directory in system temporary storage. It is not canonical auth
+storage and is not stored in `runtime/auth/` or `runtime/cache/`.
+
+The directory is scoped to the active application lifecycle. Active and
+retired Gemini generations in that lifecycle share it; final cleanup waits for
+generations and leases to drain. Completely failed initialization removes an
+unused cache. The runtime restores any previous `GEMINI_COOKIE_PATH` value
+after cleanup.
+
+On POSIX, the cache directory is private. On Windows, the supported Python
+patch floor above is required because temporary-directory ACL behavior is
+security-sensitive.
 
 ---
 

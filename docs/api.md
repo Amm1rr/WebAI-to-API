@@ -10,6 +10,10 @@ Dashboard routes under `/ui/*` are administrative-only pages. They are excluded 
 http://localhost:6969
 ```
 
+This is the default local host URL. Docker keeps the application port at
+`6969`; set `WEB_PORT` to change only the host-facing port and use that port
+in client URLs.
+
 ---
 
 ## Primary API

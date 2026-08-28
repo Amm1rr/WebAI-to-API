@@ -106,7 +106,7 @@ The runtime implements a dedicated, minimal, lifecycle-scoped exception hierarch
 
 ### 5.1 Escalation Semantics
 - **Detection**: Providers are responsible for detecting failures and escalating to the authoritative session layer by raising `SessionNotAliveError`.
-- **Recovery Authority**: `ProviderSession` catches the escalated exception and executes `handle_session_failure()` as the sole recovery executor (handling stale state file deletions and context invalidations).
+- **Recovery Authority**: `ProviderSession` catches the escalated exception and executes `handle_session_failure()` as the sole recovery executor, invalidating transient session contexts while preserving persistent authentication state.
 - **Shutdown Authority**: `BrowserEngine` owns terminal shutdown authority and coordinates global process teardown.
 - **Isolation**: Request-scoped failures (e.g., `QueueOverflowError`) must not silently poison the broader session or escalate into engine shutdown; they must be handled and isolated at the request level.
 - **Precedence**: Engine-scoped failures (e.g., `BrowserShuttingDownError`) invalidate all lower-level recovery paths immediately.
