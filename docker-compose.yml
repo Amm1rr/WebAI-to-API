@@ -13,7 +13,7 @@ services:
     container_name: web_ai_server
     restart: always
     ports:
-      - "${WEB_PORT:-6969}:6969"
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-6969}:6969"
     env_file:
       - .env
     environment:

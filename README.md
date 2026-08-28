@@ -138,8 +138,20 @@ git pull
 APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
 ```
 
-Docker keeps the application port at `6969`. `WEB_PORT` changes only the host
-port; its default is also `6969`.
+Docker listens on container port `6969`. By default, Compose publishes it on
+`127.0.0.1:6969` only. `WEB_PORT` changes only the host-side port; its default
+is also `6969`.
+
+Previous Docker behavior published on all host interfaces. Users requiring LAN
+or remote access must opt in explicitly:
+
+```env
+DOCKER_BIND_ADDRESS=0.0.0.0
+```
+
+The project has no caller API authentication. Keep the default localhost bind,
+or put external authentication in front of the entire service before exposing
+it to an untrusted network.
 
 Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and `runtime/`
 exist. This is pre-Poetry host setup; Windows users should prefer

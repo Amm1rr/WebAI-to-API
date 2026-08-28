@@ -2,7 +2,10 @@
 
 This document describes how to run WebAI-to-API using Docker and how to configure authentication for browser-based providers.
 
-The built-in dashboard under `/ui/*` is also exposed by the service. If you map the service port to a public interface, you expose the dashboard routes as well. See [Dashboard Guide](dashboard.md) for the dashboard security posture and available pages.
+The service has no caller API authentication. The built-in dashboard under
+`/ui/*` is also exposed by the service. If you map the service port to a public
+interface, you expose the entire API and dashboard. See [Dashboard Guide](dashboard.md)
+for the dashboard security posture and available pages.
 
 ## Prerequisites
 
@@ -54,15 +57,39 @@ container is restarted or recreated as applicable; an image rebuild is not
 required for configuration-only updates. Do NOT commit `config.conf` or `.env`
 as they may contain secrets.
 
-### Host Port
+### Host Binding and Port
 
-Docker Compose publishes host port `6969` to the container's fixed application port `6969` by default. To use a different host port, set the optional `WEB_PORT` value in `.env`:
+Docker Compose publishes host port `6969` to the container's fixed application
+port `6969` on `127.0.0.1` by default. Access it at
+`http://127.0.0.1:6969` or `http://localhost:6969`.
+
+`DOCKER_BIND_ADDRESS` controls the host interface used for Docker port
+publication. The safe local default is `127.0.0.1`. Set it explicitly for LAN
+or server access:
+
+```env
+DOCKER_BIND_ADDRESS=0.0.0.0
+```
+
+Previous behavior published on all host interfaces. The new default publishes
+on IPv4 loopback only. `127.0.0.1` is an IPv4 bind; no dual-stack mapping is
+configured.
+
+To use a different host port, set the optional `WEB_PORT` value in `.env`:
 
 ```env
 WEB_PORT=8080
 ```
 
-Then access the service at `http://localhost:8080`. This changes only the host-facing port; the application still listens on container port `6969`, and no application configuration change is required. Host-interface exposure remains unchanged because the Compose mapping does not specify a host IP.
+Then access the service at `http://127.0.0.1:8080`. This changes only the
+host-facing port; the application still listens on container port `6969`, and
+no application configuration change is required.
+
+`DOCKER_BIND_ADDRESS=0.0.0.0` with or without `WEB_PORT` makes the service
+reachable from other machines when routing and host controls allow it. Do not
+expose the service to an untrusted network without external authentication in
+front of the entire service; the project does not provide caller API
+authentication.
 
 The commands below use the default host port `6969`. If `WEB_PORT` is set,
 replace `6969` with its configured value; the container port remains `6969`.
@@ -371,4 +398,4 @@ security-sensitive.
 * Preserve the `runtime` directory between deployments.
 * Restart containers after refreshing authentication.
 * Use health and readiness endpoints for monitoring.
-* Do not expose the service port publicly unless you also secure the `/ui/*` dashboard routes with an external access-control layer.
+* Keep the default localhost bind, or secure the entire unauthenticated service with external access control before broader exposure.

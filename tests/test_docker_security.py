@@ -51,12 +51,24 @@ def test_compose_passes_uid_gid_build_contract_and_preserves_mounts():
     compose = _read("docker-compose.yml")
     env_example = _read(".env.example")
     makefile = _read("Makefile")
+    dockerfile = _read("Dockerfile")
+    docker_doc = _read("docs/docker.md")
+    dashboard_doc = _read("docs/dashboard.md")
 
     assert "APP_UID: ${APP_UID:-1000}" in compose
     assert "APP_GID: ${APP_GID:-1000}" in compose
-    assert '- "${WEB_PORT:-6969}:6969"' in compose
-    assert "# Optional Docker host port. Container application port remains 6969." in env_example
+    assert '- "${DOCKER_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-6969}:6969"' in compose
+    assert "# Docker host interface for published port. Default is local-only IPv4 loopback." in env_example
+    assert "# DOCKER_BIND_ADDRESS=127.0.0.1" in env_example
+    assert "# Set DOCKER_BIND_ADDRESS=0.0.0.0 for explicit LAN/server access." in env_example
     assert "# WEB_PORT=8080" in env_example
+    assert "container application port remains 6969" in env_example
+    assert 'CMD ["python", "src/run.py", "--host", "0.0.0.0", "--port", "6969"]' in dockerfile
+    assert "127.0.0.1" in docker_doc
+    assert "DOCKER_BIND_ADDRESS=0.0.0.0" in docker_doc
+    assert "entire service" in docker_doc
+    assert "no caller API authentication" in docker_doc
+    assert "entire unauthenticated service" in dashboard_doc
     assert makefile.count("--build-arg APP_UID=$${APP_UID:-1000}") == 2
     assert makefile.count("--build-arg APP_GID=$${APP_GID:-1000}") == 2
     assert "source: ./config.conf" in compose
@@ -90,27 +102,26 @@ def _compose_fixture(tmp_path):
     return project, compose
 
 
-def _run_compose_config(project, compose, web_port=None):
+def _run_compose_config(project, compose, web_port=None, bind_address=None, override=None):
     env = os.environ.copy()
     env.pop("WEB_PORT", None)
+    env.pop("DOCKER_BIND_ADDRESS", None)
     if web_port is not None:
         env["WEB_PORT"] = str(web_port)
-    return subprocess.run(
-        [
-            "docker",
-            "compose",
-            "--project-directory",
-            str(project),
-            "-f",
-            str(compose),
-            "config",
-            "--format",
-            "json",
-        ],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    if bind_address is not None:
+        env["DOCKER_BIND_ADDRESS"] = str(bind_address)
+    command = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(project),
+        "-f",
+        str(compose),
+    ]
+    if override is not None:
+        command.extend(["-f", str(override)])
+    command.extend(["config", "--format", "json"])
+    return subprocess.run(command, env=env, capture_output=True, text=True)
 
 
 def _resolved_port(result):
@@ -125,10 +136,56 @@ def test_compose_resolves_default_and_custom_host_ports(tmp_path):
     default_port = _resolved_port(_run_compose_config(project, compose))
     custom_port = _resolved_port(_run_compose_config(project, compose, 8080))
 
+    assert default_port["host_ip"] == "127.0.0.1"
     assert int(default_port["published"]) == 6969
     assert int(default_port["target"]) == 6969
+    assert custom_port["host_ip"] == "127.0.0.1"
     assert int(custom_port["published"]) == 8080
     assert int(custom_port["target"]) == 6969
+
+
+def test_compose_resolves_explicit_broad_bind(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+
+    port = _resolved_port(
+        _run_compose_config(project, compose, bind_address="0.0.0.0")
+    )
+
+    assert port["host_ip"] == "0.0.0.0"
+    assert int(port["published"]) == 6969
+    assert int(port["target"]) == 6969
+
+
+def test_compose_resolves_bind_and_port_overrides(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+
+    port = _resolved_port(
+        _run_compose_config(
+            project,
+            compose,
+            web_port=8080,
+            bind_address="0.0.0.0",
+        )
+    )
+
+    assert port["host_ip"] == "0.0.0.0"
+    assert int(port["published"]) == 8080
+    assert int(port["target"]) == 6969
+
+
+def test_compose_override_inherits_secure_port_mapping(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+    override = project / "docker-compose.override.yml"
+    shutil.copy2(ROOT / "docker-compose.override.yml", override)
+
+    port = _resolved_port(_run_compose_config(project, compose, override=override))
+
+    assert port["host_ip"] == "127.0.0.1"
+    assert int(port["published"]) == 6969
+    assert int(port["target"]) == 6969
 
 
 def test_compose_rejects_invalid_host_port(tmp_path):
