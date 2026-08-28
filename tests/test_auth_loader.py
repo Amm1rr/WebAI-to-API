@@ -76,6 +76,89 @@ def test_translate_to_webapi():
     assert psidts == "psidts_val"
 
 
+@pytest.mark.parametrize(
+    "domain",
+    [".google.com", "google.com", "gemini.google.com", "accounts.google.com"],
+)
+def test_browser_webapi_material_accepts_google_domains(domain):
+    cookies = [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) == {
+        "__Secure-1PSID": "psid"
+    }
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["evilgoogle.com", "notgoogle.com", "google.com.evil.example"],
+)
+def test_browser_webapi_material_rejects_invalid_google_domains(domain):
+    cookies = [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
+def test_browser_webapi_material_requires_psid_and_allows_optional_psidts():
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"}],
+        now=100,
+    ) == {"__Secure-1PSID": "psid"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"},
+        ],
+        now=100,
+    ) == {"__Secure-1PSID": "psid", "__Secure-1PSIDTS": "psidts"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "__Secure-1PSIDTS", "value": "", "domain": ".google.com"},
+        ],
+        now=100,
+    ) == {"__Secure-1PSID": "psid"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [{"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"}],
+        now=100,
+    ) is None
+
+
+def test_browser_webapi_material_rejects_empty_and_expired_psid():
+    cookies = [
+        {"name": "__Secure-1PSID", "value": "", "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": None, "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": "expired", "domain": ".google.com", "expires": 99},
+        {"name": "__Secure-1PSIDTS", "value": "", "domain": ".google.com"},
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
+def test_browser_webapi_material_selects_duplicates_deterministically():
+    cookies = [
+        {"name": "__Secure-1PSID", "value": "subdomain", "domain": "gemini.google.com"},
+        {"name": "__Secure-1PSID", "value": "root-path", "domain": ".google.com", "path": "/"},
+        {"name": "__Secure-1PSID", "value": "root-other-path", "domain": ".google.com", "path": "/app"},
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) == {
+        "__Secure-1PSID": "root-path"
+    }
+
+
+def test_browser_webapi_material_rejects_partitioned_psid_when_metadata_exists():
+    cookies = [
+        {
+            "name": "__Secure-1PSID",
+            "value": "partitioned",
+            "domain": ".google.com",
+            "partitionKey": "https://gemini.google.com",
+        }
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
 @pytest.mark.parametrize("domain", [".google.com", "google.com", "gemini.google.com", "accounts.google.com"])
 def test_shared_webapi_material_accepts_google_domain_psid(domain):
     data = {"cookies": [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]}

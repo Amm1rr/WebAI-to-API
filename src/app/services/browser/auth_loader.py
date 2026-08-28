@@ -343,6 +343,22 @@ class GeminiAuthStateLoader:
         )
 
     @classmethod
+    def get_browser_webapi_cookie_material(
+        cls, cookies: Any, *, now: Optional[float] = None
+    ) -> Optional[Dict[str, str]]:
+        """Select directly usable Gemini auth cookies from browser cookie data."""
+        now = time.time() if now is None else now
+        psid = cls._select_webapi_cookie(cookies, "__Secure-1PSID", now)
+        if psid is None:
+            return None
+
+        material = {"__Secure-1PSID": psid["value"]}
+        psidts = cls._select_webapi_cookie(cookies, "__Secure-1PSIDTS", now)
+        if psidts is not None:
+            material["__Secure-1PSIDTS"] = psidts["value"]
+        return material
+
+    @classmethod
     def has_shared_webapi_material(
         cls, data: Dict[str, Any], context_cookies: Optional[List[Dict[str, Any]]] = None
     ) -> bool:
