@@ -4,26 +4,18 @@ import logging
 import os
 
 from app.env import load_local_env
+from app.utils.runtime_paths import (
+    get_default_auth_state_dir,
+    get_default_conversation_snapshot_db,
+    get_default_playwright_cache_dir,
+    get_runtime_dir,
+    resolve_auth_state_dir,
+    resolve_conversation_snapshot_db,
+)
 
 logger = logging.getLogger(__name__)
 
 load_local_env()
-
-
-def get_runtime_dir() -> str:
-    return os.environ.get("RUNTIME_DIR", "runtime")
-
-
-def get_default_auth_state_dir() -> str:
-    return os.path.join(get_runtime_dir(), "auth")
-
-
-def get_default_conversation_snapshot_db() -> str:
-    return os.path.join(get_runtime_dir(), "conversations", "conversation_snapshots.db")
-
-
-def get_default_playwright_cache_dir() -> str:
-    return os.path.join(get_runtime_dir(), "cache", "playwright")
 
 
 def normalize_strict_boolean(raw_value: str, setting_name: str) -> str:
@@ -86,9 +78,9 @@ def load_config(config_file: str = "config.conf") -> configparser.ConfigParser:
 
 
 
-    env_auth_state_dir = os.environ.get("AUTH_STATE_DIR")
-    if env_auth_state_dir:
-        config["Playwright"]["auth_state_dir"] = env_auth_state_dir
+    config["Playwright"]["auth_state_dir"] = resolve_auth_state_dir(
+        config["Playwright"].get("auth_state_dir")
+    )
 
     env_headless = os.environ.get("PLAYWRIGHT_HEADLESS")
     if env_headless is not None:

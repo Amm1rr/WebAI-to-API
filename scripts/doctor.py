@@ -17,6 +17,13 @@ from app.utils.python_version import (
     WINDOWS_SUPPORTED_RANGE_TEXT,
     is_supported_python,
 )
+from app.env import load_local_env
+from app.utils.runtime_paths import (
+    get_default_conversation_snapshot_db,
+    get_runtime_dir,
+    resolve_auth_state_dir,
+    resolve_conversation_snapshot_db,
+)
 
 try:
     from platform_utils import get_linux_distro
@@ -150,15 +157,38 @@ def check_poetry():
     print_status("Poetry", "FAIL", message, Colors.FAIL)
     return False
 
-def check_runtime_dirs():
-    dirs = ["runtime", "runtime/auth", "runtime/cache", "runtime/conversations"]
-    missing = [d for d in dirs if not os.path.isdir(d)]
+def check_runtime_dirs(config):
+    configured_auth_state_dir = config.get(
+        "Playwright", "auth_state_dir", fallback=None
+    ) if config else None
+    runtime_dir = get_runtime_dir()
+    auth_state_dir = resolve_auth_state_dir(configured_auth_state_dir)
+    cache_dir = os.path.join(runtime_dir, "cache")
+    conversation_db = resolve_conversation_snapshot_db()
+    dirs = [runtime_dir, auth_state_dir, cache_dir]
+    if conversation_db != ":memory:":
+        conversation_parent = os.path.dirname(conversation_db) or "."
+        dirs.append(conversation_parent)
+    missing = [path for path in dirs if not os.path.isdir(path)]
+    conversation_detail = (
+        "in-memory database"
+        if conversation_db == ":memory:"
+        else f"{conversation_db} (parent: {os.path.dirname(conversation_db) or '.'})"
+    )
+    details = (
+        f"Runtime: {runtime_dir}\n"
+        f"Auth: {auth_state_dir}\n"
+        f"Cache: {cache_dir}\n"
+        f"Conversation DB: {conversation_detail}"
+    )
     
     if not missing:
-        print_status("Directories", "PASS", "Runtime directory structure is correct")
+        print_status("Directories", "PASS", details)
         return True
     else:
-        print_status("Directories", "FAIL", f"Missing: {', '.join(missing)}", Colors.FAIL)
+        print_status(
+            "Directories", "FAIL", f"Missing: {', '.join(missing)}\n{details}", Colors.FAIL
+        )
         return False
 
 def check_platform():
@@ -293,8 +323,10 @@ def check_auth_material(config):
         config.get("Cookies", "__Secure-1PSIDTS", fallback="")
     )
 
-    # Priority 3: runtime/auth/gemini.json
-    json_path = "runtime/auth/gemini.json"
+    configured_auth_state_dir = config.get(
+        "Playwright", "auth_state_dir", fallback=None
+    )
+    json_path = os.path.join(resolve_auth_state_dir(configured_auth_state_dir), "gemini.json")
     json_exists = False
     if os.path.exists(json_path):
         try:
@@ -310,7 +342,7 @@ def check_auth_material(config):
     elif psid_l and psidts_l:
         print_status("Auth (Config)", "WARN", "Using legacy [Cookies] configuration (supported but deprecated)", Colors.WARNING)
     elif json_exists:
-        print_status("Auth (Config)", "WARN", "No Gemini cookies configured; runtime/auth/gemini.json will be used", Colors.WARNING)
+        print_status("Auth (Config)", "WARN", f"No Gemini cookies configured; {json_path} will be used", Colors.WARNING)
     else:
         print_status("Auth (Config)", "WARN", "No Gemini auth material found (cookies or JSON state)", Colors.WARNING)
 
@@ -367,6 +399,8 @@ def main():
 
     has_fail = False
 
+    load_local_env()
+
     if not check_python_version(): has_fail = True
 
     config_ok, config = check_config()
@@ -377,7 +411,7 @@ def main():
     poetry_ok = check_poetry()
     if not poetry_ok: has_fail = True
 
-    if not check_runtime_dirs(): has_fail = True
+    if not check_runtime_dirs(config): has_fail = True
     
     is_arch_based = check_platform()
 

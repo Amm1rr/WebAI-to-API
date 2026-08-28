@@ -122,6 +122,99 @@ class TestBootstrapDoctor(unittest.TestCase):
             content = f.read()
             self.assertIn("[Gemini]", content)
 
+    def test_bootstrap_uses_custom_runtime_path(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime with spaces")
+        env = {**os.environ, "RUNTIME_DIR": runtime_dir}
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        for relative_path in ("", "auth", "cache", "conversations"):
+            self.assertTrue(os.path.isdir(os.path.join(runtime_dir, relative_path)))
+
+    def test_bootstrap_uses_custom_auth_path_without_default_auth_dir(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime")
+        auth_dir = os.path.join(self.test_dir, "private auth")
+        env = {
+            **os.environ,
+            "RUNTIME_DIR": runtime_dir,
+            "AUTH_STATE_DIR": auth_dir,
+        }
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertTrue(os.path.isdir(auth_dir))
+        self.assertFalse(os.path.exists(os.path.join(runtime_dir, "auth")))
+        self.assertTrue(os.path.isdir(os.path.join(runtime_dir, "cache")))
+        self.assertTrue(os.path.isdir(os.path.join(runtime_dir, "conversations")))
+
+    def test_bootstrap_honors_explicit_config_auth_path(self):
+        auth_dir = os.path.join(self.test_dir, "configured auth")
+        with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+            handle.write(f"[Playwright]\nauth_state_dir = {auth_dir}\n")
+
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertTrue(os.path.isdir(auth_dir))
+        self.assertFalse(os.path.exists(os.path.join(self.test_dir, "runtime", "auth")))
+
+    def test_bootstrap_creates_custom_conversation_parent_without_chmodding_existing_parent(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime")
+        db_parent = os.path.join(self.test_dir, "external conversations")
+        db_path = os.path.join(db_parent, "state.db")
+        env = {
+            **os.environ,
+            "RUNTIME_DIR": runtime_dir,
+            "CONVERSATION_SNAPSHOT_DB": db_path,
+        }
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertTrue(os.path.isdir(db_parent))
+        self.assertFalse(os.path.exists(os.path.join(runtime_dir, "conversations")))
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+    def test_bootstrap_leaves_existing_custom_conversation_parent_mode_unchanged(self):
+        db_parent = os.path.join(self.test_dir, "external conversations")
+        os.makedirs(db_parent)
+        os.chmod(db_parent, 0o755)
+        env = {**os.environ, "CONVERSATION_SNAPSHOT_DB": os.path.join(db_parent, "state.db")}
+
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(stat.S_IMODE(os.stat(db_parent).st_mode), 0o755)
+
+    def test_bootstrap_skips_directory_for_memory_conversation_database(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime")
+        env = {
+            **os.environ,
+            "RUNTIME_DIR": runtime_dir,
+            "CONVERSATION_SNAPSHOT_DB": ":memory:",
+        }
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(runtime_dir, "conversations")))
+
     def test_bootstrap_no_overwrite(self):
         # Create dummy config in temp dir
         config_path = os.path.join(self.test_dir, "config.conf")
@@ -256,6 +349,53 @@ class TestBootstrapDoctor(unittest.TestCase):
         res = subprocess.run(["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True)
         self.assertIn("WARN", res.stdout)
         self.assertIn("No Gemini auth material found", res.stdout)
+
+    def test_doctor_checks_resolved_paths_without_creating_them(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime with spaces")
+        auth_dir = os.path.join(self.test_dir, "private auth")
+        config_path = os.path.join(self.test_dir, "config.conf")
+        with open(config_path, "w", encoding="utf-8") as handle:
+            handle.write("[Gemini]\n")
+        env = {
+            **os.environ,
+            "RUNTIME_DIR": runtime_dir,
+            "AUTH_STATE_DIR": auth_dir,
+        }
+
+        res = subprocess.run(
+            ["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"Runtime: {runtime_dir}", res.stdout)
+        self.assertIn(f"Auth: {auth_dir}", res.stdout)
+        self.assertIn(os.path.join(auth_dir, "gemini.json"), res.stdout)
+        self.assertFalse(os.path.exists(runtime_dir))
+        self.assertFalse(os.path.exists(auth_dir))
+
+    def test_doctor_checks_resolved_auth_json_path(self):
+        runtime_dir = os.path.join(self.test_dir, "runtime")
+        auth_dir = os.path.join(self.test_dir, "private auth")
+        os.makedirs(os.path.join(runtime_dir, "cache"))
+        os.makedirs(os.path.join(runtime_dir, "conversations"))
+        os.makedirs(auth_dir)
+        json_path = os.path.join(auth_dir, "gemini.json")
+        with open(json_path, "w", encoding="utf-8") as handle:
+            json.dump({"cookies": []}, handle)
+        with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+            handle.write("[Gemini]\n")
+        env = {
+            **os.environ,
+            "RUNTIME_DIR": runtime_dir,
+            "AUTH_STATE_DIR": auth_dir,
+        }
+
+        res = subprocess.run(
+            ["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertIn("Auth (JSON)", res.stdout)
+        self.assertIn(f"{json_path} exists and is valid", res.stdout)
 
     def test_doctor_corrupt_json_reports_playwright_impact(self):
         # Case 1: valid [Gemini] config cookies + corrupt JSON -> FAIL,
@@ -508,7 +648,7 @@ def test_doctor_main_fails_when_poetry_check_fails(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "check_config", lambda: (True, object()))
     monkeypatch.setattr(doctor, "check_env", lambda: True)
     monkeypatch.setattr(doctor, "check_poetry", lambda: False)
-    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda: True)
+    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda _config: True)
     monkeypatch.setattr(doctor, "check_platform", lambda: False)
     monkeypatch.setattr(doctor, "check_port", lambda: True)
     monkeypatch.setattr(doctor, "check_exposure", lambda: True)
@@ -584,7 +724,7 @@ def test_doctor_main_fails_when_chromium_check_fails(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "check_config", lambda: (True, object()))
     monkeypatch.setattr(doctor, "check_env", lambda: True)
     monkeypatch.setattr(doctor, "check_poetry", lambda: True)
-    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda: True)
+    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda _config: True)
     monkeypatch.setattr(doctor, "check_platform", lambda: False)
     monkeypatch.setattr(doctor, "check_playwright", lambda _is_arch_based: False)
     monkeypatch.setattr(doctor, "check_auth_material", lambda _config: True)

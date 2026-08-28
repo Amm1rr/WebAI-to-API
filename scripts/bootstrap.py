@@ -3,6 +3,7 @@ import sys
 import shutil
 import subprocess
 import argparse
+import configparser
 from pathlib import Path
 
 # Import platform utils
@@ -15,6 +16,13 @@ from app.utils.python_version import (
     WINDOWS_SUPPORTED_RANGE_TEXT,
     is_supported_python,
 )
+from app.env import load_local_env
+from app.utils.runtime_paths import (
+    get_default_conversation_snapshot_db,
+    get_runtime_dir,
+    resolve_auth_state_dir,
+    resolve_conversation_snapshot_db,
+)
 
 try:
     from platform_utils import get_linux_distro
@@ -26,12 +34,6 @@ CONFIG_FILE = "config.conf"
 CONFIG_EXAMPLE = "config.conf.example"
 ENV_FILE = ".env"
 ENV_EXAMPLE = ".env.example"
-RUNTIME_DIRS = [
-    "runtime",
-    "runtime/auth",
-    "runtime/cache",
-    "runtime/conversations",
-]
 PRIVATE_FILE_MODE = 0o600
 PRIVATE_DIR_MODE = 0o700
 
@@ -77,8 +79,37 @@ def check_poetry():
         return False
     return True
 
-def setup_directories(check_mode=False):
-    for dir_path in RUNTIME_DIRS:
+def get_configured_auth_state_dir():
+    config = configparser.ConfigParser()
+    try:
+        config.read(CONFIG_FILE, encoding="utf-8")
+    except (configparser.Error, OSError):
+        return None
+    return config.get("Playwright", "auth_state_dir", fallback=None)
+
+
+def get_directory_targets(configured_auth_state_dir=None):
+    runtime_dir = get_runtime_dir()
+    auth_state_dir = resolve_auth_state_dir(configured_auth_state_dir)
+    conversation_db = resolve_conversation_snapshot_db()
+    targets = {
+        runtime_dir: True,
+        os.path.join(runtime_dir, "cache"): True,
+        auth_state_dir: True,
+    }
+
+    if conversation_db != ":memory:":
+        conversation_parent = os.path.dirname(conversation_db) or "."
+        default_parent = os.path.dirname(get_default_conversation_snapshot_db())
+        targets[conversation_parent] = targets.get(conversation_parent, False) or (
+            conversation_parent == default_parent
+        )
+
+    return targets
+
+
+def setup_directories(check_mode=False, configured_auth_state_dir=None):
+    for dir_path, harden in get_directory_targets(configured_auth_state_dir).items():
         if not os.path.exists(dir_path):
             if check_mode:
                 print_step(f"[DRY-RUN] Would create directory: {dir_path}")
@@ -94,7 +125,7 @@ def setup_directories(check_mode=False):
                 print_step(f"Created directory: {dir_path}")
         else:
             print_step(f"Directory already exists: {dir_path}")
-        if not check_mode and not _harden_posix_mode(dir_path, PRIVATE_DIR_MODE):
+        if harden and not check_mode and not _harden_posix_mode(dir_path, PRIVATE_DIR_MODE):
             return False
     return True
 
@@ -192,10 +223,12 @@ def main():
     if not check_poetry():
         sys.exit(1)
 
-    if not setup_directories(args.check):
-        sys.exit(1)
-    
+    load_local_env()
+
     if not setup_config(args.check):
+        sys.exit(1)
+
+    if not setup_directories(args.check, get_configured_auth_state_dir()):
         sys.exit(1)
 
     if not args.no_install:
