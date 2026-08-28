@@ -201,8 +201,13 @@ async def verify_chromium():
 
 asyncio.run(verify_chromium())
 """
-        res = subprocess.run(["poetry", "run", "python", "-c", check_script],
-                             capture_output=True, text=True, timeout=10)
+        res = subprocess.run(
+            ["poetry", "run", "python", "-"],
+            input=check_script,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except Exception as error:
         print_status(
             "Chromium Bin",

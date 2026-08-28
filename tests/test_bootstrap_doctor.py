@@ -41,6 +41,14 @@ def _mock_playwright_checks(monkeypatch, chromium_result):
     monkeypatch.setattr(doctor.subprocess, "run", fake_run)
     return doctor, calls
 
+
+def _assert_chromium_probe_transport(calls):
+    command, kwargs = calls[1]
+    assert command == ["poetry", "run", "python", "-"]
+    assert "-c" not in command
+    assert "input" in kwargs
+    ast.parse(kwargs["input"])
+
 class TestBootstrapDoctor(unittest.TestCase):
     def setUp(self):
         # Create a temporary directory for tests
@@ -517,7 +525,7 @@ def test_check_playwright_found_path_uses_valid_script(monkeypatch, capsys):
     doctor, calls = _mock_playwright_checks(monkeypatch, result)
 
     assert doctor.check_playwright() is True
-    ast.parse(calls[1][0][-1])
+    _assert_chromium_probe_transport(calls)
     assert "Chromium executable found" in capsys.readouterr().out
 
 
