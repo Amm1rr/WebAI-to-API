@@ -78,7 +78,7 @@ foreach ($candidate in $pythonCandidates) {
             "unsupported_major_minor" { "supported range is $required" }
             default { "reason: $([string]$probe.reason)" }
         }
-        $candidateDiagnostics += "$($candidate.Label) -> Python $version: rejected; $reasonText"
+        $candidateDiagnostics += "$($candidate.Label) -> Python $($version): rejected; $reasonText"
     }
     elseif ($probeStatus -eq 0) {
         $candidateDiagnostics += "$($candidate.Label) -> probe returned invalid JSON"

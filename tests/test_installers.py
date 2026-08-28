@@ -213,12 +213,47 @@ def test_install_ps1_exposes_root_and_required_contract():
     assert "Start-Process" not in content
 
 
+def test_install_ps1_delimits_version_interpolation():
+    content = INSTALL_PS1.read_text(encoding="utf-8")
+
+    assert '$($candidate.Label) -> Python $($version): rejected; $reasonText' in content
+    assert '$($candidate.Label) -> Python $version: rejected; $reasonText' not in content
+
+
 def _powershell_executable():
     for name in ("pwsh", "powershell"):
         executable = shutil.which(name)
         if executable:
             return executable
     return None
+
+
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")
+def test_install_ps1_parses_without_errors():
+    powershell = _powershell_executable()
+    env = os.environ.copy()
+    env["INSTALL_PS1_PATH"] = str(INSTALL_PS1)
+    parser_script = r'''
+$path = [Environment]::GetEnvironmentVariable("INSTALL_PS1_PATH")
+$tokens = $null
+$errors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+if ($errors.Count -ne 0) {
+    $errors | ForEach-Object { Write-Error $_.Message }
+    exit 1
+}
+exit 0
+'''
+
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", parser_script],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 POWERSHELL_POSIX_TOOL = r'''#!/bin/sh
