@@ -31,6 +31,7 @@ The containerized environment operates under defined technical constraints to en
 - **`PYTHONUNBUFFERED=1`**: Forces stdout and stderr streams to be unbuffered. This guarantees real-time log ingestion by Docker/system daemons without buffering delays.
 - **`PYTHONPATH=/app/src`**: Registers the server source code directory into Python's `sys.path`, ensuring standard import resolution across all modules.
 - **`PLAYWRIGHT_HEADLESS=true`**: Enforces headless operation for browser runtimes inside headless server environments.
+- **Non-root execution**: The application runs as Playwright's `pwuser`; build arguments `APP_UID` and `APP_GID` default to `1000:1000` and control its numeric IDs.
 
 ---
 
@@ -46,6 +47,7 @@ The service is defined in `docker-compose.yml` for production execution:
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
 - **Port Exposure**: Maps host port `6969` to container port `6969`.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
+- **UID/GID Contract**: Native Linux deployments should build with `APP_UID` and `APP_GID` matching the host user that owns `runtime/`.
 - **Persistent Runtime State**: Mounts `./config.conf` (read-only) and `./runtime` into the container to preserve application settings, browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.
 
 ### 3.2 Runtime Topology
@@ -75,6 +77,8 @@ Browser session data is persisted through mounted volumes, ensuring it survives 
 - **Bind mount configuration**:
   - Maps the local host file `./config.conf` to `/app/config.conf` (read-only).
   - Maps the local host path `./runtime` to `/app/runtime`.
+- **Host file precondition**: Compose does not create missing bind sources; `config.conf` and `runtime/` must exist, while `.env` is required by `env_file`.
+- **Host preflight**: The canonical `make up` and `make up-attach` targets require `runtime/` to exist before Docker starts, preventing daemon-created root-owned bind sources.
 - **Volume persistence**: Runtime-generated state files are written within the mounted volume, surviving container recreation.
 
 ---
@@ -85,8 +89,8 @@ The included `Makefile` provides operational targets for managing the container 
 
 | Command | Operation | Details |
 | :--- | :--- | :--- |
-| `make build` | `docker build -t cornatul/webai.ai:latest .` | Builds the local Docker image using the default cache. |
-| `make build-fresh` | `docker build --no-cache -t cornatul/webai.ai:latest .` | Rebuilds the container from scratch, ignoring cached layers. |
+| `make build` | `docker build` with `APP_UID`/`APP_GID` build arguments | Builds the local Docker image using the default cache. |
+| `make build-fresh` | `docker build --no-cache` with `APP_UID`/`APP_GID` build arguments | Rebuilds the container from scratch, ignoring cached layers. |
 | `make up` | `docker compose up -d` | Launches the container in detached mode using the project's Docker Compose configuration. |
 | `make up-attach` | `docker compose up` | Launches the container in the foreground and streams logs to the terminal. |
 | `make logs` | `docker compose logs -f web_ai` | Follows logs from the running `web_ai` service. |

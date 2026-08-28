@@ -36,9 +36,27 @@ cp .env.example .env
 cp config.conf.example config.conf
 ```
 
-**Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. They must exist as files on your host machine before starting the container; if they are missing, Docker Compose may incorrectly create them as directories, causing the application to fail. Run `python scripts/bootstrap.py` to ensure they are correctly initialized. 
+**Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. They must exist as files on your host machine before starting the container; Compose rejects missing bind-mount sources. Run `python scripts/bootstrap.py` to ensure they are correctly initialized. 
 
 Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
+
+### Container UID/GID
+
+The image runs the application as Playwright's non-root `pwuser`. `APP_UID` and
+`APP_GID` control that user's numeric IDs and default to `1000:1000`. On native
+Linux, match them to the host user that owns `runtime/` before building:
+
+```bash
+APP_UID=$(id -u) APP_GID=$(id -g) make build
+```
+
+Changing these values requires an image rebuild. Do not use `chown -R` or broad
+permissions on `runtime/`; the container must use the host user's existing
+private ownership and modes.
+
+`make up` and `make up-attach` require `runtime/` to already exist. Run
+`python scripts/bootstrap.py` first rather than allowing Docker to create the
+bind-mount source directory.
 
 **Note:** `.env` is untracked and user-owned. If a `git pull` reports a conflict on `.env`, your local copy is preserved; resolve with:
 
@@ -202,8 +220,8 @@ Gemini WebAPI and Playwright support request-scoped Extended Thinking through `p
 The Docker configuration uses bind mounts to persist data and load settings:
 
 ```text
-./config.conf:/app/config.conf:ro
-./runtime:/app/runtime
+./config.conf -> /app/config.conf (read-only bind mount)
+./runtime -> /app/runtime (read-write bind mount)
 ```
 
 ### 1. Configuration (`config.conf`)

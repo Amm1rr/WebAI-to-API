@@ -113,8 +113,12 @@ For Docker deployments:
 
 ```bash
 git pull
-docker compose up -d --build
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
 ```
+
+Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and `runtime/`
+exist. Non-Linux hosts can use the documented defaults or their Docker Desktop
+equivalent; see the [Docker Deployment Guide](docs/docker.md).
 
 See the [Updater Guide](docs/updating.md) for update checks, rollback behavior,
 locking, protected files, and platform-specific details.

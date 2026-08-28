@@ -4,7 +4,11 @@
 
 services:
   web_ai:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     image: cornatul/webai.ai
     container_name: web_ai_server
     restart: always
@@ -18,5 +22,14 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-}
       - DISABLE_ACCESS_LOGS=${DISABLE_ACCESS_LOGS:-false}
     volumes:
-      - ./config.conf:/app/config.conf:ro
-      - ./runtime:/app/runtime
+      - type: bind
+        source: ./config.conf
+        target: /app/config.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime
+        target: /app/runtime
+        bind:
+          create_host_path: false
