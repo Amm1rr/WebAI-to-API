@@ -4,11 +4,13 @@ This directory contains user guides and runtime specifications for WebAI-to-API.
 
 ## User Guides
 
+* [Installation Guide](installation.md)
 * [API Documentation](api.md)
 * [Configuration Guide](configuration.md)
 * [Architecture Guide](architecture.md)
 * [Docker Deployment Guide](docker.md)
 * [Dashboard Guide](dashboard.md)
+* [Updater Guide](updating.md)
 
 ## Runtime Specifications
 
