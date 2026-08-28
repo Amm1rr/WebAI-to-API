@@ -156,6 +156,29 @@ async def verify_login():
         print("="*60 + "\n")
         
         login_detected = False
+        persistence_error = None
+
+        async def persist_state():
+            nonlocal persistence_error
+            try:
+                persisted = await session.save_state()
+            except Exception:
+                logger.error(
+                    "Failed to persist authenticated state to %s.",
+                    resolved_path,
+                    exc_info=True,
+                )
+                persisted = False
+
+            if persisted:
+                return True
+
+            if persistence_error is None:
+                persistence_error = RuntimeError(
+                    f"Authenticated state could not be persisted to: {resolved_path}"
+                )
+                print(f"\n[ERROR] {persistence_error}", file=sys.stderr)
+            return False
  
         async def auto_save_loop():
             nonlocal login_detected
@@ -164,16 +187,18 @@ async def verify_login():
                     # Check if we are logged in by looking for the input box
                     input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                     if input_exists and not login_detected:
-                        login_detected = True
                         # Use session-scoped save_state
-                        await session.save_state()
+                        if not await persist_state():
+                            return
+                        login_detected = True
                         print(f"\n[SUCCESS] Login detected! State saved atomically to: {resolved_path}")
                         print("You can now safely press ENTER to finish.")
                     
                     # Periodic backup every 20 seconds
                     await asyncio.sleep(20)
                     if login_detected:
-                        await session.save_state()
+                        if not await persist_state():
+                            return
             except asyncio.CancelledError:
                 raise
             except PlaywrightError:
@@ -198,13 +223,16 @@ async def verify_login():
             
             # Deterministic shutdown ordering
             # 1. Final session save
-            if login_detected:
-                await session.save_state()
-                print(f"\n[FINAL SAVE] Verified persistent state saved to: {resolved_path}")
+            if login_detected and persistence_error is None:
+                if await persist_state():
+                    print(f"\n[FINAL SAVE] Verified persistent state saved to: {resolved_path}")
             
             # 2. Release managed resources (closes page and releases semaphore)
             if page_wrapper:
                 await page_wrapper.close()
+
+            if persistence_error is not None:
+                raise persistence_error
                 
             print("Manual bootstrap utility successfully completed and exiting...")
 

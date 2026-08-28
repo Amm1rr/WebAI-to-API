@@ -75,24 +75,38 @@ async def test_completion_signal_returns_when_page_closes():
     assert result == "page_closed"
 
 
-@pytest.mark.asyncio
-async def test_verify_login_releases_page_when_browser_completion_signal_fires(mocker):
+def _verify_login_mocks(mocker, save_results):
     page = MagicMock()
     page.goto = AsyncMock()
+    visible = AsyncMock(return_value=True)
+    locator = MagicMock()
+    locator.first.is_visible = visible
+    page.locator = MagicMock(return_value=locator)
 
     page_wrapper = MagicMock()
     page_wrapper.page = page
     page_wrapper.close = AsyncMock()
 
+    save_finished = asyncio.Event()
+
+    async def save_state():
+        result = save_results.pop(0)
+        save_finished.set()
+        return result
+
     session = MagicMock()
     session.state_path = "runtime/auth/gemini.json"
     session.is_alive = True
-    session.save_state = AsyncMock()
+    session.save_state = AsyncMock(side_effect=save_state)
 
     engine = MagicMock()
     engine.get_page = AsyncMock(return_value=page_wrapper)
     engine.get_session = AsyncMock(return_value=session)
     engine.close = AsyncMock()
+
+    async def wait_for_completion(*args):
+        await save_finished.wait()
+        return "engine_shutdown"
 
     mocker.patch.object(
         verify_login,
@@ -102,12 +116,54 @@ async def test_verify_login_releases_page_when_browser_completion_signal_fires(m
     mocker.patch.object(
         verify_login,
         "_wait_for_completion_signal",
-        AsyncMock(return_value="engine_shutdown"),
+        AsyncMock(side_effect=wait_for_completion),
     )
+    return session, page_wrapper, engine
+
+
+@pytest.mark.asyncio
+async def test_verify_login_releases_page_when_browser_completion_signal_fires(mocker, capsys):
+    session, page_wrapper, engine = _verify_login_mocks(mocker, [True, True])
 
     await verify_login.verify_login()
 
+    captured = capsys.readouterr()
+    assert "[SUCCESS] Login detected! State saved atomically" in captured.out
+    assert "[FINAL SAVE] Verified persistent state saved" in captured.out
+    assert "Manual bootstrap utility successfully completed" in captured.out
     engine.get_page.assert_called_once_with("gemini", enable_persistence=True)
     engine.get_session.assert_called_once_with("gemini", enable_persistence=True)
     page_wrapper.close.assert_called_once()
     engine.close.assert_called_once()
+    assert session.save_state.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_verify_login_reports_success_only_after_initial_state_persists(mocker, capsys):
+    session, page_wrapper, engine = _verify_login_mocks(mocker, [False])
+
+    with pytest.raises(RuntimeError, match="could not be persisted"):
+        await verify_login.verify_login()
+
+    captured = capsys.readouterr()
+    assert "[SUCCESS]" not in captured.out
+    assert "[ERROR] Authenticated state could not be persisted" in captured.err
+    page_wrapper.close.assert_called_once()
+    engine.close.assert_called_once()
+    session.save_state.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_verify_login_reports_final_save_failure_after_cleanup(mocker, capsys):
+    session, page_wrapper, engine = _verify_login_mocks(mocker, [True, False])
+
+    with pytest.raises(RuntimeError, match="could not be persisted"):
+        await verify_login.verify_login()
+
+    captured = capsys.readouterr()
+    assert "[SUCCESS] Login detected! State saved atomically" in captured.out
+    assert "[FINAL SAVE]" not in captured.out
+    assert "[ERROR] Authenticated state could not be persisted" in captured.err
+    page_wrapper.close.assert_called_once()
+    engine.close.assert_called_once()
+    assert session.save_state.await_count == 2

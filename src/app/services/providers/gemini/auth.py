@@ -177,8 +177,9 @@ class GeminiAuthStrategy:
                     last_state = current_state
 
                 if current_state == "authenticated_chat_detected":
+                    if not await session.save_state():
+                        raise RuntimeError("Authenticated state could not be persisted.")
                     login_detected = True
-                    await session.save_state()
                     logger.info("GeminiAuthStrategy: Success! Google sign-in detected and state saved atomically.")
                     break
 

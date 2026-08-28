@@ -234,16 +234,71 @@ async def test_save_state_hardens_auth_state_and_repeated_replacements(
         return_value=True,
     )
 
-    await session.save_state()
+    assert await session.save_state() is True
     assert state_path.read_text(encoding="utf-8") == '{"cookies": [], "origins": []}'
     assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
     assert len(written_paths) == 1
     assert not list(auth_dir.glob(".gemini.json.*.tmp"))
 
     os.chmod(state_path, 0o644)
-    await session.save_state()
+    assert await session.save_state() is True
     assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
     assert len(written_paths) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ("storage_state", "replace"))
+async def test_save_state_reports_failure_and_preserves_existing_state(
+    mocker, monkeypatch, tmp_path, failure
+):
+    from app.services.browser import session as session_module
+
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    state_path = auth_dir / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(auth_dir))
+
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.context = MagicMock()
+
+    async def write_state(path):
+        Path(path).write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+
+    if failure == "storage_state":
+        session.context.storage_state = AsyncMock(side_effect=OSError("disk full"))
+    else:
+        session.context.storage_state = AsyncMock(side_effect=write_state)
+        mocker.patch.object(session_module.os, "replace", side_effect=OSError("replace failed"))
+
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    assert await session.save_state() is False
+    assert state_path.read_text(encoding="utf-8") == "old state"
+    assert not list(auth_dir.glob(".gemini.json.*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_save_state_returns_false_without_runtime_persistence(mocker):
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=False)
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock()
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    assert await session.save_state() is False
+    session.context.storage_state.assert_not_awaited()
 
 
 @pytest.mark.asyncio

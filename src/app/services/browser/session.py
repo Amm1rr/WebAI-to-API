@@ -962,15 +962,16 @@ class ProviderSession:
         # Delegate terminal shutdown to engine
         self.engine._on_browser_disconnected()
 
-    async def save_state(self):
-        if not self.is_alive: return
+    async def save_state(self) -> bool:
+        if not self.is_alive:
+            return False
         # The runtime API service does not contain an active persistence execution path.
         if not self.enable_persistence:
             logger.warning(
                 f"ProviderSession({self.name}): save_state called outside of manual bootstrap utility flow. "
                 "Persistence is disabled during active runtime API service execution."
             )
-            return
+            return False
         async with self.state_lock:
             tmp_path = None
             try:
@@ -994,11 +995,13 @@ class ProviderSession:
                     os.fsync(f.fileno())
                 os.replace(tmp_path, self.state_path)
                 tmp_path = None
+                return True
             except Exception as e:
                 logger.warning(
                     f"ProviderSession({self.name}): Failed to save state; final state was not replaced: {e}",
                     extra={"generation": self.last_browser_generation}
                 )
+                return False
             finally:
                 if tmp_path is not None and os.path.exists(tmp_path):
                     try: os.remove(tmp_path)
