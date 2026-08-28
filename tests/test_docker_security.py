@@ -73,8 +73,11 @@ def test_compose_passes_uid_gid_build_contract_and_preserves_mounts():
     assert makefile.count("--build-arg APP_GID=$${APP_GID:-1000}") == 2
     assert "source: ./config.conf" in compose
     assert "target: /app/config.conf" in compose
-    assert "source: ./runtime" in compose
+    assert "source: ${DOCKER_RUNTIME_DIR:-./runtime}" in compose
     assert "target: /app/runtime" in compose
+    assert "- RUNTIME_DIR=/app/runtime" in compose
+    assert "- AUTH_STATE_DIR=/app/runtime/auth" in compose
+    assert "- CONVERSATION_SNAPSHOT_DB=/app/runtime/conversations/conversation_snapshots.db" in compose
     assert compose.count("create_host_path: false") == 2
     assert "read_only: true" in compose
 
@@ -102,14 +105,24 @@ def _compose_fixture(tmp_path):
     return project, compose
 
 
-def _run_compose_config(project, compose, web_port=None, bind_address=None, override=None):
+def _run_compose_config(
+    project,
+    compose,
+    web_port=None,
+    bind_address=None,
+    docker_runtime_dir=None,
+    override=None,
+):
     env = os.environ.copy()
     env.pop("WEB_PORT", None)
     env.pop("DOCKER_BIND_ADDRESS", None)
+    env.pop("DOCKER_RUNTIME_DIR", None)
     if web_port is not None:
         env["WEB_PORT"] = str(web_port)
     if bind_address is not None:
         env["DOCKER_BIND_ADDRESS"] = str(bind_address)
+    if docker_runtime_dir is not None:
+        env["DOCKER_RUNTIME_DIR"] = str(docker_runtime_dir)
     command = [
         "docker",
         "compose",
@@ -175,6 +188,51 @@ def test_compose_resolves_bind_and_port_overrides(tmp_path):
     assert int(port["target"]) == 6969
 
 
+def _resolved_service(result):
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["services"]["web_ai"]
+
+
+def test_compose_resolves_runtime_source_and_fixed_container_paths(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+    custom_source = project / "state with spaces"
+    custom_source.mkdir()
+    (project / ".env").write_text(
+        "RUNTIME_DIR=/native/runtime\n"
+        "AUTH_STATE_DIR=/native/auth\n"
+        "CONVERSATION_SNAPSHOT_DB=:memory:\n",
+        encoding="utf-8",
+    )
+
+    default = _resolved_service(_run_compose_config(project, compose))
+    custom = _resolved_service(
+        _run_compose_config(project, compose, docker_runtime_dir="state with spaces")
+    )
+
+    assert default["volumes"][1]["source"] == str(project / "runtime")
+    assert custom["volumes"][1]["source"] == str(custom_source)
+    assert custom["volumes"][1]["target"] == "/app/runtime"
+    environment = custom["environment"]
+    assert environment["RUNTIME_DIR"] == "/app/runtime"
+    assert environment["AUTH_STATE_DIR"] == "/app/runtime/auth"
+    assert environment["CONVERSATION_SNAPSHOT_DB"] == "/app/runtime/conversations/conversation_snapshots.db"
+
+
+def test_compose_resolves_absolute_runtime_source(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+    source = tmp_path / "external runtime"
+    source.mkdir()
+
+    service = _resolved_service(
+        _run_compose_config(project, compose, docker_runtime_dir=source)
+    )
+
+    assert service["volumes"][1]["source"] == str(source)
+    assert service["volumes"][1]["target"] == "/app/runtime"
+
+
 def test_compose_override_inherits_secure_port_mapping(tmp_path):
     _require_docker_compose()
     project, compose = _compose_fixture(tmp_path)
@@ -221,8 +279,8 @@ def test_dockerignore_excludes_local_credentials_and_state():
 def test_make_docker_start_requires_host_runtime_directory():
     makefile = _read("Makefile")
 
-    assert makefile.count("test -d runtime") == 2
-    assert "runtime missing or is not a directory" in makefile
+    assert makefile.count('test -d "$(DOCKER_RUNTIME_DIR)"') == 2
+    assert "Docker runtime source" in makefile
 
 
 @pytest.mark.skipif(
@@ -245,7 +303,7 @@ def test_make_up_rejects_missing_runtime_before_docker(tmp_path):
 
     output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert "runtime missing or is not a directory" in output
+    assert "Docker runtime source './runtime' missing or is not a directory" in output
 
 
 @pytest.mark.skipif(
@@ -281,6 +339,35 @@ def test_make_up_preserves_existing_runtime_before_docker(tmp_path):
 
     assert result.returncode == 0
     assert marker.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or shutil.which("make") is None,
+    reason="POSIX make workflow",
+)
+def test_make_up_uses_custom_runtime_source_with_spaces(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    shutil.copy2(ROOT / "Makefile", project / "Makefile")
+    (project / "config.conf").write_text("[General]\n", encoding="utf-8")
+    (project / ".env").write_text(
+        "DOCKER_RUNTIME_DIR=state with spaces\n", encoding="utf-8"
+    )
+    source = project / "state with spaces"
+    source.mkdir()
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    docker = tools / "docker"
+    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    docker.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+    result = subprocess.run(
+        ["make", "up"], cwd=project, env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0
 
 
 @pytest.mark.skipif(

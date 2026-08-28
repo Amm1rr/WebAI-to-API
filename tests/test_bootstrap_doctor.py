@@ -137,6 +137,53 @@ class TestBootstrapDoctor(unittest.TestCase):
         for relative_path in ("", "auth", "cache", "conversations"):
             self.assertTrue(os.path.isdir(os.path.join(runtime_dir, relative_path)))
 
+    def test_bootstrap_creates_custom_docker_runtime_source(self):
+        source = os.path.join(self.test_dir, "docker state with spaces")
+        env = {**os.environ, "DOCKER_RUNTIME_DIR": source}
+
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir, capture_output=True, text=True, env=env,
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertTrue(os.path.isdir(source))
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(os.stat(source).st_mode), 0o700)
+
+    def test_bootstrap_rejects_docker_runtime_source_file(self):
+        source = os.path.join(self.test_dir, "docker source")
+        with open(source, "w", encoding="utf-8") as handle:
+            handle.write("not a directory")
+
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DOCKER_RUNTIME_DIR": source},
+        )
+
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Docker runtime source", res.stderr)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+    def test_bootstrap_preserves_existing_external_docker_runtime_source_mode(self):
+        source = os.path.join(self.test_dir, "external docker source")
+        os.makedirs(source)
+        os.chmod(source, 0o755)
+
+        res = subprocess.run(
+            ["python", self.bootstrap_path, "--no-install"],
+            cwd=self.test_dir,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DOCKER_RUNTIME_DIR": source},
+        )
+
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(stat.S_IMODE(os.stat(source).st_mode), 0o755)
+
     def test_bootstrap_uses_custom_auth_path_without_default_auth_dir(self):
         runtime_dir = os.path.join(self.test_dir, "runtime")
         auth_dir = os.path.join(self.test_dir, "private auth")
@@ -416,6 +463,23 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.assertIn(os.path.join(auth_dir, "gemini.json"), res.stdout)
         self.assertFalse(os.path.exists(runtime_dir))
         self.assertFalse(os.path.exists(auth_dir))
+
+    def test_doctor_reports_docker_runtime_source_separately(self):
+        source = os.path.join(self.test_dir, "docker source")
+        os.makedirs(source)
+        with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+            handle.write("[Gemini]\n")
+
+        res = subprocess.run(
+            ["python", self.doctor_path],
+            cwd=self.test_dir,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DOCKER_RUNTIME_DIR": source},
+        )
+
+        self.assertIn("Docker Runtime", res.stdout)
+        self.assertIn(f"{source} -> /app/runtime", res.stdout)
 
     def test_doctor_checks_resolved_auth_json_path(self):
         runtime_dir = os.path.join(self.test_dir, "runtime")

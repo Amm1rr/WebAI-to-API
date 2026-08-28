@@ -153,8 +153,9 @@ The project has no caller API authentication. Keep the default localhost bind,
 or put external authentication in front of the entire service before exposing
 it to an untrusted network.
 
-Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and `runtime/`
-exist. This is pre-Poetry host setup; Windows users should prefer
+Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and Docker's
+runtime source exist. Docker defaults to `./runtime`; set `DOCKER_RUNTIME_DIR`
+to choose a different host source mounted at `/app/runtime`. This is pre-Poetry host setup; Windows users should prefer
 `.\install.ps1`. Non-Linux hosts can use the documented defaults or their Docker
 Desktop equivalent; see the [Docker Deployment Guide](docs/docker.md).
 
@@ -192,6 +193,19 @@ Gemini requires an authenticated Google session.
    ```
 2. Complete the sign-in process in the browser window.
 3. A successful login creates one shared configured auth-state file for Playwright and WebAPI, defaulting to `runtime/auth/gemini.json`.
+
+For Docker, use the selected `DOCKER_RUNTIME_DIR` for both native login paths so
+existing native auth overrides cannot redirect state outside the Docker mount:
+
+```bash
+RUNTIME_DIR=runtime AUTH_STATE_DIR=runtime/auth poetry run python verify_login.py
+```
+
+For `DOCKER_RUNTIME_DIR=/srv/webai/runtime`:
+
+```bash
+RUNTIME_DIR=/srv/webai/runtime AUTH_STATE_DIR=/srv/webai/runtime/auth poetry run python verify_login.py
+```
 
 ### 2. Manual Cookies
 1. Sign in to [Gemini](https://gemini.google.com/).

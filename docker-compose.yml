@@ -19,6 +19,10 @@ services:
     environment:
       - PYTHONPATH=/app/src
       - PLAYWRIGHT_HEADLESS=true
+      # Keep application state below the fixed bind target, not native host paths from .env.
+      - RUNTIME_DIR=/app/runtime
+      - AUTH_STATE_DIR=/app/runtime/auth
+      - CONVERSATION_SNAPSHOT_DB=/app/runtime/conversations/conversation_snapshots.db
       - LOG_LEVEL=${LOG_LEVEL:-}
       - DISABLE_ACCESS_LOGS=${DISABLE_ACCESS_LOGS:-false}
     volumes:
@@ -29,7 +33,7 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ./runtime
+        source: ${DOCKER_RUNTIME_DIR:-./runtime}
         target: /app/runtime
         bind:
           create_host_path: false

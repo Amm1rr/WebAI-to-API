@@ -220,9 +220,14 @@ state locations:
 | `[Playwright].auth_state_dir` | Directory containing persisted browser storage state. | `runtime/auth/`; when the option is absent, the derived default is `RUNTIME_DIR/auth/` |
 | `AUTH_STATE_DIR` | Environment override for `[Playwright].auth_state_dir`. | Unset |
 | `CONVERSATION_SNAPSHOT_DB` | SQLite path for persistent Gemini WebAPI conversation snapshots. | `RUNTIME_DIR/conversations/conversation_snapshots.db` |
+| `DOCKER_RUNTIME_DIR` | Docker host directory mounted at `/app/runtime`; not used by native application path resolution. | `./runtime` |
 
-For Docker, keep configured authentication and conversation paths inside the
-mounted `runtime/` tree unless you provide an equivalent separate mount.
+These settings control native execution. Docker Compose ignores their `.env`
+values for container path selection and fixes application paths to
+`/app/runtime`, `/app/runtime/auth`, and
+`/app/runtime/conversations/conversation_snapshots.db`. Set
+`DOCKER_RUNTIME_DIR` to choose Docker's host bind source; independent Docker
+auth or conversation database mounts are not supported.
 
 ### Conversation SQLite Storage
 
@@ -267,10 +272,12 @@ ACLs remain authoritative.
 For Playwright deployments:
 
 1. The Docker process may start without an existing Playwright auth JSON.
-2. For authenticated Playwright operations, run the host workflow:
-   `poetry run python verify_login.py`.
-3. Generate the configured storage-state file, defaulting to
-   `runtime/auth/gemini.json`.
+2. For the default Docker source, run the host workflow:
+   `RUNTIME_DIR=runtime AUTH_STATE_DIR=runtime/auth poetry run python verify_login.py`.
+   For `DOCKER_RUNTIME_DIR=/srv/webai/runtime`, run
+   `RUNTIME_DIR=/srv/webai/runtime AUTH_STATE_DIR=/srv/webai/runtime/auth poetry run python verify_login.py`.
+3. This writes `auth/gemini.json` below the selected Docker runtime source.
+   Explicit `AUTH_STATE_DIR` prevents native auth overrides from redirecting it.
 4. Restart or recreate the container after generating or refreshing state so a
    new browser context loads the mounted file.
 

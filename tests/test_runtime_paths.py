@@ -72,6 +72,32 @@ def test_auth_state_dir_environment_overrides_explicit_config_path(monkeypatch):
     assert resolve_auth_state_dir("separate_auth") == "environment_auth"
 
 
+def test_documented_docker_login_auth_path_overrides_native_configuration(
+    tmp_path, monkeypatch
+):
+    docker_source = tmp_path / "docker runtime"
+    expected_auth_dir = docker_source / "auth"
+    config_path = tmp_path / "config.conf"
+    config_path.write_text(
+        f"[Playwright]\nauth_state_dir = {tmp_path / 'conflicting auth'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DOCKER_RUNTIME_DIR", str(docker_source))
+    monkeypatch.setenv("RUNTIME_DIR", str(docker_source))
+    monkeypatch.setenv("AUTH_STATE_DIR", "/wrong/environment/auth")
+
+    config = load_config(str(config_path))
+
+    assert resolve_auth_state_dir(config["Playwright"]["auth_state_dir"]) == "/wrong/environment/auth"
+
+    # This is the explicit override supplied by Docker's documented host-login command.
+    monkeypatch.setenv("AUTH_STATE_DIR", str(expected_auth_dir))
+
+    assert resolve_auth_state_dir(config["Playwright"]["auth_state_dir"]) == str(
+        expected_auth_dir
+    )
+
+
 def test_conversation_database_environment_override_and_memory(monkeypatch):
     monkeypatch.setenv("CONVERSATION_SNAPSHOT_DB", "custom state/conversations.db")
     assert resolve_conversation_snapshot_db() == "custom state/conversations.db"

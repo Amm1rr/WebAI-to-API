@@ -129,6 +129,32 @@ def setup_directories(check_mode=False, configured_auth_state_dir=None):
             return False
     return True
 
+
+def setup_docker_runtime_source(check_mode=False):
+    source = os.environ.get("DOCKER_RUNTIME_DIR", "runtime")
+    if os.path.exists(source):
+        if not os.path.isdir(source):
+            print_error(f"Docker runtime source {source} exists but is not a directory.")
+            return False
+        print_step(f"Docker runtime source already exists: {source}")
+        return True
+
+    if check_mode:
+        print_step(f"[DRY-RUN] Would create Docker runtime source: {source}")
+        return True
+
+    try:
+        if os.name == "posix":
+            os.makedirs(source, mode=PRIVATE_DIR_MODE, exist_ok=True)
+        else:
+            os.makedirs(source, exist_ok=True)
+    except OSError as error:
+        print_error(f"Cannot create Docker runtime source {source}: {error}")
+        return False
+
+    print_step(f"Created Docker runtime source: {source}")
+    return _harden_posix_mode(source, PRIVATE_DIR_MODE)
+
 def setup_config(check_mode=False):
     # Handle config.conf
     if os.path.isdir(CONFIG_FILE):
@@ -229,6 +255,9 @@ def main():
         sys.exit(1)
 
     if not setup_directories(args.check, get_configured_auth_state_dir()):
+        sys.exit(1)
+
+    if not setup_docker_runtime_source(args.check):
         sys.exit(1)
 
     if not args.no_install:

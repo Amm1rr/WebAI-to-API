@@ -189,6 +189,20 @@ def check_runtime_dirs(config):
         )
         return False
 
+
+def check_docker_runtime_source():
+    source = os.environ.get("DOCKER_RUNTIME_DIR", "runtime")
+    if os.path.isdir(source):
+        print_status("Docker Runtime", "PASS", f"{source} -> /app/runtime")
+    else:
+        print_status(
+            "Docker Runtime",
+            "WARN",
+            f"{source} is missing or not a directory; Docker requires {source} -> /app/runtime. "
+            "Run: python scripts/bootstrap.py",
+            Colors.WARNING,
+        )
+
 def check_platform():
     _, pretty_name, is_arch_based = get_linux_distro()
     
@@ -410,6 +424,7 @@ def main():
     if not poetry_ok: has_fail = True
 
     if config_ok and not check_runtime_dirs(config): has_fail = True
+    check_docker_runtime_source()
     
     is_arch_based = check_platform()
 
