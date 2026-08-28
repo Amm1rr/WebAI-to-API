@@ -1,8 +1,71 @@
+import importlib
+import logging
 import os
 import stat
+import sys
+import types
 from pathlib import Path
 
 from app.utils import browser
+
+
+def _crypto_modules():
+    win32crypt = types.ModuleType("win32crypt")
+    cipher = types.ModuleType("Cryptodome.Cipher")
+    cipher.AES = object()
+    cryptodome = types.ModuleType("Cryptodome")
+    cryptodome.__path__ = []
+    cryptodome.Cipher = cipher
+    return {
+        "win32crypt": win32crypt,
+        "Cryptodome": cryptodome,
+        "Cryptodome.Cipher": cipher,
+    }
+
+
+def test_windows_crypto_import_uses_pycryptodomex_namespace(monkeypatch):
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(browser.platform, "system", lambda: "Windows")
+            for name, module in _crypto_modules().items():
+                patch.setitem(sys.modules, name, module)
+
+            reloaded = importlib.reload(browser)
+
+            assert reloaded.HAS_CRYPTO is True
+            assert reloaded.AES is sys.modules["Cryptodome.Cipher"].AES
+    finally:
+        importlib.reload(browser)
+
+
+def test_windows_crypto_import_warning_matches_project_dependency(caplog, monkeypatch):
+    caplog.set_level(logging.WARNING)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(browser.platform, "system", lambda: "Windows")
+            patch.setitem(sys.modules, "win32crypt", types.ModuleType("win32crypt"))
+            patch.setitem(sys.modules, "Cryptodome", None)
+            patch.setitem(sys.modules, "Cryptodome.Cipher", None)
+
+            reloaded = importlib.reload(browser)
+
+            assert reloaded.HAS_CRYPTO is False
+            assert "Install project dependencies with Poetry." in caplog.text
+            assert "pycryptodome" not in caplog.text.lower()
+    finally:
+        importlib.reload(browser)
+
+
+def test_non_windows_crypto_import_remains_disabled(monkeypatch):
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(browser.platform, "system", lambda: "Linux")
+
+            reloaded = importlib.reload(browser)
+
+            assert reloaded.HAS_CRYPTO is False
+    finally:
+        importlib.reload(browser)
 
 
 def test_chromium_cookie_copy_preserves_destination_mode(monkeypatch, tmp_path):

@@ -14,11 +14,11 @@ from app.config import CONFIG
 if platform.system().lower() == "windows":
     try:
         import win32crypt
-        from Crypto.Cipher import AES
+        from Cryptodome.Cipher import AES
         HAS_CRYPTO = True
     except ImportError:
         HAS_CRYPTO = False
-        logging.warning("Windows crypto libraries not available. Install with: pip install pywin32 pycryptodome")
+        logging.warning("Windows crypto libraries not available. Install project dependencies with Poetry.")
 else:
     HAS_CRYPTO = False
 
