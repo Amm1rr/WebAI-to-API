@@ -40,6 +40,16 @@ cp config.conf.example config.conf
 
 Changes to `config.conf` or `.env` on the host are reflected in the container after a restart; an image rebuild is not required for configuration-only updates. Do NOT commit `config.conf` or `.env` as they may contain secrets.
 
+### Host Port
+
+Docker Compose publishes host port `6969` to the container's fixed application port `6969` by default. To use a different host port, set the optional `WEB_PORT` value in `.env`:
+
+```env
+WEB_PORT=8080
+```
+
+Then access the service at `http://localhost:8080`. This changes only the host-facing port; the application still listens on container port `6969`, and no application configuration change is required. Host-interface exposure remains unchanged because the Compose mapping does not specify a host IP.
+
 ### Container UID/GID
 
 The image runs the application as Playwright's non-root `pwuser`. `APP_UID` and

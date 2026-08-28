@@ -45,7 +45,8 @@ The service is defined in `docker-compose.yml` for production execution:
 
 - **Detached Execution**: The service is typically run using `docker compose up -d` to prevent interruption from terminal closures.
 - **Container Restart Policy**: Enforces `restart: always` to automatically recover from process crashes or host reboots.
-- **Port Exposure**: Maps host port `6969` to container port `6969`.
+- **Port Exposure**: Publishes host port `${WEB_PORT:-6969}` to the fixed container application port `6969`. Setting `WEB_PORT=8080` makes the service available at `http://localhost:8080`; the application continues listening on container port `6969`.
+- **Host Interface Exposure**: The host IP remains unspecified, so changing `WEB_PORT` changes only the published port number and not exposure scope.
 - **Environment Configuration**: Loads variables from `.env` and applies container runtime settings such as `PYTHONPATH` and `PLAYWRIGHT_HEADLESS`.
 - **UID/GID Contract**: Native Linux deployments should build with `APP_UID` and `APP_GID` matching the host user that owns `runtime/`.
 - **Persistent Runtime State**: Mounts `./config.conf` (read-only) and `./runtime` into the container to preserve application settings, browser authentication state, conversation snapshots, and runtime-generated cache directories. Application logs are emitted to stdout/stderr.

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import re
@@ -48,10 +49,14 @@ def test_dockerfile_handles_only_known_ubuntu_uid_gid_conflicts():
 
 def test_compose_passes_uid_gid_build_contract_and_preserves_mounts():
     compose = _read("docker-compose.yml")
+    env_example = _read(".env.example")
     makefile = _read("Makefile")
 
     assert "APP_UID: ${APP_UID:-1000}" in compose
     assert "APP_GID: ${APP_GID:-1000}" in compose
+    assert '- "${WEB_PORT:-6969}:6969"' in compose
+    assert "# Optional Docker host port. Container application port remains 6969." in env_example
+    assert "# WEB_PORT=8080" in env_example
     assert makefile.count("--build-arg APP_UID=$${APP_UID:-1000}") == 2
     assert makefile.count("--build-arg APP_GID=$${APP_GID:-1000}") == 2
     assert "source: ./config.conf" in compose
@@ -60,6 +65,79 @@ def test_compose_passes_uid_gid_build_contract_and_preserves_mounts():
     assert "target: /app/runtime" in compose
     assert compose.count("create_host_path: false") == 2
     assert "read_only: true" in compose
+
+
+def _require_docker_compose():
+    if shutil.which("docker") is None:
+        pytest.skip("Docker CLI unavailable")
+    result = subprocess.run(
+        ["docker", "compose", "version"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("Docker Compose plugin unavailable")
+
+
+def _compose_fixture(tmp_path):
+    project = tmp_path / "compose-project"
+    project.mkdir()
+    compose = project / "docker-compose.yml"
+    shutil.copy2(ROOT / "docker-compose.yml", compose)
+    (project / ".env").write_text("", encoding="utf-8")
+    (project / "config.conf").write_text("[General]\n", encoding="utf-8")
+    (project / "runtime").mkdir()
+    return project, compose
+
+
+def _run_compose_config(project, compose, web_port=None):
+    env = os.environ.copy()
+    env.pop("WEB_PORT", None)
+    if web_port is not None:
+        env["WEB_PORT"] = str(web_port)
+    return subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--project-directory",
+            str(project),
+            "-f",
+            str(compose),
+            "config",
+            "--format",
+            "json",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _resolved_port(result):
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["services"]["web_ai"]["ports"][0]
+
+
+def test_compose_resolves_default_and_custom_host_ports(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+
+    default_port = _resolved_port(_run_compose_config(project, compose))
+    custom_port = _resolved_port(_run_compose_config(project, compose, 8080))
+
+    assert int(default_port["published"]) == 6969
+    assert int(default_port["target"]) == 6969
+    assert int(custom_port["published"]) == 8080
+    assert int(custom_port["target"]) == 6969
+
+
+def test_compose_rejects_invalid_host_port(tmp_path):
+    _require_docker_compose()
+    project, compose = _compose_fixture(tmp_path)
+
+    result = _run_compose_config(project, compose, "not-a-port")
+
+    assert result.returncode != 0
 
 
 def test_dockerignore_excludes_local_credentials_and_state():
