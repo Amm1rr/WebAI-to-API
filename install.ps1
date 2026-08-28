@@ -43,9 +43,9 @@ if ($null -ne $python) {
 }
 
 foreach ($candidate in $pythonCandidates) {
-    $probeArguments = @($candidate.Arguments) + @("-c", $pythonProbe)
+    $candidateArguments = @($candidate.Arguments)
     try {
-        $probeOutput = @(& $candidate.Executable @probeArguments 2>&1)
+        $probeOutput = @($pythonProbe | & $candidate.Executable @candidateArguments "-" 2>&1)
     }
     catch {
         $errorText = [string]$_.Exception.Message

@@ -200,6 +200,9 @@ def test_install_ps1_exposes_root_and_required_contract():
     assert "ConvertFrom-Json" in content
     assert "candidateDiagnostics" in content
     assert "rejected;" in content
+    assert '$pythonProbe | &' in content
+    assert ' @candidateArguments "-"' in content
+    assert '"-c"' not in content
     assert 'platform_name="nt"' in content
     assert 'foreach ($version in @("3.12", "3.11"))' in content
     assert "Get-Command python" in content
@@ -294,11 +297,11 @@ secure_version() {
 
 if [ "$name" = "py" ]; then
     case "${1:-}:${2:-}" in
-        -3.12:-c)
+        -3.12:-)
             if probe_version "${FAKE_PY312_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
-        -3.11:-c)
+        -3.11:-)
             if probe_version "${FAKE_PY311_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
@@ -324,7 +327,7 @@ fi
 
 if [ "$name" = "python" ]; then
     case "${1:-}" in
-        -c)
+        -)
             if [ "${FAKE_PYTHON_PROBE_FAILURE:-}" = "1" ]; then
                 printf '%s\n' "Python was not found; run without arguments to install from the Microsoft Store..." >&2
                 exit 1
@@ -353,11 +356,11 @@ if /I "%~nx0"=="python.cmd" goto python
 if /I "%~nx0"=="poetry.cmd" goto poetry
 exit /b 0
 :py
-if "%1"=="-3.12" if "%2"=="-c" (
+if "%1"=="-3.12" if "%2"=="-" (
     call :probe "%FAKE_PY312_VERSION%"
     if not errorlevel 1 exit /b 0
 )
-if "%1"=="-3.11" if "%2"=="-c" (
+if "%1"=="-3.11" if "%2"=="-" (
     call :probe "%FAKE_PY311_VERSION%"
     if not errorlevel 1 exit /b 0
 )
@@ -379,7 +382,7 @@ if "%1"=="-3.11" if "%2"=="scripts\doctor.py" (
 )
 exit /b 1
 :python
-if "%1"=="-c" (
+if "%1"=="-" (
     if "%FAKE_PYTHON_PROBE_FAILURE%"=="1" (
         echo Python was not found; run without arguments to install from the Microsoft Store... 1>&2
         exit /b 1
