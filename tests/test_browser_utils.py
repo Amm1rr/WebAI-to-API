@@ -111,3 +111,89 @@ def test_chromium_cookie_copy_preserves_destination_mode(monkeypatch, tmp_path):
         assert observed["mode"] == 0o600
     assert cookies[0].name == "__Secure-1PSID"
     assert cookies[0].value == "cookie-value"
+
+
+def test_firefox_cookie3_success_skips_windows_direct_fallback(monkeypatch):
+    extractor = browser.CrossPlatformCookieExtractor()
+    extractor.is_windows = True
+    cookies = [types.SimpleNamespace(name="__Secure-1PSID", value="cookie")]
+
+    monkeypatch.setattr(browser.browser_cookie3, "firefox", lambda: cookies)
+
+    def unexpected_profile_lookup(_browser_name):
+        raise AssertionError("Firefox direct fallback should not run")
+
+    monkeypatch.setattr(extractor, "_get_browser_profile_paths", unexpected_profile_lookup)
+
+    assert extractor.get_cookies_with_fallback("firefox") is cookies
+
+
+def test_firefox_cookie3_failure_returns_none_without_direct_fallback(monkeypatch):
+    extractor = browser.CrossPlatformCookieExtractor()
+    extractor.is_windows = True
+
+    def fail_firefox():
+        raise RuntimeError("cookie database unavailable")
+
+    monkeypatch.setattr(browser.browser_cookie3, "firefox", fail_firefox)
+
+    def unexpected_profile_lookup(_browser_name):
+        raise AssertionError("Firefox direct fallback should not run")
+
+    monkeypatch.setattr(extractor, "_get_browser_profile_paths", unexpected_profile_lookup)
+
+    assert extractor.get_cookies_with_fallback("firefox") is None
+
+
+def test_firefox_cookie3_empty_returns_none_without_direct_fallback(monkeypatch):
+    extractor = browser.CrossPlatformCookieExtractor()
+    extractor.is_windows = True
+
+    monkeypatch.setattr(browser.browser_cookie3, "firefox", lambda: [])
+
+    def unexpected_profile_lookup(_browser_name):
+        raise AssertionError("Firefox direct fallback should not run")
+
+    monkeypatch.setattr(extractor, "_get_browser_profile_paths", unexpected_profile_lookup)
+
+    assert extractor.get_cookies_with_fallback("firefox") is None
+
+
+def test_get_cookie_from_browser_returns_none_when_firefox_cookie3_fails(monkeypatch):
+    monkeypatch.setitem(browser.CONFIG["Browser"], "name", "firefox")
+
+    def fail_firefox():
+        raise RuntimeError("cookie database unavailable")
+
+    monkeypatch.setattr(browser.browser_cookie3, "firefox", fail_firefox)
+
+    assert browser.get_cookie_from_browser("gemini") is None
+
+
+def test_windows_chromium_direct_fallback_remains_available(monkeypatch, tmp_path):
+    cookies_db = tmp_path / "Cookies"
+    cookies_db.write_bytes(b"database")
+    extractor = browser.CrossPlatformCookieExtractor()
+    extractor.is_windows = True
+    expected = [object()]
+    observed = {}
+
+    monkeypatch.setattr(extractor, "_try_browser_cookie3", lambda _browser_name: None)
+    monkeypatch.setattr(
+        extractor,
+        "_get_browser_profile_paths",
+        lambda _browser_name: {"cookies_db": str(cookies_db), "local_state": "Local State"},
+    )
+
+    def direct_extraction(path, local_state_path):
+        observed["path"] = path
+        observed["local_state_path"] = local_state_path
+        return expected
+
+    monkeypatch.setattr(extractor, "_get_chromium_cookies_direct", direct_extraction)
+
+    assert extractor.get_cookies_with_fallback("chrome") is expected
+    assert observed == {
+        "path": str(cookies_db),
+        "local_state_path": "Local State",
+    }

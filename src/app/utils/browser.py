@@ -95,14 +95,7 @@ class CrossPlatformCookieExtractor:
                     "local_state": os.path.join(base_path, "Local State")
                 }
                 
-            elif browser_name == "firefox":
-                firefox_path = os.path.join(user_data, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles")
-                if os.path.exists(firefox_path):
-                    profiles = [d for d in os.listdir(firefox_path) if os.path.isdir(os.path.join(firefox_path, d))]
-                    if profiles:
-                        profile_path = os.path.join(firefox_path, profiles[0])
-                        paths = {"cookies_db": os.path.join(profile_path, "cookies.sqlite")}
-        
+
         return paths
     
     def _try_browser_cookie3(self, browser_name: str) -> Optional[Any]:
@@ -195,56 +188,6 @@ class CrossPlatformCookieExtractor:
         except Exception as e:
             logger.error(f"Failed to decrypt Chrome cookie: {e}", exc_info=True)
             return None
-        """Direct Firefox cookie extraction from SQLite database"""
-        try:
-            if not os.path.exists(cookies_db_path):
-                logger.warning(f"Firefox cookies database not found: {cookies_db_path}")
-                return None
-            
-            # Copy the database to avoid lock issues
-            import tempfile
-            import shutil
-            
-            with tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False) as temp_file:
-                temp_db_path = temp_file.name
-                shutil.copyfile(cookies_db_path, temp_db_path)
-            
-            try:
-                conn = sqlite3.connect(temp_db_path)
-                cursor = conn.cursor()
-                
-                # Firefox cookie table structure
-                cursor.execute("""
-                    SELECT name, value, host, path, expiry, isSecure, isHttpOnly 
-                    FROM moz_cookies 
-                    WHERE host LIKE '%google%' AND (name = '__Secure-1PSID' OR name = '__Secure-1PSIDTS')
-                """)
-                
-                cookies = []
-                for row in cursor.fetchall():
-                    cookie_obj = type('Cookie', (), {
-                        'name': row[0],
-                        'value': row[1],
-                        'domain': row[2],
-                        'path': row[3],
-                        'expires': row[4],
-                        'secure': bool(row[5]),
-                        'httponly': bool(row[6])
-                    })()
-                    cookies.append(cookie_obj)
-                
-                conn.close()
-                return cookies
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_db_path)
-                except:
-                    pass
-                    
-        except Exception as e:
-            logger.error(f"Failed to extract Firefox cookies directly: {e}")
-            return None
     
     def _get_chromium_cookies_direct(self, cookies_db_path: str, local_state_path: str = None) -> Optional[list]:
         """Direct Chromium-based browser cookie extraction with decryption support"""
@@ -332,19 +275,13 @@ class CrossPlatformCookieExtractor:
             logger.info(f"Successfully retrieved cookies using browser_cookie3 for {browser_name}")
             return cookies
         
-        # Method 2: Try direct database access (fallback for Windows)
-        if self.is_windows:
+        # Method 2: Try direct Chromium database access (fallback for Windows)
+        if self.is_windows and browser_name in ["chrome", "brave", "edge"]:
             logger.info(f"Trying direct database access for {browser_name} on Windows")
             
             browser_paths = self._get_browser_profile_paths(browser_name)
-            
-            if browser_name == "firefox" and "cookies_db" in browser_paths:
-                cookies = self._get_firefox_cookies_direct(browser_paths["cookies_db"])
-                if cookies:
-                    logger.info(f"Successfully retrieved Firefox cookies via direct access")
-                    return cookies
-            
-            elif browser_name in ["chrome", "brave", "edge"] and "cookies_db" in browser_paths:
+
+            if "cookies_db" in browser_paths:
                 cookies_db_path = browser_paths["cookies_db"]
                 local_state_path = browser_paths.get("local_state")
                 
