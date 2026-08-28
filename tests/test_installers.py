@@ -82,11 +82,41 @@ def _run_posix(repo, env, outside):
     )
 
 
+PHASE_SCRIPTS = (
+    "scripts\\bootstrap.py",
+    "scripts/bootstrap.py",
+    "scripts\\doctor.py",
+    "scripts/doctor.py",
+)
+
+
+def _parse_tool_call(line):
+    return line.split("|", 2)
+
+
+def _is_phase_call(line, repo):
+    _, cwd, args = _parse_tool_call(line)
+    return cwd == str(repo) and any(script in args for script in PHASE_SCRIPTS)
+
+
+def _normalized_tool_name(name):
+    return name[:-4] if name.lower().endswith(".cmd") else name
+
+
 def _phase_calls(log, repo):
     return [
         line
         for line in log.read_text(encoding="utf-8").splitlines()
-        if f"|{repo}|scripts/" in line
+        if _is_phase_call(line, repo)
+    ]
+
+
+def _powershell_phase_calls(log, repo):
+    return [
+        (_normalized_tool_name(name), args)
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if _is_phase_call(line, repo)
+        for name, _, args in [_parse_tool_call(line)]
     ]
 
 
@@ -541,11 +571,7 @@ def test_install_ps1_continues_after_python_probe_execution_failure(tmp_path):
     assert "python -> probe execution failed:" in result.stderr
     assert "Python was not found" in result.stderr
     assert "Setup complete." not in result.stdout
-    phase_calls = [
-        line
-        for line in log.read_text(encoding="utf-8").splitlines()
-        if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
-    ]
+    phase_calls = _powershell_phase_calls(log, repo)
     assert phase_calls == []
 
 
@@ -591,15 +617,14 @@ def test_install_ps1_python_resolution_and_root(tmp_path, py312, py311, python, 
     )
 
     assert result.returncode == 0
-    phase_calls = [
-        line for line in log.read_text(encoding="utf-8").splitlines()
-        if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
-    ]
+    phase_calls = _powershell_phase_calls(log, repo)
     assert len(phase_calls) == 2
-    assert all(line.startswith(f"{expected}|{repo}|") for line in phase_calls)
+    assert all(name == expected for name, _ in phase_calls)
     if expected == "py":
         selected_version = "-3.12" if py312 else "-3.11"
-        assert all(selected_version in line for line in phase_calls)
+        assert all(selected_version in args for _, args in phase_calls)
+    assert any("bootstrap.py" in args for _, args in phase_calls)
+    assert any("doctor.py" in args for _, args in phase_calls)
     assert "Setup complete." in result.stdout
 
 
@@ -670,9 +695,12 @@ def test_install_ps1_enforces_windows_python_patch_contract(
     if expected_runner is None:
         assert expected_detail in result.stderr
     else:
-        phase_calls = [
-            line for line in log.read_text(encoding="utf-8").splitlines()
-            if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
-        ]
+        phase_calls = _powershell_phase_calls(log, repo)
         assert len(phase_calls) == 2
-        assert all(expected_runner in line for line in phase_calls)
+        if expected_runner == "python":
+            assert all(name == "python" for name, _ in phase_calls)
+        else:
+            assert all(name == "py" for name, _ in phase_calls)
+            assert all(expected_runner in args for _, args in phase_calls)
+        assert any("bootstrap.py" in args for _, args in phase_calls)
+        assert any("doctor.py" in args for _, args in phase_calls)
