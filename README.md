@@ -57,17 +57,37 @@ Run the setup wrapper from an existing Git checkout.
 .\install.ps1
 ```
 
+If PowerShell blocks the script, use this current-session-only fallback:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+This does not permanently change user or machine execution policy.
+
 The wrapper validates Python and Poetry, runs bootstrap (including project
 dependencies and Playwright Chromium) and diagnostics, and does not perform
 login or start the server.
 
-Manual setup alternative (without wrapper):
+If Poetry was just installed but `poetry` is not found, reopen PowerShell. If it
+is still unavailable, verify Poetry's user Scripts or install directory is on
+`PATH`; `%APPDATA%\Python\Scripts` is a common location, but not universal.
+
+Manual pre-Poetry fallback (without wrapper):
 ```bash
 python scripts/bootstrap.py
 ```
 
 Bootstrap creates `config.conf`, `.env` when its example exists, and the required
-`runtime/` directory tree before installing dependencies and Chromium.
+`runtime/` directory tree before installing dependencies and Chromium. Prefer
+the wrappers; on Windows, `.\install.ps1` also selects a supported Python interpreter.
+
+After bootstrap, run diagnostics:
+
+```bash
+poetry run python scripts/doctor.py
+```
 
 ### 2. Configuration
 The installer creates `config.conf` and `.env` from their example files when
@@ -122,8 +142,9 @@ Docker keeps the application port at `6969`. `WEB_PORT` changes only the host
 port; its default is also `6969`.
 
 Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and `runtime/`
-exist. Non-Linux hosts can use the documented defaults or their Docker Desktop
-equivalent; see the [Docker Deployment Guide](docs/docker.md).
+exist. This is pre-Poetry host setup; Windows users should prefer
+`.\install.ps1`. Non-Linux hosts can use the documented defaults or their Docker
+Desktop equivalent; see the [Docker Deployment Guide](docs/docker.md).
 
 See the [Updater Guide](docs/updating.md) for update checks, rollback behavior,
 locking, protected files, and platform-specific details.
@@ -139,7 +160,7 @@ WebAI-to-API includes a bootstrap utility and a Makefile for common setup tasks.
 | `make setup` | One-step install, directory creation, and config setup. |
 | `make doctor` | Run environment and dependency diagnostics. |
 
-*Alternative (no Make): `python scripts/bootstrap.py` and `python scripts/doctor.py`*
+*Alternative (no Make): `python scripts/bootstrap.py`, then `poetry run python scripts/doctor.py`*
 
 ---
 

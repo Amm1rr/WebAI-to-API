@@ -124,7 +124,7 @@ def test_first_playwright_storage_candidate_uses_first_supported_candidate(mocke
     assert candidate.auth_data == json_auth
 
 
-def test_first_playwright_storage_candidate_skips_config_sources(mocker):
+def test_first_playwright_storage_candidate_skips_config_sources(mocker, caplog):
     patch_sources(
         mocker,
         gemini=auth_data("gemini_psid"),
@@ -135,6 +135,9 @@ def test_first_playwright_storage_candidate_skips_config_sources(mocker):
     candidate = GeminiAuthSelector.first_playwright_storage_candidate()
 
     assert candidate is None
+    assert "No Playwright-compatible auth source available." in caplog.text
+    assert "poetry run python verify_login.py" in caplog.text
+    assert "runtime/auth/gemini.json" not in caplog.text
 
 
 def test_first_playwright_storage_candidate_preserves_legacy_metadata(mocker):

@@ -125,9 +125,11 @@ async def test_gemini_setup_fails_without_auth(mocker):
     
     with pytest.raises(RuntimeError) as excinfo:
         await session._setup()
-    
-    assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
-    assert "python verify_login.py" in str(excinfo.value)
+
+    assert str(excinfo.value) == (
+        "Gemini Playwright backend requires a valid storage state. "
+        "Please run 'poetry run python verify_login.py' to authenticate."
+    )
 
 
 @pytest.mark.asyncio

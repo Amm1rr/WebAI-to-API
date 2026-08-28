@@ -349,7 +349,7 @@ def check_auth_material(config):
         unreadable_json_msg = (
             f"{json_path} is unreadable/corrupt. Playwright authentication is broken; "
             "WebAPI cookie authentication may still be unaffected. "
-            "Run: python verify_login.py"
+            "Run: poetry run python verify_login.py"
         )
         try:
             with open(json_path, 'r') as f:
@@ -365,7 +365,7 @@ def check_auth_material(config):
     else:
         # If no JSON and no config, this is where we'd advise verify_login
         if not (psid and psidts) and not (psid_l and psidts_l):
-            print_status("Auth (JSON)", "WARN", f"{json_path} missing. Run: python verify_login.py", Colors.WARNING)
+            print_status("Auth (JSON)", "WARN", f"{json_path} missing. Run: poetry run python verify_login.py", Colors.WARNING)
 
     return not has_fail
 

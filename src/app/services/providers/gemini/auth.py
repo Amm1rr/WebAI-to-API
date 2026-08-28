@@ -51,8 +51,8 @@ class GeminiAuthStrategy:
             return {}
 
         raise RuntimeError(
-            "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
-            "Please run 'python verify_login.py' to authenticate."
+            "Gemini Playwright backend requires a valid storage state. "
+            "Please run 'poetry run python verify_login.py' to authenticate."
         )
 
     def get_state_path(self) -> str:

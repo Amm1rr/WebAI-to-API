@@ -98,6 +98,9 @@ class TestBootstrapDoctor(unittest.TestCase):
         # Verify changes made
         self.assertTrue(os.path.exists(os.path.join(self.test_dir, "config.conf")))
         self.assertTrue(os.path.isdir(os.path.join(self.test_dir, "runtime")))
+        self.assertIn("poetry run python scripts/doctor.py", res.stdout)
+        self.assertIn("poetry run python verify_login.py", res.stdout)
+        self.assertIn("poetry run python src/run.py", res.stdout)
         self.assertTrue(os.path.isdir(os.path.join(self.test_dir, "runtime", "auth")))
 
         if os.name == "posix":
@@ -460,7 +463,7 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.assertIn("FAIL", res.stdout)
         self.assertIn("Playwright authentication is broken", res.stdout)
         self.assertIn("WebAPI cookie authentication may still be unaffected", res.stdout)
-        self.assertIn("Run: python verify_login.py", res.stdout)
+        self.assertIn("Run: poetry run python verify_login.py", res.stdout)
 
         # Case 2: no usable auth + corrupt JSON -> same actionable FAIL.
         with open(config_path, "w") as f:
@@ -471,7 +474,7 @@ class TestBootstrapDoctor(unittest.TestCase):
         )
         self.assertIn("FAIL", res.stdout)
         self.assertIn("Playwright authentication is broken", res.stdout)
-        self.assertIn("Run: python verify_login.py", res.stdout)
+        self.assertIn("Run: poetry run python verify_login.py", res.stdout)
 
 
 @pytest.mark.parametrize(

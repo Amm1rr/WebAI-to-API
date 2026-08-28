@@ -9,6 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = ROOT / "install.sh"
 INSTALL_PS1 = ROOT / "install.ps1"
+README = ROOT / "README.md"
 
 
 def _write_executable(path, content):
@@ -221,6 +222,20 @@ def test_install_ps1_delimits_version_interpolation():
 
     assert '$($candidate.Label) -> Python $($version): rejected; $reasonText' in content
     assert '$($candidate.Label) -> Python $version: rejected; $reasonText' not in content
+
+
+def test_readme_documents_windows_setup_recovery_without_persistent_policy_change():
+    content = README.read_text(encoding="utf-8")
+
+    assert ".\\install.ps1" in content
+    assert "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass" in content
+    assert "does not permanently change user or machine execution policy" in content
+    assert "Set-ExecutionPolicy -Scope CurrentUser" not in content
+    assert "Set-ExecutionPolicy -Scope LocalMachine" not in content
+    assert "%APPDATA%\\Python\\Scripts" in content
+    assert "reopen PowerShell" in content
+    assert "python scripts/bootstrap.py" in content
+    assert "poetry run python scripts/doctor.py" in content
 
 
 def _powershell_executable():

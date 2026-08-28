@@ -82,7 +82,7 @@ class GeminiAuthSelector:
             )
         else:
             logger.warning(
-                "AuthSelector: No Playwright-compatible auth source available (runtime/auth/gemini.json missing). "
-                "Please run 'python verify_login.py' to authenticate for the Playwright backend."
+                "AuthSelector: No Playwright-compatible auth source available. "
+                "Please run 'poetry run python verify_login.py' to authenticate for the Playwright backend."
             )
         return candidate

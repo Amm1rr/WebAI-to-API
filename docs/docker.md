@@ -45,8 +45,9 @@ chmod 700 runtime
 
 **Note:** `config.conf` is mounted read-only into the container and `.env` is loaded by Docker Compose via `env_file`. `config.conf`, `.env`, and `runtime/` must exist on the host before starting the container; Compose rejects missing bind-mount sources. The canonical setup is `python scripts/bootstrap.py`, which creates this state without overwriting existing configuration.
 
-The `chmod` commands are POSIX-specific. Windows users should use
-`python scripts/bootstrap.py` and normal Windows filesystem ACL behavior.
+The `chmod` commands are POSIX-specific. Windows users should prefer
+`.\install.ps1`, which selects a supported Python interpreter, and use normal
+Windows filesystem ACL behavior.
 
 Changes to `config.conf` or `.env` on the host are reflected after the
 container is restarted or recreated as applicable; an image rebuild is not

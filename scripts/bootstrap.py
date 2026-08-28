@@ -242,9 +242,9 @@ def main():
         print("BOOTSTRAP COMPLETE")
         print("=" * 60)
         print("Next steps:")
-        print("1. Run diagnostics: python scripts/doctor.py")
-        print("2. Perform login:   python verify_login.py")
-        print("3. Start server:    python src/run.py")
+        print("1. Run diagnostics: poetry run python scripts/doctor.py")
+        print("2. Perform login:   poetry run python verify_login.py")
+        print("3. Start server:    poetry run python src/run.py")
         print("=" * 60)
 
 if __name__ == "__main__":
