@@ -2,7 +2,6 @@ import os
 import sys
 import socket
 import json
-import configparser
 import subprocess
 import shutil
 from pathlib import Path
@@ -18,6 +17,7 @@ from app.utils.python_version import (
     is_supported_python,
 )
 from app.env import load_local_env
+from app.config_contract import load_effective_config
 from app.utils.runtime_paths import (
     get_default_conversation_snapshot_db,
     get_runtime_dir,
@@ -85,13 +85,11 @@ def check_config():
         return False, None
 
     try:
-        config = configparser.ConfigParser()
-        config.optionxform = str  # Preserve case for cookie names
-        config.read("config.conf", encoding="utf-8")
-        print_status("Configuration", "PASS", "config.conf found")
+        config = load_effective_config("config.conf")
+        print_status("Configuration", "PASS", "config.conf found and valid")
         return True, config
     except Exception as e:
-        print_status("Configuration", "FAIL", f"Error reading config.conf: {e}", Colors.FAIL)
+        print_status("Configuration", "FAIL", str(e), Colors.FAIL)
         return False, None
 
 def check_env():
@@ -411,13 +409,13 @@ def main():
     poetry_ok = check_poetry()
     if not poetry_ok: has_fail = True
 
-    if not check_runtime_dirs(config): has_fail = True
+    if config_ok and not check_runtime_dirs(config): has_fail = True
     
     is_arch_based = check_platform()
 
-    # Only check playwright if we have config and poetry
-    if config_ok and poetry_ok:
+    if poetry_ok:
         if not check_playwright(is_arch_based): has_fail = True
+    if config_ok and poetry_ok:
         if not check_auth_material(config): has_fail = True
 
     if not check_port(): has_fail = True

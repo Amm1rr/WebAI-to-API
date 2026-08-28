@@ -285,6 +285,47 @@ class TestBootstrapDoctor(unittest.TestCase):
         self.assertIn("FAIL", res.stdout)
         self.assertIn("config.conf is missing", res.stdout)
 
+    def test_doctor_rejects_invalid_semantic_config_without_traceback(self):
+        with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+            handle.write("[Gemini]\nbackend = invalid\n")
+
+        res = subprocess.run(
+            ["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True,
+        )
+
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Configuration", res.stdout)
+        self.assertIn("Invalid Gemini backend configured", res.stdout)
+        self.assertNotIn("Traceback", res.stdout)
+        self.assertNotIn("Traceback", res.stderr)
+
+    def test_doctor_rejects_malformed_config_without_traceback(self):
+        with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+            handle.write("backend = webapi\n")
+
+        res = subprocess.run(
+            ["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True,
+        )
+
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Configuration", res.stdout)
+        self.assertIn("FAIL", res.stdout)
+        self.assertNotIn("Traceback", res.stdout)
+        self.assertNotIn("Traceback", res.stderr)
+
+    def test_doctor_rejects_invalid_startup_boolean(self):
+        for section, option in (("EnabledAI", "gemini"), ("Logging", "disable_access_logs")):
+            with open(os.path.join(self.test_dir, "config.conf"), "w", encoding="utf-8") as handle:
+                handle.write(f"[{section}]\n{option} = maybe\n")
+
+            res = subprocess.run(
+                ["python", self.doctor_path], cwd=self.test_dir, capture_output=True, text=True,
+            )
+
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn(f"Invalid boolean value for {section}.{option}", res.stdout)
+            self.assertNotIn("Traceback", res.stdout)
+
     def test_doctor_report_after_bootstrap(self):
         # Run bootstrap first in temp dir
         subprocess.run(
@@ -658,6 +699,27 @@ def test_doctor_main_fails_when_poetry_check_fails(monkeypatch, capsys):
 
     assert error.value.code == 1
     assert "DIAGNOSTICS FAILED" in capsys.readouterr().out
+
+
+def test_doctor_skips_config_dependent_checks_after_config_failure(monkeypatch):
+    doctor = _load_doctor_module()
+    calls = []
+    monkeypatch.setattr(doctor, "check_python_version", lambda: True)
+    monkeypatch.setattr(doctor, "check_config", lambda: (False, None))
+    monkeypatch.setattr(doctor, "check_env", lambda: True)
+    monkeypatch.setattr(doctor, "check_poetry", lambda: True)
+    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda _config: calls.append("dirs") or True)
+    monkeypatch.setattr(doctor, "check_platform", lambda: False)
+    monkeypatch.setattr(doctor, "check_playwright", lambda _is_arch_based: calls.append("playwright") or True)
+    monkeypatch.setattr(doctor, "check_auth_material", lambda _config: calls.append("auth") or True)
+    monkeypatch.setattr(doctor, "check_port", lambda: True)
+    monkeypatch.setattr(doctor, "check_exposure", lambda: True)
+
+    with pytest.raises(SystemExit) as error:
+        doctor.main()
+
+    assert error.value.code == 1
+    assert calls == ["playwright"]
 
 
 def test_check_playwright_found_path_uses_valid_script(monkeypatch, capsys):
