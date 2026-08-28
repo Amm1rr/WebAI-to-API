@@ -1,5 +1,8 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 import asyncio
+import os
+import stat
+from pathlib import Path
 
 import pytest
 from playwright.async_api import Error as PlaywrightError
@@ -122,9 +125,11 @@ async def test_gemini_setup_fails_without_auth(mocker):
     
     with pytest.raises(RuntimeError) as excinfo:
         await session._setup()
-    
-    assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
-    assert "python verify_login.py" in str(excinfo.value)
+
+    assert str(excinfo.value) == (
+        "Gemini Playwright backend requires a valid storage state. "
+        "Please run 'poetry run python verify_login.py' to authenticate."
+    )
 
 
 @pytest.mark.asyncio
@@ -193,6 +198,167 @@ async def test_gemini_setup_enable_persistence_without_bootstrap_still_requires_
         await session._setup()
 
     assert "Gemini Playwright backend requires a valid storage state" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+async def test_save_state_hardens_auth_state_and_repeated_replacements(
+    mocker, monkeypatch, tmp_path
+):
+    from app.services.browser import session as session_module
+
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    state_path = auth_dir / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    os.chmod(auth_dir, 0o755)
+    os.chmod(state_path, 0o644)
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(auth_dir))
+
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    assert stat.S_IMODE(os.stat(auth_dir).st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+
+    written_paths = []
+
+    async def capture_state():
+        return {"cookies": [], "origins": []}
+
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(side_effect=capture_state)
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    assert await session.save_state() is True
+    assert state_path.read_text(encoding="utf-8") == '{"cookies": [], "origins": []}'
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+    assert session.context.storage_state.await_count == 1
+    assert not list(auth_dir.glob(".gemini.json.*.tmp"))
+
+    os.chmod(state_path, 0o644)
+    assert await session.save_state() is True
+    assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
+    assert session.context.storage_state.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ("storage_state", "replace"))
+async def test_save_state_reports_failure_and_preserves_existing_state(
+    mocker, monkeypatch, tmp_path, failure
+):
+    from app.services.browser import session as session_module
+
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    state_path = auth_dir / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(auth_dir))
+
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.context = MagicMock()
+
+    async def capture_state():
+        return {"cookies": [], "origins": []}
+
+    if failure == "storage_state":
+        session.context.storage_state = AsyncMock(side_effect=OSError("disk full"))
+    else:
+        session.context.storage_state = AsyncMock(side_effect=capture_state)
+        mocker.patch.object(session_module.os, "replace", side_effect=OSError("replace failed"))
+
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    assert await session.save_state() is False
+    assert state_path.read_text(encoding="utf-8") == "old state"
+    assert not list(auth_dir.glob(".gemini.json.*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_save_state_returns_false_without_runtime_persistence(mocker):
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=False)
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock()
+    mocker.patch.object(
+        ProviderSession,
+        "is_alive",
+        new_callable=PropertyMock,
+        return_value=True,
+    )
+
+    assert await session.save_state() is False
+    session.context.storage_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_save_state_validation_failure_preserves_existing_state(mocker, monkeypatch, tmp_path):
+    from app.services.browser import session as session_module
+
+    state_path = tmp_path / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(tmp_path))
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
+    mocker.patch.object(ProviderSession, "is_alive", new_callable=PropertyMock, return_value=True)
+
+    def reject(state):
+        raise RuntimeError("shared state rejected")
+
+    with pytest.raises(RuntimeError, match="shared state rejected"):
+        await session.save_state(validate=reject)
+
+    assert state_path.read_text(encoding="utf-8") == "old state"
+
+
+@pytest.mark.asyncio
+async def test_save_state_serializes_capture_through_replace(mocker, monkeypatch, tmp_path):
+    from app.services.browser import session as session_module
+
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(tmp_path))
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    first_capture_started = asyncio.Event()
+    release_first_capture = asyncio.Event()
+    second_capture_started = asyncio.Event()
+    capture_count = 0
+
+    async def capture_state():
+        nonlocal capture_count
+        capture_count += 1
+        if capture_count == 1:
+            first_capture_started.set()
+            await release_first_capture.wait()
+            return {"cookies": [], "origins": [], "snapshot": "first"}
+        second_capture_started.set()
+        return {"cookies": [], "origins": [], "snapshot": "second"}
+
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(side_effect=capture_state)
+    mocker.patch.object(ProviderSession, "is_alive", new_callable=PropertyMock, return_value=True)
+
+    first_save = asyncio.create_task(session.save_state())
+    await first_capture_started.wait()
+    second_save = asyncio.create_task(session.save_state())
+    await asyncio.sleep(0)
+    assert second_capture_started.is_set() is False
+    release_first_capture.set()
+    await second_capture_started.wait()
+    assert await first_save is True
+    assert await second_save is True
+    assert (tmp_path / "gemini.json").read_text(encoding="utf-8").find('"second"') > 0
 
 
 @pytest.mark.asyncio

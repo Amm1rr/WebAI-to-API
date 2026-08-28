@@ -3,9 +3,10 @@ import sqlite3
 import json
 import asyncio
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, List
-from app.config import get_default_conversation_snapshot_db
+from app.config import get_default_conversation_snapshot_db, get_runtime_dir
 from app.logger import logger
 from app.services.providers.base_repository import IConversationRepository, ConversationSnapshot
 from app.services.providers.exceptions import StateIntegrityError
@@ -17,24 +18,96 @@ class SQLiteConversationRepository(IConversationRepository):
     inside thread pools to keep event loop unblocked.
     """
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or get_default_conversation_snapshot_db()
+        default_db_path = get_default_conversation_snapshot_db()
+        self.db_path = os.fspath(db_path) if db_path else default_db_path
+        self._default_db_path = os.path.abspath(default_db_path)
+        self._is_project_owned_path = os.path.abspath(self.db_path) == self._default_db_path
 
     def _ensure_parent_dir(self) -> None:
+        if self.db_path == ":memory:":
+            return
         parent_dir = os.path.dirname(self.db_path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
+        if not parent_dir:
+            return
+
+        if self._is_project_owned_path:
+            runtime_dir = os.path.abspath(get_runtime_dir())
+            directories = dict.fromkeys((runtime_dir, parent_dir))
+            for directory in directories:
+                self._ensure_directory(directory, harden_existing=True)
+        else:
+            # Custom paths may intentionally use shared existing directories.
+            self._ensure_directory(parent_dir, harden_existing=False)
+
+    @staticmethod
+    def _ensure_directory(path: str, *, harden_existing: bool) -> None:
+        if os.name == "posix":
+            os.makedirs(path, mode=0o700, exist_ok=True)
+            if harden_existing:
+                os.chmod(path, 0o700)
+        else:
+            os.makedirs(path, exist_ok=True)
+
+    def _ensure_database_file(self) -> None:
+        if os.name != "posix" or self.db_path == ":memory:":
+            return
+
+        fd = os.open(self.db_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+        self._harden_existing_sidecars()
+
+    def _harden_existing_sidecars(self) -> None:
+        if os.name != "posix" or self.db_path == ":memory:":
+            return
+
+        parent_dir = os.path.dirname(os.path.abspath(self.db_path))
+        for suffix in ("-wal", "-shm", "-journal"):
+            sidecar_path = self.db_path + suffix
+            if not os.path.exists(sidecar_path):
+                continue
+            try:
+                os.chmod(sidecar_path, 0o600)
+            except FileNotFoundError:
+                # SQLite may remove a sidecar between the existence check and chmod.
+                if os.path.exists(sidecar_path) or not os.path.isdir(parent_dir):
+                    raise
+
+    @contextmanager
+    def _connection(self):
+        self._ensure_parent_dir()
+        self._ensure_database_file()
+        conn = sqlite3.connect(self.db_path)
+        original_error = None
+        try:
+            with conn:
+                yield conn
+        except BaseException as error:
+            original_error = error
+            raise
+        finally:
+            try:
+                conn.close()
+            except Exception as close_error:
+                if original_error is None:
+                    raise
+                logger.warning(
+                    "Failed to close SQLite connection for %s after database error: %s",
+                    self.db_path,
+                    close_error,
+                )
 
     def _execute_write(self, query: str, params: tuple = ()) -> None:
-        self._ensure_parent_dir()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=FULL;")
             conn.execute(query, params)
             conn.commit()
 
     def _execute_read_one(self, query: str, params: tuple = ()) -> Optional[tuple]:
-        self._ensure_parent_dir()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchone()
@@ -61,8 +134,7 @@ class SQLiteConversationRepository(IConversationRepository):
 
     def initialize_sync(self) -> None:
         """Synchronously create database tables and set WAL mode."""
-        self._ensure_parent_dir()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=FULL;")
             conn.execute(
@@ -124,8 +196,7 @@ class SQLiteConversationRepository(IConversationRepository):
     async def list_snapshots(self, provider_name: Optional[str] = None) -> List[ConversationSnapshot]:
         """List conversation snapshots ordered by updated_at descending."""
         def _list():
-            self._ensure_parent_dir()
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connection() as conn:
                 cursor = conn.cursor()
                 if provider_name is None:
                     cursor.execute(
@@ -152,8 +223,7 @@ class SQLiteConversationRepository(IConversationRepository):
     async def prune_stale_snapshots(self, cutoff: datetime) -> int:
         """Delete snapshots older than cutoff and return the number of rows deleted."""
         def _prune():
-            self._ensure_parent_dir()
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connection() as conn:
                 conn.execute("PRAGMA journal_mode=WAL;")
                 conn.execute("PRAGMA synchronous=FULL;")
                 cursor = conn.execute(

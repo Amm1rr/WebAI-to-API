@@ -1,6 +1,8 @@
 # src/app/services/browser/auth_loader.py
 import os
 import json
+import math
+import time
 from typing import Dict, List, Any, Optional, Tuple
 from app.config import CONFIG, get_default_auth_state_dir
 from app.logger import logger
@@ -148,22 +150,25 @@ class GeminiAuthStateLoader:
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSIDTS"))
         )
 
-        # Source is usable ONLY when BOTH cookies are present and non-empty
-        if psid_val and psidts_val:
+        # PSID is required; PSIDTS is optional.
+        if psid_val:
             reconstructed_cookies = [
                 {
                     "name": "__Secure-1PSID",
                     "value": psid_val,
                     "domain": ".google.com",
                     "path": "/"
-                },
-                {
-                    "name": "__Secure-1PSIDTS",
-                    "value": psidts_val,
-                    "domain": ".google.com",
-                    "path": "/"
                 }
             ]
+            if psidts_val:
+                reconstructed_cookies.append(
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                )
             return {"cookies": reconstructed_cookies}, False
 
         return None, False
@@ -193,8 +198,8 @@ class GeminiAuthStateLoader:
             cls._normalize_config_value(config_cookies.get("__Secure-1PSIDTS"))
         )
 
-        # Source is usable ONLY when BOTH cookies are present and non-empty
-        if psid_val and psidts_val:
+        # PSID is required; PSIDTS is optional.
+        if psid_val:
             _warn_legacy_gemini_cookie_config_once()
             reconstructed_cookies = [
                 {
@@ -202,14 +207,17 @@ class GeminiAuthStateLoader:
                     "value": psid_val,
                     "domain": ".google.com",
                     "path": "/"
-                },
-                {
-                    "name": "__Secure-1PSIDTS",
-                    "value": psidts_val,
-                    "domain": ".google.com",
-                    "path": "/"
                 }
             ]
+            if psidts_val:
+                reconstructed_cookies.append(
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                )
             return {"cookies": reconstructed_cookies}, True
 
         return None, False
@@ -257,19 +265,128 @@ class GeminiAuthStateLoader:
         }
 
     @classmethod
-    def translate_to_webapi(cls, data: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
-        """
-        Translates the unified cookies list into formats required by gemini-webapi:
-        Returns (cookies_dict, secure_1psid, secure_1psidts)
-        """
-        cookies_list = data.get("cookies", [])
-        extracted_cookies = {}
-        for cookie in cookies_list:
-            if "google.com" in cookie.get("domain", ""):
-                name = cookie.get("name")
-                if name:
-                    extracted_cookies[name] = cookie.get("value")
+    def _is_google_domain(cls, domain: Any) -> bool:
+        normalized = str(domain or "").lower().lstrip(".")
+        return normalized == "google.com" or normalized.endswith(".google.com")
 
-        psid = extracted_cookies.get("__Secure-1PSID")
-        psidts = extracted_cookies.get("__Secure-1PSIDTS")
-        return extracted_cookies, psid, psidts
+    @classmethod
+    def _is_webapi_cookie_candidate(cls, cookie: Any, now: float) -> bool:
+        if not isinstance(cookie, dict):
+            return False
+        if not cookie.get("name") or not cookie.get("value"):
+            return False
+        if not cls._is_google_domain(cookie.get("domain")):
+            return False
+        if cookie.get("partitionKey"):
+            return False
+
+        expires = cookie.get("expires")
+        return not (
+            isinstance(expires, (int, float))
+            and math.isfinite(expires)
+            and expires > 0
+            and expires <= now
+        )
+
+    @classmethod
+    def _cookie_selection_key(cls, cookie: Dict[str, Any], index: int) -> Tuple[int, str, bool, str, int]:
+        domain = str(cookie.get("domain", "")).lower()
+        normalized_domain = domain.lstrip(".")
+        domain_rank = {
+            ".google.com": 0,
+            "google.com": 1,
+            "gemini.google.com": 2,
+            "accounts.google.com": 3,
+        }.get(domain, 4)
+        return (
+            domain_rank,
+            normalized_domain,
+            str(cookie.get("path", "/")) != "/",
+            str(cookie.get("path", "/")),
+            index,
+        )
+
+    @classmethod
+    def _select_webapi_cookie(
+        cls, cookies: Any, name: str, now: float
+    ) -> Optional[Dict[str, Any]]:
+        candidates = (
+            (cls._cookie_selection_key(cookie, index), cookie)
+            for index, cookie in enumerate(cookies)
+            if isinstance(cookie, dict)
+            and cookie.get("name") == name
+            and cls._is_webapi_cookie_candidate(cookie, now)
+        )
+        selected = min(candidates, default=None, key=lambda candidate: candidate[0])
+        return selected[1] if selected else None
+
+    @classmethod
+    def _select_google_cookies(cls, cookies: Any, now: float) -> Dict[str, Dict[str, Any]]:
+        selected = {}
+        for index, cookie in enumerate(cookies):
+            if not cls._is_webapi_cookie_candidate(cookie, now):
+                continue
+            name = cookie["name"]
+            candidate_key = cls._cookie_selection_key(cookie, index)
+            existing = selected.get(name)
+            if existing is None or candidate_key < existing[0]:
+                selected[name] = (candidate_key, cookie)
+        return {name: candidate[1] for name, candidate in selected.items()}
+
+    @classmethod
+    def get_webapi_cookie_material(
+        cls, data: Dict[str, Any], *, now: Optional[float] = None
+    ) -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
+        """Return deterministic, directly usable Gemini WebAPI cookie material."""
+        cookies = data.get("cookies", []) if isinstance(data, dict) else []
+        now = time.time() if now is None else now
+        selected = cls._select_google_cookies(cookies, now)
+        extracted = {name: cookie["value"] for name, cookie in selected.items()}
+        return (
+            extracted,
+            extracted.get("__Secure-1PSID"),
+            extracted.get("__Secure-1PSIDTS"),
+        )
+
+    @classmethod
+    def get_browser_webapi_cookie_material(
+        cls, cookies: Any, *, now: Optional[float] = None
+    ) -> Optional[Dict[str, str]]:
+        """Select directly usable Gemini auth cookies from browser cookie data."""
+        now = time.time() if now is None else now
+        psid = cls._select_webapi_cookie(cookies, "__Secure-1PSID", now)
+        if psid is None:
+            return None
+
+        material = {"__Secure-1PSID": psid["value"]}
+        psidts = cls._select_webapi_cookie(cookies, "__Secure-1PSIDTS", now)
+        if psidts is not None:
+            material["__Secure-1PSIDTS"] = psidts["value"]
+        return material
+
+    @classmethod
+    def has_shared_webapi_material(
+        cls, data: Dict[str, Any], context_cookies: Optional[List[Dict[str, Any]]] = None
+    ) -> bool:
+        cookies = data.get("cookies", []) if isinstance(data, dict) else []
+        now = time.time()
+        psid = cls._select_webapi_cookie(cookies, "__Secure-1PSID", now)
+        if psid is None:
+            return False
+        if context_cookies is None:
+            return True
+
+        return any(
+            cls._is_webapi_cookie_candidate(cookie, now)
+            and cookie.get("name") == "__Secure-1PSID"
+            and cookie.get("value") == psid.get("value")
+            and str(cookie.get("domain", "")).lower() == str(psid.get("domain", "")).lower()
+            and str(cookie.get("path", "/")) == str(psid.get("path", "/"))
+            and cookie.get("expires") == psid.get("expires")
+            for cookie in context_cookies
+        )
+
+    @classmethod
+    def translate_to_webapi(cls, data: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
+        """Translate persisted state using the shared Gemini cookie contract."""
+        return cls.get_webapi_cookie_material(data)

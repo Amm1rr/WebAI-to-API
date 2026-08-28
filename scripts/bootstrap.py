@@ -3,11 +3,26 @@ import sys
 import shutil
 import subprocess
 import argparse
+import configparser
 from pathlib import Path
 
 # Import platform utils
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "src"))
+
+from app.utils.python_version import (
+    SUPPORTED_RANGE_TEXT,
+    WINDOWS_SUPPORTED_RANGE_TEXT,
+    is_supported_python,
+)
+from app.env import load_local_env
+from app.utils.runtime_paths import (
+    get_default_conversation_snapshot_db,
+    get_runtime_dir,
+    resolve_auth_state_dir,
+    resolve_conversation_snapshot_db,
+)
 
 try:
     from platform_utils import get_linux_distro
@@ -15,25 +30,12 @@ except ImportError:
     def get_linux_distro():
         return None, "Unknown", False
 
-# Constants
-# Must mirror pyproject.toml requires-python (">=3.11,<3.13").
-# Guarded by tests/test_version_alignment.py::test_python_version_contract_alignment.
-REQUIRED_PYTHON_VERSION = (3, 11)
-MAX_PYTHON_VERSION = (3, 13)
-SUPPORTED_RANGE_TEXT = (
-    f"{REQUIRED_PYTHON_VERSION[0]}.{REQUIRED_PYTHON_VERSION[1]} to "
-    f"<{MAX_PYTHON_VERSION[0]}.{MAX_PYTHON_VERSION[1]}"
-)
 CONFIG_FILE = "config.conf"
 CONFIG_EXAMPLE = "config.conf.example"
 ENV_FILE = ".env"
 ENV_EXAMPLE = ".env.example"
-RUNTIME_DIRS = [
-    "runtime",
-    "runtime/auth",
-    "runtime/cache",
-    "runtime/conversations",
-]
+PRIVATE_FILE_MODE = 0o600
+PRIVATE_DIR_MODE = 0o700
 
 def print_step(message):
     print(f"--> {message}")
@@ -41,19 +43,33 @@ def print_step(message):
 def print_error(message):
     print(f"ERROR: {message}", file=sys.stderr)
 
-def check_python_version():
-    current_version = sys.version_info[:2]
-    if current_version < REQUIRED_PYTHON_VERSION:
-        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
-        print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
+def _harden_posix_mode(path, mode):
+    if os.name != "posix":
+        return True
+    try:
+        os.chmod(path, mode)
+    except OSError as error:
+        print_error(f"Cannot secure {path}: {error}")
         return False
-
-    if current_version >= MAX_PYTHON_VERSION:
-        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
-        print_error(f"Current version is {current_version[0]}.{current_version[1]}.")
-        return False
-
     return True
+
+def check_python_version():
+    current_version = sys.version_info
+    platform_name = "nt" if sys.platform == "win32" else "posix"
+    if is_supported_python(current_version, platform_name=platform_name):
+        return True
+
+    if platform_name == "nt":
+        print_error(
+            f"Windows Python {WINDOWS_SUPPORTED_RANGE_TEXT} is required for "
+            "the secure Gemini WebAPI private cookie cache."
+        )
+    else:
+        print_error(f"Python {SUPPORTED_RANGE_TEXT} is required.")
+    print_error(
+        f"Current version is {current_version[0]}.{current_version[1]}.{current_version[2]}."
+    )
+    return False
 
 def check_poetry():
     poetry_path = shutil.which("poetry")
@@ -63,16 +79,81 @@ def check_poetry():
         return False
     return True
 
-def setup_directories(check_mode=False):
-    for dir_path in RUNTIME_DIRS:
+def get_configured_auth_state_dir():
+    config = configparser.ConfigParser()
+    try:
+        config.read(CONFIG_FILE, encoding="utf-8")
+    except (configparser.Error, OSError):
+        return None
+    return config.get("Playwright", "auth_state_dir", fallback=None)
+
+
+def get_directory_targets(configured_auth_state_dir=None):
+    runtime_dir = get_runtime_dir()
+    auth_state_dir = resolve_auth_state_dir(configured_auth_state_dir)
+    conversation_db = resolve_conversation_snapshot_db()
+    targets = {
+        runtime_dir: True,
+        os.path.join(runtime_dir, "cache"): True,
+        auth_state_dir: True,
+    }
+
+    if conversation_db != ":memory:":
+        conversation_parent = os.path.dirname(conversation_db) or "."
+        default_parent = os.path.dirname(get_default_conversation_snapshot_db())
+        targets[conversation_parent] = targets.get(conversation_parent, False) or (
+            conversation_parent == default_parent
+        )
+
+    return targets
+
+
+def setup_directories(check_mode=False, configured_auth_state_dir=None):
+    for dir_path, harden in get_directory_targets(configured_auth_state_dir).items():
         if not os.path.exists(dir_path):
             if check_mode:
                 print_step(f"[DRY-RUN] Would create directory: {dir_path}")
             else:
-                os.makedirs(dir_path, exist_ok=True)
+                try:
+                    if os.name == "posix":
+                        os.makedirs(dir_path, mode=PRIVATE_DIR_MODE, exist_ok=True)
+                    else:
+                        os.makedirs(dir_path, exist_ok=True)
+                except OSError as error:
+                    print_error(f"Cannot create directory {dir_path}: {error}")
+                    return False
                 print_step(f"Created directory: {dir_path}")
         else:
             print_step(f"Directory already exists: {dir_path}")
+        if harden and not check_mode and not _harden_posix_mode(dir_path, PRIVATE_DIR_MODE):
+            return False
+    return True
+
+
+def setup_docker_runtime_source(check_mode=False):
+    source = os.environ.get("DOCKER_RUNTIME_DIR", "runtime")
+    if os.path.exists(source):
+        if not os.path.isdir(source):
+            print_error(f"Docker runtime source {source} exists but is not a directory.")
+            return False
+        print_step(f"Docker runtime source already exists: {source}")
+        return True
+
+    if check_mode:
+        print_step(f"[DRY-RUN] Would create Docker runtime source: {source}")
+        return True
+
+    try:
+        if os.name == "posix":
+            os.makedirs(source, mode=PRIVATE_DIR_MODE, exist_ok=True)
+        else:
+            os.makedirs(source, exist_ok=True)
+    except OSError as error:
+        print_error(f"Cannot create Docker runtime source {source}: {error}")
+        return False
+
+    print_step(f"Created Docker runtime source: {source}")
+    return _harden_posix_mode(source, PRIVATE_DIR_MODE)
 
 def setup_config(check_mode=False):
     # Handle config.conf
@@ -93,6 +174,9 @@ def setup_config(check_mode=False):
     else:
         print_step(f"{CONFIG_FILE} already exists. Skipping.")
 
+    if not check_mode and not _harden_posix_mode(CONFIG_FILE, PRIVATE_FILE_MODE):
+        return False
+
     # Handle .env
     if os.path.isdir(ENV_FILE):
         print_error(f"{ENV_FILE} exists but is a directory. Remove it and rerun bootstrap.")
@@ -109,6 +193,10 @@ def setup_config(check_mode=False):
                 print_step(f"Created {ENV_FILE} from {ENV_EXAMPLE}")
     else:
         print_step(f"{ENV_FILE} already exists. Skipping.")
+
+    if os.path.exists(ENV_FILE) and not check_mode:
+        if not _harden_posix_mode(ENV_FILE, PRIVATE_FILE_MODE):
+            return False
 
     return True
 
@@ -161,9 +249,15 @@ def main():
     if not check_poetry():
         sys.exit(1)
 
-    setup_directories(args.check)
-    
+    load_local_env()
+
     if not setup_config(args.check):
+        sys.exit(1)
+
+    if not setup_directories(args.check, get_configured_auth_state_dir()):
+        sys.exit(1)
+
+    if not setup_docker_runtime_source(args.check):
         sys.exit(1)
 
     if not args.no_install:
@@ -177,9 +271,9 @@ def main():
         print("BOOTSTRAP COMPLETE")
         print("=" * 60)
         print("Next steps:")
-        print("1. Run diagnostics: python scripts/doctor.py")
-        print("2. Perform login:   python verify_login.py")
-        print("3. Start server:    python src/run.py")
+        print("1. Run diagnostics: poetry run python scripts/doctor.py")
+        print("2. Perform login:   poetry run python verify_login.py")
+        print("3. Start server:    poetry run python src/run.py")
         print("=" * 60)
 
 if __name__ == "__main__":

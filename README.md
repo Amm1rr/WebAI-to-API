@@ -40,24 +40,66 @@ Provides access to cloud-hosted AI models through a native API integration power
 
 ## Quick Start
 
-> **Prerequisite:** Python 3.11–3.12 (see `pyproject.toml`).
+> **Prerequisite:** Python `>=3.11,<3.13` (see `pyproject.toml`).
+> **Windows:** Python `3.11.10+` or `3.12.4+` is required for secure Gemini WebAPI temporary cookie-cache handling. Linux and macOS require only the supported Python range above.
 
-### 1. Install Dependencies
+### 1. Host Setup
+
+Run the setup wrapper from an existing Git checkout.
+
+**Linux / macOS**
 ```bash
-poetry install
-poetry run playwright install chromium
+./install.sh
+```
+
+**Windows PowerShell**
+```powershell
+.\install.ps1
+```
+
+If PowerShell blocks the script, use this current-session-only fallback:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+This does not permanently change user or machine execution policy.
+
+The wrapper validates Python and Poetry, runs bootstrap (including project
+dependencies and Playwright Chromium) and diagnostics, and does not perform
+login or start the server.
+
+If Poetry was just installed but `poetry` is not found, reopen PowerShell. If it
+is still unavailable, verify Poetry's user Scripts or install directory is on
+`PATH`; `%APPDATA%\Python\Scripts` is a common location, but not universal.
+
+Manual pre-Poetry fallback (without wrapper):
+```bash
+python scripts/bootstrap.py
+```
+
+Bootstrap creates `config.conf`, `.env` when its example exists, and the required
+`runtime/` directory tree before installing dependencies and Chromium. Prefer
+the wrappers; on Windows, `.\install.ps1` also selects a supported Python interpreter.
+
+After bootstrap, run diagnostics:
+
+```bash
+poetry run python scripts/doctor.py
 ```
 
 ### 2. Configuration
-```bash
-cp config.conf.example config.conf
-```
+The installer creates `config.conf` and `.env` from their example files when
+missing. Review `config.conf` and edit settings as needed; do not copy example
+files over existing configuration.
+
 *For detailed settings (including logging verbosity and access log configurations), see [Configuration Guide](docs/configuration.md).*
 
 
 ### 3. Authenticate
 ```bash
-python verify_login.py
+poetry run python verify_login.py
 ```
 
 ### 4. Start the Server
@@ -93,8 +135,29 @@ For Docker deployments:
 
 ```bash
 git pull
-docker compose up -d --build
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
 ```
+
+Docker listens on container port `6969`. By default, Compose publishes it on
+`127.0.0.1:6969` only. `WEB_PORT` changes only the host-side port; its default
+is also `6969`.
+
+Previous Docker behavior published on all host interfaces. Users requiring LAN
+or remote access must opt in explicitly:
+
+```env
+DOCKER_BIND_ADDRESS=0.0.0.0
+```
+
+The project has no caller API authentication. Keep the default localhost bind,
+or put external authentication in front of the entire service before exposing
+it to an untrusted network.
+
+Run `python scripts/bootstrap.py` first so `config.conf`, `.env`, and Docker's
+runtime source exist. Docker defaults to `./runtime`; set `DOCKER_RUNTIME_DIR`
+to choose a different host source mounted at `/app/runtime`. This is pre-Poetry host setup; Windows users should prefer
+`.\install.ps1`. Non-Linux hosts can use the documented defaults or their Docker
+Desktop equivalent; see the [Docker Deployment Guide](docs/docker.md).
 
 See the [Updater Guide](docs/updating.md) for update checks, rollback behavior,
 locking, protected files, and platform-specific details.
@@ -110,7 +173,7 @@ WebAI-to-API includes a bootstrap utility and a Makefile for common setup tasks.
 | `make setup` | One-step install, directory creation, and config setup. |
 | `make doctor` | Run environment and dependency diagnostics. |
 
-*Alternative (no Make): `python scripts/bootstrap.py` and `python scripts/doctor.py`*
+*Alternative (no Make): `python scripts/bootstrap.py`, then `poetry run python scripts/doctor.py`*
 
 ---
 
@@ -126,15 +189,28 @@ Gemini requires an authenticated Google session.
 ### 1. Browser Login (Recommended)
 1. Run the interactive login helper:
    ```bash
-   python verify_login.py
+   poetry run python verify_login.py
    ```
 2. Complete the sign-in process in the browser window.
-3. This creates `runtime/auth/gemini.json`, used by both backends.
+3. A successful login creates one shared configured auth-state file for Playwright and WebAPI, defaulting to `runtime/auth/gemini.json`.
+
+For Docker, use the selected `DOCKER_RUNTIME_DIR` for both native login paths so
+existing native auth overrides cannot redirect state outside the Docker mount:
+
+```bash
+RUNTIME_DIR=runtime AUTH_STATE_DIR=runtime/auth poetry run python verify_login.py
+```
+
+For `DOCKER_RUNTIME_DIR=/srv/webai/runtime`:
+
+```bash
+RUNTIME_DIR=/srv/webai/runtime AUTH_STATE_DIR=/srv/webai/runtime/auth poetry run python verify_login.py
+```
 
 ### 2. Manual Cookies
 1. Sign in to [Gemini](https://gemini.google.com/).
-2. Copy `__Secure-1PSID` and `__Secure-1PSIDTS` from your browser cookies.
-3. Paste them into the `[Gemini]` section of `config.conf`.
+2. `__Secure-1PSID` is required; `__Secure-1PSIDTS` is optional. Copy available values from your browser cookies.
+3. Paste available values into the `[Gemini]` section of `config.conf`.
 
 ---
 

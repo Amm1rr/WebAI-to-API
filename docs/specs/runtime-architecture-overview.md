@@ -16,7 +16,7 @@ The runtime uses Playwright to drive real browser sessions rather than reverse-e
 The architecture is built for **isolation**, **concurrency safety**, and **lifecycle determinism**:
 
 ### 1. Provider-Scoped Sessions (`ProviderSession`)
-- **Authoritative Ownership:** Each provider session owns its dedicated `BrowserContext`, a `keepalive_page` for liveness monitoring, and the background loops (`reaper`, `autosave`, `eviction`) governing its state.
+- **Authoritative Ownership:** Each provider session owns its dedicated `BrowserContext`, a `keepalive_page` for liveness monitoring, and the background loops (`reaper`, `eviction`) governing its state. The `autosave` loop is opt-in through `ENABLE_AUTOSAVE=true` when persistence is enabled.
 - **Session-Scoped Recovery:** `ProviderSession` is the authoritative owner of context recreation and tab invalidation logic.
 - **Browser State Ownership:** Browser authentication state is controlled by provider auth flows, while `ProviderSession` owns the live browser context lifecycle and request-scoped page resources.
 

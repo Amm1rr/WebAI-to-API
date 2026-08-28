@@ -3,6 +3,9 @@ import os
 import tempfile
 import asyncio
 import inspect
+import shutil
+import stat
+import sys
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 from .webapi_client import MyGeminiClient
@@ -11,6 +14,10 @@ from app.config import CONFIG
 from app.logger import logger
 from app.utils.browser import get_cookie_from_browser
 from app.services.providers.gemini.auth_selector import GeminiAuthSelector
+from app.utils.python_version import (
+    WINDOWS_SUPPORTED_RANGE_TEXT,
+    is_supported_python,
+)
 
 # Import the specific exception to handle it gracefully
 class GeminiClientNotInitializedError(Exception):
@@ -32,6 +39,11 @@ _gemini_generation_records = {}
 _gemini_client_generations = {}
 _current_gemini_generation = None
 _gemini_shutdown_started = False
+_gemini_cache_dir = None
+_gemini_cache_dir_initialized = False
+_gemini_previous_cookie_path = None
+_gemini_previous_cookie_path_was_set = False
+_gemini_cache_initialization_users = 0
 
 
 @dataclass
@@ -81,7 +93,7 @@ class GeminiClientLease:
             return
         record.lease_count -= 1
         if record.retired and record.lease_count == 0:
-            await asyncio.shield(_close_generation_record(record))
+            await asyncio.shield(_close_generation_record(record, cleanup_cache=True))
 
     async def __aenter__(self):
         return self
@@ -144,7 +156,121 @@ def _retire_generation(record):
     record.retired = True
 
 
-async def _close_generation_record(record):
+def _cache_directory_is_valid(path: str) -> bool:
+    try:
+        directory_stat = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+
+    if not stat.S_ISDIR(directory_stat.st_mode):
+        return False
+    return os.name != "posix" or stat.S_IMODE(directory_stat.st_mode) == 0o700
+
+
+def _harden_cache_directory(path: str) -> None:
+    if os.name == "posix":
+        os.chmod(path, 0o700)
+
+    if not _cache_directory_is_valid(path):
+        raise PermissionError(f"Gemini cache directory is not private: {path}")
+
+
+def _validate_gemini_python_version() -> None:
+    platform_name = "nt" if sys.platform == "win32" else "posix"
+    if platform_name != "nt" or is_supported_python(
+        sys.version_info,
+        platform_name=platform_name,
+    ):
+        return
+
+    current_version = ".".join(str(part) for part in sys.version_info[:3])
+    raise RuntimeError(
+        f"Gemini WebAPI private cookie cache requires Windows Python "
+        f"{WINDOWS_SUPPORTED_RANGE_TEXT}; current Python is {current_version}."
+    )
+
+
+def _reset_cache_state() -> None:
+    global _gemini_cache_dir, _gemini_cache_dir_initialized
+    global _gemini_previous_cookie_path, _gemini_previous_cookie_path_was_set
+
+    owned_path = _gemini_cache_dir
+    if owned_path is not None and os.environ.get("GEMINI_COOKIE_PATH") == owned_path:
+        if _gemini_previous_cookie_path_was_set:
+            os.environ["GEMINI_COOKIE_PATH"] = _gemini_previous_cookie_path
+        else:
+            os.environ.pop("GEMINI_COOKIE_PATH", None)
+
+    _gemini_cache_dir = None
+    _gemini_cache_dir_initialized = False
+    _gemini_previous_cookie_path = None
+    _gemini_previous_cookie_path_was_set = False
+
+
+def _remove_owned_cache_directory() -> bool:
+    if _gemini_cache_dir is None:
+        return True
+
+    try:
+        shutil.rmtree(_gemini_cache_dir)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning(f"Error removing owned Gemini cache directory: {e}")
+        return False
+
+    _reset_cache_state()
+    return True
+
+
+def _ensure_gemini_cache_directory() -> str:
+    global _gemini_cache_dir, _gemini_cache_dir_initialized
+    global _gemini_previous_cookie_path, _gemini_previous_cookie_path_was_set
+
+    _validate_gemini_python_version()
+
+    if _gemini_cache_dir is not None:
+        if _gemini_cache_dir_initialized and _cache_directory_is_valid(_gemini_cache_dir):
+            if os.environ.get("GEMINI_COOKIE_PATH") != _gemini_cache_dir:
+                os.environ["GEMINI_COOKIE_PATH"] = _gemini_cache_dir
+            return _gemini_cache_dir
+
+        if _gemini_client is not None or _gemini_generation_records:
+            raise RuntimeError("Gemini cache directory disappeared or lost private permissions.")
+        if not _remove_owned_cache_directory():
+            raise RuntimeError("Unable to remove invalid Gemini cache directory.")
+
+    previous_cookie_path_was_set = "GEMINI_COOKIE_PATH" in os.environ
+    previous_cookie_path = os.environ.get("GEMINI_COOKIE_PATH")
+    cache_dir = tempfile.mkdtemp(prefix="webai-gemini-")
+    _gemini_cache_dir = cache_dir
+    _gemini_cache_dir_initialized = False
+    _gemini_previous_cookie_path = previous_cookie_path
+    _gemini_previous_cookie_path_was_set = previous_cookie_path_was_set
+
+    try:
+        _harden_cache_directory(cache_dir)
+        os.environ["GEMINI_COOKIE_PATH"] = cache_dir
+        _gemini_cache_dir_initialized = True
+        return cache_dir
+    except BaseException:
+        _remove_owned_cache_directory()
+        raise
+
+
+def _cleanup_gemini_cache_if_unused() -> None:
+    if _gemini_cache_dir is None:
+        return
+    if (
+        _gemini_client is not None
+        or _gemini_generation_records
+        or _gemini_cache_initialization_users
+    ):
+        return
+    _remove_owned_cache_directory()
+
+
+async def _close_generation_record(record, *, cleanup_cache=False):
     if (
         not record.retired
         or record.lease_count
@@ -162,6 +288,8 @@ async def _close_generation_record(record):
         _gemini_generation_records.pop(record.generation, None)
         if _gemini_client_generations.get(id(record.client)) == record.generation:
             _gemini_client_generations.pop(id(record.client), None)
+        if cleanup_cache:
+            _cleanup_gemini_cache_if_unused()
     except Exception as e:
         logger.warning(f"Error closing retired Gemini client: {e}")
 
@@ -216,6 +344,7 @@ async def init_gemini_client(
     """
     global _gemini_client, _initialization_error, _gemini_client_auth_source
     global _current_gemini_generation
+    global _gemini_cache_initialization_users
     
     async with _gemini_client_init_lock:
         old_client = _gemini_client
@@ -289,27 +418,27 @@ async def init_gemini_client(
             if old_record is not None:
                 _retire_generation(old_record)
                 await _close_generation_record(old_record)
+            _cleanup_gemini_cache_if_unused()
             return False
 
         gemini_proxy = CONFIG["Proxy"].get("http_proxy")
         if gemini_proxy == "":
             gemini_proxy = None
 
-        import time
-        # Disable library's internal file-based caching with a unique session identifier to prevent pollution/collisions
-        unique_session_id = f"{os.getpid()}_{int(time.time())}"
-        os.environ["GEMINI_COOKIE_PATH"] = os.path.join(tempfile.gettempdir(), f"webai_no_cache_{unique_session_id}")
-
+        _gemini_cache_initialization_users += 1
         best_client = None
         best_client_source_name = None
         client = None
 
         try:
+            _validate_gemini_python_version()
+
             # Step 1: Try config/store candidates in selector-defined priority order
             for candidate in GeminiAuthSelector.iter_candidates():
                 if candidate.supports_webapi_cookie_auth:
                     cookies_dict, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(candidate.auth_data)
                     if psid:
+                        _ensure_gemini_cache_directory()
                         logger.info(f"Attempting to initialize Gemini client with cookies from {candidate.source_name}...")
                         try:
                             client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=cookies_dict)
@@ -352,6 +481,7 @@ async def init_gemini_client(
                         logger.info("Retrieved cookies from browser. Initializing client...")
                         psid = browser_cookies.get("__Secure-1PSID")
                         psidts = browser_cookies.get("__Secure-1PSIDTS")
+                        _ensure_gemini_cache_directory()
                         client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=browser_cookies)
                         await client.init(verbose=True, auto_refresh=False)
                         
@@ -423,6 +553,9 @@ async def init_gemini_client(
             if old_client is None:
                 _gemini_client = None
             return False
+        finally:
+            _gemini_cache_initialization_users -= 1
+            _cleanup_gemini_cache_if_unused()
 
 
 def get_gemini_client():
@@ -471,10 +604,12 @@ async def close_gemini_client() -> None:
     for record in close_records:
         await _close_generation_record(record)
 
-    if current_client is not None and not represented_current_client:
-        try:
+    try:
+        if current_client is not None and not represented_current_client:
             result = current_client.close()
             if inspect.isawaitable(result):
                 await result
-        except Exception as e:
-            logger.warning(f"Error closing untracked Gemini client during shutdown: {e}")
+    except Exception as e:
+        logger.warning(f"Error closing untracked Gemini client during shutdown: {e}")
+    finally:
+        _cleanup_gemini_cache_if_unused()

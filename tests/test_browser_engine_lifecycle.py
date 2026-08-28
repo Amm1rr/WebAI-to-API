@@ -94,6 +94,20 @@ async def test_bootstrap_engine_close_preserves_persistence_save():
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_engine_close_can_suppress_persistence_save():
+    engine = BrowserEngine(headless=True, is_bootstrap=True)
+    session = MagicMock()
+    session.name = "gemini"
+    session.active_lease_count = 0
+    session.close_resources = AsyncMock()
+    engine.sessions = {"gemini": session}
+
+    await engine.close(save_state=False)
+
+    session.close_resources.assert_awaited_once_with(save_state=False)
+
+
+@pytest.mark.asyncio
 async def test_terminal_close_delegates_to_runtime_and_stops_it():
     engine = BrowserEngine(headless=True)
     browser = make_browser()

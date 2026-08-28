@@ -6,7 +6,7 @@ import secrets
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Any, AsyncGenerator, List
-from app.config import get_default_conversation_snapshot_db
+from app.config import resolve_conversation_snapshot_db
 from app.logger import logger
 from app.services.providers.base_repository import ConversationSnapshot, IConversationRepository, ProviderCapability
 from app.services.providers.exceptions import (
@@ -711,7 +711,7 @@ async def init_session_managers(client, generation: int):
     from app.services.providers.sqlite_repository import SQLiteConversationRepository
 
     repository = SQLiteConversationRepository(
-        db_path=os.getenv("CONVERSATION_SNAPSHOT_DB", get_default_conversation_snapshot_db())
+        db_path=resolve_conversation_snapshot_db()
     )
     repository.initialize_sync()
     _gemini_chat_registry = SessionRegistry(

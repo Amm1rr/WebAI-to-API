@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import stat
 import threading
 from pathlib import Path
 
@@ -150,6 +151,35 @@ def test_control_file_published_after_listen_with_real_port_and_token(tmp_path):
         assert isinstance(data["token"], str) and len(data["token"]) == 32
         assert data["token"] == listener._token
         assert data["pid"] == os.getpid()
+    finally:
+        listener.stop()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode semantics only")
+def test_control_file_and_replacement_are_private(tmp_path, monkeypatch):
+    parent = tmp_path / "runtime"
+    parent.mkdir()
+    os.chmod(parent, 0o755)
+    control = parent / "shutdown-control.json"
+    observed_temp_modes = []
+    real_replace = os.replace
+
+    def inspect_replace(source, destination):
+        observed_temp_modes.append(stat.S_IMODE(os.stat(source).st_mode))
+        real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", inspect_replace)
+    listener = ShutdownListener(lambda reason: True, control_file=str(control))
+    listener.start()
+    try:
+        assert stat.S_IMODE(os.stat(parent).st_mode) == 0o700
+        assert stat.S_IMODE(os.stat(control).st_mode) == 0o600
+        assert observed_temp_modes == [0o600]
+
+        os.chmod(control, 0o644)
+        listener._publish_control_file(12345)
+        assert stat.S_IMODE(os.stat(control).st_mode) == 0o600
+        assert observed_temp_modes == [0o600, 0o600]
     finally:
         listener.stop()
 

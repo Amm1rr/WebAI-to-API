@@ -1,8 +1,10 @@
+import configparser
 from pathlib import Path
 
 import pytest
 
 from app.config import load_config
+from app.config_contract import load_effective_config
 
 
 def write_config(tmp_path: Path, content: str) -> str:
@@ -107,3 +109,81 @@ def test_legacy_gemini_playwright_value_is_not_validated(tmp_path):
 def test_gemini_backend_validation_remains_unchanged(tmp_path):
     with pytest.raises(ValueError, match="Invalid Gemini backend configured"):
         load_config(write_config(tmp_path, "[Gemini]\nbackend = invalid\n"))
+
+
+def test_example_config_loads_through_shared_contract():
+    config_path = Path(__file__).resolve().parents[1] / "config.conf.example"
+
+    config = load_effective_config(str(config_path))
+
+    assert config["Gemini"]["backend"] == "webapi"
+
+
+def test_missing_config_still_loads_runtime_defaults(tmp_path):
+    config = load_config(str(tmp_path / "missing.conf"))
+
+    assert config["Browser"]["runtime"] == "playwright"
+    assert config["Gemini"]["backend"] == "webapi"
+
+
+@pytest.mark.parametrize(
+    ("section", "option"),
+    [("EnabledAI", "gemini"), ("Logging", "disable_access_logs")],
+)
+def test_startup_boolean_aliases_keep_configparser_semantics(tmp_path, section, option):
+    config = load_config(write_config(tmp_path, f"[{section}]\n{option} = yes\n"))
+
+    assert config.getboolean(section, option) is True
+
+
+@pytest.mark.parametrize(
+    ("section", "option"),
+    [("EnabledAI", "gemini"), ("Logging", "disable_access_logs")],
+)
+def test_invalid_startup_boolean_fails_during_load(tmp_path, section, option):
+    with pytest.raises(ValueError, match=rf"Invalid boolean value for {section}\.{option}"):
+        load_config(write_config(tmp_path, f"[{section}]\n{option} = maybe\n"))
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "backend = webapi\n",
+        "[Gemini]\nbackend = webapi\nbackend = playwright\n",
+        "[Gemini]\nbackend = webapi\n\n[Gemini]\n",
+    ],
+)
+def test_existing_malformed_or_duplicate_config_fails_closed(tmp_path, content):
+    with pytest.raises(configparser.Error):
+        load_config(write_config(tmp_path, content))
+
+
+def test_invalid_utf8_config_fails_closed(tmp_path):
+    config_path = tmp_path / "config.conf"
+    config_path.write_bytes(b"[Gemini]\nbackend = \xff\n")
+
+    with pytest.raises(UnicodeDecodeError):
+        load_config(str(config_path))
+
+
+def test_existing_directory_fails_closed(tmp_path):
+    config_path = tmp_path / "config.conf"
+    config_path.mkdir()
+
+    with pytest.raises(IsADirectoryError):
+        load_config(str(config_path))
+
+
+def test_environment_overrides_remain_effective(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTH_STATE_DIR", "environment-auth")
+    monkeypatch.setenv("PLAYWRIGHT_HEADLESS", "yes")
+
+    config = load_config(
+        write_config(
+            tmp_path,
+            "[Playwright]\nauth_state_dir = configured-auth\nheadless = false\n",
+        )
+    )
+
+    assert config["Playwright"]["auth_state_dir"] == "environment-auth"
+    assert config["Playwright"]["headless"] == "true"

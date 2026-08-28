@@ -2,6 +2,7 @@ import asyncio
 import json
 import inspect
 import os
+import tempfile
 import time
 import weakref
 from collections import OrderedDict
@@ -62,8 +63,14 @@ class ProviderSession:
         # Persistent state
         auth_state_dir = CONFIG["Playwright"].get("auth_state_dir", get_default_auth_state_dir())
         if auth_state_dir:
-            os.makedirs(auth_state_dir, exist_ok=True)
+            if os.name == "posix":
+                os.makedirs(auth_state_dir, mode=0o700, exist_ok=True)
+                os.chmod(auth_state_dir, 0o700)
+            else:
+                os.makedirs(auth_state_dir, exist_ok=True)
         self.state_path = os.path.join(auth_state_dir, f"{name}.json")
+        if os.name == "posix" and os.path.isfile(self.state_path):
+            os.chmod(self.state_path, 0o600)
 
     @property
     def is_alive(self) -> bool:
@@ -955,31 +962,73 @@ class ProviderSession:
         # Delegate terminal shutdown to engine
         self.engine._on_browser_disconnected()
 
-    async def save_state(self):
-        if not self.is_alive: return
+    async def _capture_state_locked(self) -> Optional[Dict[str, Any]]:
+        if not self.is_alive:
+            return None
         # The runtime API service does not contain an active persistence execution path.
         if not self.enable_persistence:
             logger.warning(
                 f"ProviderSession({self.name}): save_state called outside of manual bootstrap utility flow. "
                 "Persistence is disabled during active runtime API service execution."
             )
-            return
-        async with self.state_lock:
-            tmp_path = f"{self.state_path}.tmp"
+            return None
+
+        try:
+            return await self.context.storage_state()
+        except Exception as e:
+            logger.warning(
+                f"ProviderSession({self.name}): Failed to capture state: {e}",
+                extra={"generation": self.last_browser_generation},
+            )
+            return None
+
+    async def _persist_state_locked(self, state: Dict[str, Any]) -> bool:
+        if not self.enable_persistence:
+            return False
+        tmp_path = None
+        try:
+            state_dir = os.path.dirname(os.path.abspath(self.state_path)) or "."
+            fd, tmp_path = tempfile.mkstemp(
+                dir=state_dir,
+                prefix=f".{os.path.basename(self.state_path)}.",
+                suffix=".tmp",
+            )
             try:
-                await self.context.storage_state(path=tmp_path)
-                with open(tmp_path, "rb+") as f:
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, self.state_path)
-            except Exception as e:
-                logger.warning(
-                    f"ProviderSession({self.name}): Failed to save state: {e}",
-                    extra={"generation": self.last_browser_generation}
-                )
-                if os.path.exists(tmp_path):
-                    try: os.remove(tmp_path)
-                    except OSError: pass
+                if os.name == "posix":
+                    os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
+
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+                f.flush()
+                os.fsync(f.fileno())
+            if os.name == "posix":
+                os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, self.state_path)
+            tmp_path = None
+            return True
+        except Exception as e:
+            logger.warning(
+                f"ProviderSession({self.name}): Failed to save state; final state was not replaced: {e}",
+                extra={"generation": self.last_browser_generation}
+            )
+            return False
+        finally:
+            if tmp_path is not None and os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except OSError: pass
+
+    async def save_state(self, validate: Optional[Callable[[Dict[str, Any]], Any]] = None) -> bool:
+        async with self.state_lock:
+            state = await self._capture_state_locked()
+            if state is None:
+                return False
+            if validate is not None:
+                result = validate(state)
+                if inspect.isawaitable(result):
+                    await result
+            return await self._persist_state_locked(state)
 
     async def close_resources(self, save_state: bool = True):
         async with self._cleanup_lock:

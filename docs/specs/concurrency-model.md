@@ -47,6 +47,8 @@ This contract governs `conversation_id` ownership for browser-native requests (e
 
 Locks MUST be acquired in the following order. Acquiring out-of-order is strictly **forbidden** and results in deterministic deadlocks.
 
+This is a five-level hierarchy:
+
 1. `BrowserEngine.management_lock`: Orchestrates global initialization and terminal shutdown.
 2. `ProviderSession.init_lock`: Serializes session-specific browser context setup.
 3. `ProviderSession._cleanup_lock`: Serializes ProviderSession resource cleanup.
@@ -85,9 +87,11 @@ ProviderSession owns context-close callback, recovery, recovery-wrapper, and orp
 ## 4. Background Synchronization
 
 ### 4.1 Periodic Loops
-`ProviderSession` runs three decoupled background loops:
+`ProviderSession` runs reaper and eviction background loops. Autosave is an
+optional third loop, enabled only when persistence is enabled and
+`ENABLE_AUTOSAVE=true`.
 - **Reaper Loop**: Active liveness sweeper. Purges `DEAD` tabs and detects window closure.
-- **Autosave Loop**: Periodically persists browser context state to disk.
+- **Autosave Loop (opt-in)**: Periodically persists browser context state to disk when explicitly enabled.
 - **Eviction Loop**: Enforces conversation capacity and recovers stalled leases.
 
 ### 4.2 Loop Authority Boundaries
@@ -104,7 +108,7 @@ ProviderSession owns context-close callback, recovery, recovery-wrapper, and orp
 
 AI Agents working on the concurrency or locking logic must adhere to these strict constraints:
 
-1. **No Lock-Order Violations**: Never acquire locks out-of-order (Management -> Init -> Registry -> Tab).
+1. **No Lock-Order Violations**: Never acquire locks out-of-order (Management -> Init -> Cleanup -> Registry -> Tab).
 2. **No Await under Registry Lock**: Never perform an `await` while holding `registry_lock`.
 3. **Mandatory Shielding**: Always wrap resource cleanup in `asyncio.shield`.
 4. **No Silent Reuse**: Never attempt to reuse a lease after it has been invalidated by crash or rollover.

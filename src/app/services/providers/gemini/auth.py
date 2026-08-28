@@ -6,6 +6,20 @@ from app.config import CONFIG, get_default_auth_state_dir
 from app.logger import logger
 from app.services.browser.auth_types import AuthStatus
 
+
+async def persist_shared_gemini_state(session) -> bool:
+    """Persist one Playwright storage state only when it also supplies WebAPI auth."""
+    from app.services.browser.auth_loader import GeminiAuthStateLoader
+
+    async def validate(state) -> None:
+        context_cookies = await session.context.cookies()
+        if not GeminiAuthStateLoader.has_shared_webapi_material(state, context_cookies):
+            raise RuntimeError(
+                "Gemini UI login succeeded but shared WebAPI authentication material could not be captured."
+            )
+
+    return await session.save_state(validate=validate)
+
 class GeminiAuthStrategy:
     """
     Gemini-specific authentication workflow strategy.
@@ -51,8 +65,8 @@ class GeminiAuthStrategy:
             return {}
 
         raise RuntimeError(
-            "Gemini Playwright backend requires a valid storage state (runtime/auth/gemini.json). "
-            "Please run 'python verify_login.py' to authenticate."
+            "Gemini Playwright backend requires a valid storage state. "
+            "Please run 'poetry run python verify_login.py' to authenticate."
         )
 
     def get_state_path(self) -> str:
@@ -177,9 +191,10 @@ class GeminiAuthStrategy:
                     last_state = current_state
 
                 if current_state == "authenticated_chat_detected":
+                    if not await persist_shared_gemini_state(session):
+                        raise RuntimeError("Authenticated state could not be persisted.")
                     login_detected = True
-                    await session.save_state()
-                    logger.info("GeminiAuthStrategy: Success! Google sign-in detected and state saved atomically.")
+                    logger.info("GeminiAuthStrategy: Shared Gemini authentication state saved atomically.")
                     break
 
                 await asyncio.sleep(2)

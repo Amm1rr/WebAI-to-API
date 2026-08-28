@@ -46,6 +46,7 @@ except ImportError as exc:
     raise
 
 from app.services.browser.engine import get_browser_engine
+from app.services.providers.gemini.auth import persist_shared_gemini_state
 from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS
 from app.logger import logger
 
@@ -126,7 +127,10 @@ async def verify_login():
     Detects successful login and saves state automatically.
     """
     bootstrap_engine = await get_browser_engine(headless=False, is_bootstrap=True)
-    async with bootstrap_engine as engine:
+    page_wrapper = None
+    primary_error = None
+    try:
+        engine = bootstrap_engine
         # 1. Obtain managed page via engine to ensure browser health/init with persistence enabled
         page_wrapper = await engine.get_page("gemini", enable_persistence=True)
         page = page_wrapper.page
@@ -156,6 +160,33 @@ async def verify_login():
         print("="*60 + "\n")
         
         login_detected = False
+        persistence_error = None
+
+        async def persist_state():
+            nonlocal persistence_error
+            try:
+                persisted = await persist_shared_gemini_state(session)
+            except RuntimeError as exc:
+                persistence_error = exc
+                print(f"\n[ERROR] {persistence_error}", file=sys.stderr)
+                return False
+            except Exception:
+                logger.error(
+                    "Failed to persist authenticated state to %s.",
+                    resolved_path,
+                    exc_info=True,
+                )
+                persisted = False
+
+            if persisted:
+                return True
+
+            if persistence_error is None:
+                persistence_error = RuntimeError(
+                    f"Authenticated state could not be persisted to: {resolved_path}"
+                )
+                print(f"\n[ERROR] {persistence_error}", file=sys.stderr)
+            return False
  
         async def auto_save_loop():
             nonlocal login_detected
@@ -164,16 +195,17 @@ async def verify_login():
                     # Check if we are logged in by looking for the input box
                     input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                     if input_exists and not login_detected:
+                        if not await persist_state():
+                            return
                         login_detected = True
-                        # Use session-scoped save_state
-                        await session.save_state()
-                        print(f"\n[SUCCESS] Login detected! State saved atomically to: {resolved_path}")
+                        print(f"\n[SUCCESS] Shared Gemini authentication state saved atomically to: {resolved_path}")
                         print("You can now safely press ENTER to finish.")
                     
                     # Periodic backup every 20 seconds
                     await asyncio.sleep(20)
                     if login_detected:
-                        await session.save_state()
+                        if not await persist_state():
+                            return
             except asyncio.CancelledError:
                 raise
             except PlaywrightError:
@@ -183,10 +215,21 @@ async def verify_login():
  
         # Start the background observer
         save_task = asyncio.create_task(auto_save_loop())
- 
+        completion_task = asyncio.create_task(_wait_for_completion_signal(engine, page, session))
+  
         # Wait for user to press Enter in a non-blocking way for the loop
         try:
-            await _wait_for_completion_signal(engine, page, session)
+            done, pending = await asyncio.wait(
+                {save_task, completion_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                await task
+            if persistence_error is not None:
+                raise persistence_error
         except KeyboardInterrupt:
             pass
         finally:
@@ -198,15 +241,38 @@ async def verify_login():
             
             # Deterministic shutdown ordering
             # 1. Final session save
-            if login_detected:
-                await session.save_state()
-                print(f"\n[FINAL SAVE] Verified persistent state saved to: {resolved_path}")
+            if login_detected and persistence_error is None:
+                if await persist_state():
+                    print(f"\n[FINAL SAVE] Verified persistent state saved to: {resolved_path}")
             
-            # 2. Release managed resources (closes page and releases semaphore)
-            if page_wrapper:
-                await page_wrapper.close()
+            if persistence_error is not None:
+                raise persistence_error
                 
             print("Manual bootstrap utility successfully completed and exiting...")
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        cleanup_error = None
+        try:
+            if page_wrapper:
+                await page_wrapper.close()
+        except BaseException as exc:
+            cleanup_error = exc
+
+        try:
+            await bootstrap_engine.close(save_state=False)
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+            else:
+                logger.error("Manual bootstrap engine cleanup failed after page cleanup failure.", exc_info=True)
+
+        if cleanup_error is not None:
+            if primary_error is not None:
+                logger.error("Manual bootstrap cleanup failed while preserving original error.", exc_info=True)
+            else:
+                raise cleanup_error
 
 if __name__ == "__main__":
     try:

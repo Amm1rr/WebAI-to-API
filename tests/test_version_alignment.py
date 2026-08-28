@@ -80,10 +80,10 @@ def test_env_not_tracked():
 
 def test_python_version_contract_alignment():
     """
-    Ensures BOTH scripts/bootstrap.py and scripts/doctor.py mirror the
-    authoritative Python range declared in pyproject.toml (requires-python).
+    Ensures shared Python version contract mirrors pyproject.toml's
+    authoritative requires-python range.
     """
-    import ast
+    from app.utils.python_version import MAX_PYTHON_VERSION, REQUIRED_PYTHON_VERSION
 
     root = get_project_root()
     pyproject_content = read_file(os.path.join(root, "pyproject.toml"))
@@ -95,24 +95,11 @@ def test_python_version_contract_alignment():
     expected_min = (int(match.group(1)), int(match.group(2)))
     expected_max = (int(match.group(3)), int(match.group(4)))
 
-    for script in ("bootstrap.py", "doctor.py"):
-        script_path = os.path.join(root, "scripts", script)
-        tree = ast.parse(read_file(script_path))
-        constants = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id in (
-                        "REQUIRED_PYTHON_VERSION",
-                        "MAX_PYTHON_VERSION",
-                    ):
-                        constants[target.id] = ast.literal_eval(node.value)
-
-        assert constants.get("REQUIRED_PYTHON_VERSION") == expected_min, (
-            f"{script} minimum Python {constants.get('REQUIRED_PYTHON_VERSION')} "
-            f"does not match pyproject.toml floor {expected_min}."
-        )
-        assert constants.get("MAX_PYTHON_VERSION") == expected_max, (
-            f"{script} maximum Python {constants.get('MAX_PYTHON_VERSION')} "
-            f"does not match pyproject.toml ceiling {expected_max}."
-        )
+    assert REQUIRED_PYTHON_VERSION == expected_min, (
+        f"Shared minimum Python {REQUIRED_PYTHON_VERSION} "
+        f"does not match pyproject.toml floor {expected_min}."
+    )
+    assert MAX_PYTHON_VERSION == expected_max, (
+        f"Shared maximum Python {MAX_PYTHON_VERSION} "
+        f"does not match pyproject.toml ceiling {expected_max}."
+    )

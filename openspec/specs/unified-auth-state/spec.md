@@ -4,7 +4,7 @@
 TBD - created by archiving change unified-auth-state. Update Purpose after archive.
 ## Requirements
 ### Requirement: Authentication State Loader Layer (`GeminiAuthStateLoader`)
-The system SHALL provide a dedicated, extensible authentication state loader layer (`GeminiAuthStateLoader`). The loader SHALL be responsible for loading the canonical state JSON payload from `runtime/auth/gemini.json`, validating its structure, and translating it into provider-specific formats (e.g. CurlCffi cookie dictionaries for HTTP wrapper, or Playwright `storageState` objects).
+The system SHALL provide a dedicated, extensible authentication state loader layer (`GeminiAuthStateLoader`). The loader SHALL resolve the canonical state JSON payload from configured `auth_state_dir` (default `runtime/auth`; when the option is absent, the derived default is `RUNTIME_DIR/auth`), with `AUTH_STATE_DIR` taking precedence, validate its structure, and translate it into provider-specific formats (e.g. CurlCffi cookie dictionaries for HTTP wrapper, or Playwright `storageState` objects).
 
 #### Scenario: Successfully loading and validating valid canonical state file
 - **WHEN** the authentication state loader parses a syntactically correct `gemini.json` state file
@@ -23,4 +23,3 @@ The `GeminiAuthStateLoader` interface SHALL be designed to be stateless and deco
 - **WHEN** a custom named profile parameter is passed to the authentication loader layer
 - **THEN** the loader interface SHALL expose hooks allowing custom profile resolution
 - **AND** it SHALL preserve compatibility with the default process-bound file resolution
-

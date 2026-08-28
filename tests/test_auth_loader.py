@@ -76,6 +76,187 @@ def test_translate_to_webapi():
     assert psidts == "psidts_val"
 
 
+@pytest.mark.parametrize(
+    "domain",
+    [".google.com", "google.com", "gemini.google.com", "accounts.google.com"],
+)
+def test_browser_webapi_material_accepts_google_domains(domain):
+    cookies = [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) == {
+        "__Secure-1PSID": "psid"
+    }
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["evilgoogle.com", "notgoogle.com", "google.com.evil.example"],
+)
+def test_browser_webapi_material_rejects_invalid_google_domains(domain):
+    cookies = [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
+def test_browser_webapi_material_requires_psid_and_allows_optional_psidts():
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"}],
+        now=100,
+    ) == {"__Secure-1PSID": "psid"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"},
+        ],
+        now=100,
+    ) == {"__Secure-1PSID": "psid", "__Secure-1PSIDTS": "psidts"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "__Secure-1PSIDTS", "value": "", "domain": ".google.com"},
+        ],
+        now=100,
+    ) == {"__Secure-1PSID": "psid"}
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+        [{"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"}],
+        now=100,
+    ) is None
+
+
+def test_browser_webapi_material_rejects_empty_and_expired_psid():
+    cookies = [
+        {"name": "__Secure-1PSID", "value": "", "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": None, "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": "expired", "domain": ".google.com", "expires": 99},
+        {"name": "__Secure-1PSIDTS", "value": "", "domain": ".google.com"},
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
+def test_browser_webapi_material_selects_duplicates_deterministically():
+    cookies = [
+        {"name": "__Secure-1PSID", "value": "subdomain", "domain": "gemini.google.com"},
+        {"name": "__Secure-1PSID", "value": "root-path", "domain": ".google.com", "path": "/"},
+        {"name": "__Secure-1PSID", "value": "root-other-path", "domain": ".google.com", "path": "/app"},
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) == {
+        "__Secure-1PSID": "root-path"
+    }
+
+
+def test_browser_webapi_material_rejects_partitioned_psid_when_metadata_exists():
+    cookies = [
+        {
+            "name": "__Secure-1PSID",
+            "value": "partitioned",
+            "domain": ".google.com",
+            "partitionKey": "https://gemini.google.com",
+        }
+    ]
+
+    assert GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies, now=100) is None
+
+
+@pytest.mark.parametrize("domain", [".google.com", "google.com", "gemini.google.com", "accounts.google.com"])
+def test_shared_webapi_material_accepts_google_domain_psid(domain):
+    data = {"cookies": [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]}
+
+    extracted, psid, psidts = GeminiAuthStateLoader.get_webapi_cookie_material(data, now=100)
+
+    assert extracted == {"__Secure-1PSID": "psid"}
+    assert psid == "psid"
+    assert psidts is None
+    assert GeminiAuthStateLoader.has_shared_webapi_material(data) is True
+
+
+@pytest.mark.parametrize(
+    "cookie",
+    [
+        {"name": "__Secure-1PSID", "value": "psid", "domain": "evilgoogle.com"},
+        {"name": "__Secure-1PSID", "value": "", "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "expires": 100},
+        {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "partitionKey": "https://gemini.google.com"},
+    ],
+)
+def test_shared_webapi_material_rejects_invalid_psid(cookie):
+    data = {"cookies": [cookie]}
+
+    extracted, psid, _ = GeminiAuthStateLoader.get_webapi_cookie_material(data, now=100)
+
+    assert extracted == {}
+    assert psid is None
+    assert GeminiAuthStateLoader.has_shared_webapi_material(data) is False
+
+
+def test_shared_webapi_material_accepts_session_cookie_and_selects_duplicates_deterministically():
+    data = {
+        "cookies": [
+            {"name": "__Secure-1PSID", "value": "host", "domain": "gemini.google.com"},
+            {"name": "__Secure-1PSID", "value": "canonical", "domain": ".google.com", "expires": -1},
+            {"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(data)
+
+    assert extracted == {"__Secure-1PSID": "canonical", "__Secure-1PSIDTS": "psidts"}
+    assert psid == "canonical"
+    assert psidts == "psidts"
+
+
+def test_shared_webapi_material_ignores_malformed_cookie_entries():
+    data = {
+        "cookies": [
+            "not-a-cookie",
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.get_webapi_cookie_material(data)
+
+    assert extracted == {"__Secure-1PSID": "psid"}
+    assert psid == "psid"
+    assert psidts is None
+
+
+def test_translate_to_webapi_preserves_valid_non_auth_google_cookies():
+    data = {
+        "cookies": [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "NID", "value": "nid", "domain": ".google.com"},
+            {"name": "expired", "value": "old", "domain": ".google.com", "expires": 100},
+            {"name": "evil", "value": "no", "domain": "evilgoogle.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(data)
+
+    assert extracted == {"__Secure-1PSID": "psid", "NID": "nid"}
+    assert psid == "psid"
+    assert psidts is None
+
+
+def test_shared_material_requires_matching_non_partitioned_context_cookie():
+    state = {
+        "cookies": [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "path": "/"}]
+    }
+    partitioned_context = [{
+        "name": "__Secure-1PSID",
+        "value": "psid",
+        "domain": ".google.com",
+        "path": "/",
+        "partitionKey": "https://gemini.google.com",
+    }]
+    mismatched_context = [{"name": "__Secure-1PSID", "value": "other", "domain": ".google.com", "path": "/"}]
+    valid_context = [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "path": "/"}]
+
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, partitioned_context) is False
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, mismatched_context) is False
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, valid_context) is True
+
+
 def test_load_canonical_state_missing_or_empty(tmp_path, mocker):
     # Mock get_canonical_path to a non-existent path
     mocker.patch.object(GeminiAuthStateLoader, "get_canonical_path", return_value=str(tmp_path / "missing.json"))
@@ -479,8 +660,7 @@ def test_backward_compatibility_legacy_cookies(mocker, caplog):
 
 def test_partial_configuration_gemini_only_psid(mocker):
     """
-    Test F.1: Partial Configuration - [Gemini] with only __Secure-1PSID
-    Should treat as incomplete and fallback to next source.
+    Test F.1: [Gemini] with only required __Secure-1PSID is usable.
     """
     mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
 
@@ -499,13 +679,11 @@ def test_partial_configuration_gemini_only_psid(mocker):
 
     loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
 
-    # Should fall back to [Cookies] because [Gemini] is incomplete
-    assert is_legacy is True
+    assert is_legacy is False
     assert loaded is not None
     cookies = loaded["cookies"]
     cookie_dict = {c["name"]: c["value"] for c in cookies}
-    assert cookie_dict["__Secure-1PSID"] == "fallback_psid"
-    assert cookie_dict["__Secure-1PSIDTS"] == "fallback_psidts"
+    assert cookie_dict == {"__Secure-1PSID": "partial_psid"}
 
 
 def test_partial_configuration_gemini_only_psidts(mocker):
@@ -539,10 +717,9 @@ def test_partial_configuration_gemini_only_psidts(mocker):
     assert cookie_dict["__Secure-1PSIDTS"] == "fallback_psidts"
 
 
-def test_partial_configuration_cookies_only_psid(mocker):
+def test_partial_configuration_cookies_only_psid(mocker, caplog):
     """
-    Test F.3: Partial Configuration - [Cookies] with only gemini_cookie_1psid
-    Should treat as incomplete and fallback to next source.
+    Test F.3: Legacy [Cookies] with only required PSID is usable.
     """
     valid_json_data = {
         "cookies": [
@@ -566,10 +743,17 @@ def test_partial_configuration_cookies_only_psid(mocker):
 
     loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
 
-    # Should fall back to gemini.json because [Cookies] is incomplete
-    assert is_legacy is False
+    assert is_legacy is True
     assert loaded is not None
-    assert loaded == valid_json_data
+    assert loaded["cookies"] == [
+        {
+            "name": "__Secure-1PSID",
+            "value": "partial_psid",
+            "domain": ".google.com",
+            "path": "/",
+        }
+    ]
+    assert any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
 
 
 def test_partial_configuration_cookies_only_psidts(mocker):

@@ -4,19 +4,36 @@
 
 services:
   web_ai:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     image: cornatul/webai.ai
     container_name: web_ai_server
     restart: always
     ports:
-      - "6969:6969"
+      - "${DOCKER_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-6969}:6969"
     env_file:
       - .env
     environment:
       - PYTHONPATH=/app/src
       - PLAYWRIGHT_HEADLESS=true
+      # Keep application state below the fixed bind target, not native host paths from .env.
+      - RUNTIME_DIR=/app/runtime
+      - AUTH_STATE_DIR=/app/runtime/auth
+      - CONVERSATION_SNAPSHOT_DB=/app/runtime/conversations/conversation_snapshots.db
       - LOG_LEVEL=${LOG_LEVEL:-}
       - DISABLE_ACCESS_LOGS=${DISABLE_ACCESS_LOGS:-false}
     volumes:
-      - ./config.conf:/app/config.conf:ro
-      - ./runtime:/app/runtime
+      - type: bind
+        source: ./config.conf
+        target: /app/config.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOCKER_RUNTIME_DIR:-./runtime}
+        target: /app/runtime
+        bind:
+          create_host_path: false

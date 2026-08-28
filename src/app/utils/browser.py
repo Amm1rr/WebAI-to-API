@@ -6,19 +6,21 @@ import os
 import sqlite3
 import json
 import base64
+import math
 from pathlib import Path
 from typing import Optional, Literal, Dict, Any
 from app.config import CONFIG
+from app.services.browser.auth_loader import GeminiAuthStateLoader
 
 # Windows-specific imports for cookie decryption
 if platform.system().lower() == "windows":
     try:
         import win32crypt
-        from Crypto.Cipher import AES
+        from Cryptodome.Cipher import AES
         HAS_CRYPTO = True
     except ImportError:
         HAS_CRYPTO = False
-        logging.warning("Windows crypto libraries not available. Install with: pip install pywin32 pycryptodome")
+        logging.warning("Windows crypto libraries not available. Install project dependencies with Poetry.")
 else:
     HAS_CRYPTO = False
 
@@ -95,27 +97,20 @@ class CrossPlatformCookieExtractor:
                     "local_state": os.path.join(base_path, "Local State")
                 }
                 
-            elif browser_name == "firefox":
-                firefox_path = os.path.join(user_data, "AppData", "Roaming", "Mozilla", "Firefox", "Profiles")
-                if os.path.exists(firefox_path):
-                    profiles = [d for d in os.listdir(firefox_path) if os.path.isdir(os.path.join(firefox_path, d))]
-                    if profiles:
-                        profile_path = os.path.join(firefox_path, profiles[0])
-                        paths = {"cookies_db": os.path.join(profile_path, "cookies.sqlite")}
-        
+
         return paths
     
     def _try_browser_cookie3(self, browser_name: str) -> Optional[Any]:
         """Try to get cookies using browser_cookie3 library"""
         try:
             if browser_name == "firefox":
-                return browser_cookie3.firefox()
+                return browser_cookie3.firefox(domain_name="google.com")
             elif browser_name == "chrome":
-                return browser_cookie3.chrome()
+                return browser_cookie3.chrome(domain_name="google.com")
             elif browser_name == "brave":
-                return browser_cookie3.brave()
+                return browser_cookie3.brave(domain_name="google.com")
             elif browser_name == "edge":
-                return browser_cookie3.edge()
+                return browser_cookie3.edge(domain_name="google.com")
             elif browser_name == "safari":
                 return browser_cookie3.safari()
             else:
@@ -123,6 +118,87 @@ class CrossPlatformCookieExtractor:
         except Exception as e:
             logger.warning(f"browser_cookie3 failed for {browser_name}: {e}")
             return None
+
+    @staticmethod
+    def _canonicalize_browser_cookie(cookie: Any) -> Optional[Dict[str, Any]]:
+        """Convert a browser cookie object into canonical storage-state fields."""
+        missing = object()
+
+        try:
+            name = cookie.name
+            value = cookie.value
+            domain = cookie.domain
+            path = getattr(cookie, "path", "/") or "/"
+        except Exception:
+            return None
+
+        if not all(isinstance(item, str) for item in (name, value, domain, path)):
+            return None
+
+        canonical: Dict[str, Any] = {
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": path,
+        }
+
+        try:
+            if hasattr(cookie, "expires"):
+                expires = cookie.expires
+                if expires is not None:
+                    if (
+                        isinstance(expires, bool)
+                        or not isinstance(expires, (int, float))
+                        or not math.isfinite(expires)
+                        or expires < 0
+                    ):
+                        return None
+                    canonical["expires"] = None if expires == 0 else expires
+                else:
+                    canonical["expires"] = None
+
+            secure = getattr(cookie, "secure", missing)
+            if secure is not missing:
+                canonical["secure"] = bool(secure)
+
+            rest = getattr(cookie, "_rest", None)
+            http_only = getattr(cookie, "httponly", missing)
+            if http_only is not missing:
+                canonical["httpOnly"] = bool(http_only)
+            elif isinstance(rest, dict):
+                canonical["httpOnly"] = any(
+                    str(key).lower() == "httponly" for key in rest
+                )
+
+            partition_key = missing
+            for attribute in ("partitionKey", "partition_key"):
+                partition_key = getattr(cookie, attribute, missing)
+                if partition_key is not missing:
+                    break
+
+            if partition_key is not missing:
+                canonical["partitionKey"] = partition_key
+            elif isinstance(rest, dict) and any(
+                str(key).lower() == "partitioned" for key in rest
+            ):
+                canonical["partitionKey"] = True
+        except Exception:
+            return None
+
+        return canonical
+
+    @classmethod
+    def _canonicalize_browser_cookies(cls, cookies: Any) -> list[Dict[str, Any]]:
+        """Convert iterable browser cookies, skipping malformed entries."""
+        canonical = []
+        try:
+            for cookie in cookies:
+                normalized = cls._canonicalize_browser_cookie(cookie)
+                if normalized is not None:
+                    canonical.append(normalized)
+        except Exception:
+            return canonical
+        return canonical
     
     def _decrypt_chrome_cookie_value(self, encrypted_value: bytes, local_state_path: str) -> Optional[str]:
         """Decrypt Chrome cookie value on Windows"""
@@ -195,56 +271,6 @@ class CrossPlatformCookieExtractor:
         except Exception as e:
             logger.error(f"Failed to decrypt Chrome cookie: {e}", exc_info=True)
             return None
-        """Direct Firefox cookie extraction from SQLite database"""
-        try:
-            if not os.path.exists(cookies_db_path):
-                logger.warning(f"Firefox cookies database not found: {cookies_db_path}")
-                return None
-            
-            # Copy the database to avoid lock issues
-            import tempfile
-            import shutil
-            
-            with tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False) as temp_file:
-                temp_db_path = temp_file.name
-                shutil.copy2(cookies_db_path, temp_db_path)
-            
-            try:
-                conn = sqlite3.connect(temp_db_path)
-                cursor = conn.cursor()
-                
-                # Firefox cookie table structure
-                cursor.execute("""
-                    SELECT name, value, host, path, expiry, isSecure, isHttpOnly 
-                    FROM moz_cookies 
-                    WHERE host LIKE '%google%' AND (name = '__Secure-1PSID' OR name = '__Secure-1PSIDTS')
-                """)
-                
-                cookies = []
-                for row in cursor.fetchall():
-                    cookie_obj = type('Cookie', (), {
-                        'name': row[0],
-                        'value': row[1],
-                        'domain': row[2],
-                        'path': row[3],
-                        'expires': row[4],
-                        'secure': bool(row[5]),
-                        'httponly': bool(row[6])
-                    })()
-                    cookies.append(cookie_obj)
-                
-                conn.close()
-                return cookies
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_db_path)
-                except:
-                    pass
-                    
-        except Exception as e:
-            logger.error(f"Failed to extract Firefox cookies directly: {e}")
-            return None
     
     def _get_chromium_cookies_direct(self, cookies_db_path: str, local_state_path: str = None) -> Optional[list]:
         """Direct Chromium-based browser cookie extraction with decryption support"""
@@ -259,7 +285,7 @@ class CrossPlatformCookieExtractor:
             
             with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as temp_file:
                 temp_db_path = temp_file.name
-                shutil.copy2(cookies_db_path, temp_db_path)
+                shutil.copyfile(cookies_db_path, temp_db_path)
             
             try:
                 conn = sqlite3.connect(temp_db_path)
@@ -269,7 +295,12 @@ class CrossPlatformCookieExtractor:
                 cursor.execute("""
                     SELECT name, value, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly 
                     FROM cookies 
-                    WHERE host_key LIKE '%google%' AND (name = '__Secure-1PSID' OR name = '__Secure-1PSIDTS')
+                    WHERE (
+                        host_key = 'google.com'
+                        OR host_key = '.google.com'
+                        OR host_key LIKE '%.google.com'
+                    )
+                    AND (name = '__Secure-1PSID' OR name = '__Secure-1PSIDTS')
                 """)
                 
                 logger.info(f"Found {cursor.rowcount} matching cookies in database")
@@ -277,6 +308,23 @@ class CrossPlatformCookieExtractor:
                 cookies = []
                 for row in cursor.fetchall():
                     name, value, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly = row
+
+                    try:
+                        if isinstance(expires_utc, bool):
+                            raise ValueError
+                        if expires_utc == 0:
+                            expires = None
+                        else:
+                            expires_utc = float(expires_utc)
+                            if not math.isfinite(expires_utc) or expires_utc <= 0:
+                                raise ValueError
+                            expires = expires_utc / 1_000_000 - 11_644_473_600
+                            if expires <= 0:
+                                logger.warning("Skipping expired Chromium cookie")
+                                continue
+                    except (TypeError, ValueError):
+                        logger.warning("Skipping Chromium cookie with invalid expiry")
+                        continue
                     
                     logger.info(f"Processing cookie: {name}")
                     logger.info(f"  - Plain value length: {len(value) if value else 0}")
@@ -303,7 +351,7 @@ class CrossPlatformCookieExtractor:
                         'value': final_value or '',
                         'domain': host_key,
                         'path': path,
-                        'expires': expires_utc,
+                        'expires': expires,
                         'secure': bool(is_secure),
                         'httponly': bool(is_httponly)
                     })()
@@ -332,19 +380,13 @@ class CrossPlatformCookieExtractor:
             logger.info(f"Successfully retrieved cookies using browser_cookie3 for {browser_name}")
             return cookies
         
-        # Method 2: Try direct database access (fallback for Windows)
-        if self.is_windows:
+        # Method 2: Try direct Chromium database access (fallback for Windows)
+        if self.is_windows and browser_name in ["chrome", "brave", "edge"]:
             logger.info(f"Trying direct database access for {browser_name} on Windows")
             
             browser_paths = self._get_browser_profile_paths(browser_name)
-            
-            if browser_name == "firefox" and "cookies_db" in browser_paths:
-                cookies = self._get_firefox_cookies_direct(browser_paths["cookies_db"])
-                if cookies:
-                    logger.info(f"Successfully retrieved Firefox cookies via direct access")
-                    return cookies
-            
-            elif browser_name in ["chrome", "brave", "edge"] and "cookies_db" in browser_paths:
+
+            if "cookies_db" in browser_paths:
                 cookies_db_path = browser_paths["cookies_db"]
                 local_state_path = browser_paths.get("local_state")
                 
@@ -383,19 +425,17 @@ def get_cookie_from_browser(service: Literal["gemini"]) -> Optional[dict]:
     # Process cookies for the requested service
     if service == "gemini":
         logger.info("Filtering cookies for Google domains...")
-        # Only use the two essential cookies for Gemini authentication
-        google_cookies = {}
-        for cookie in cookies:
-            if hasattr(cookie, 'domain') and "google" in cookie.domain:
-                if cookie.name in ["__Secure-1PSID", "__Secure-1PSIDTS"]:
-                    google_cookies[cookie.name] = cookie.value
+        canonical_cookies = extractor._canonicalize_browser_cookies(cookies)
+        google_cookies = GeminiAuthStateLoader.get_browser_webapi_cookie_material(
+            canonical_cookies
+        )
 
-        if google_cookies:
-            logger.info(f"Found {len(google_cookies)} essential Gemini cookies ({list(google_cookies.keys())})")
-            return google_cookies
-        else:
+        if google_cookies is None:
             logger.warning("No essential Gemini cookies found in browser jar.")
             return None
+
+        logger.info(f"Found {len(google_cookies)} essential Gemini cookies ({list(google_cookies.keys())})")
+        return google_cookies
     else:
         logger.warning(f"Unsupported service: {service}")
         return None

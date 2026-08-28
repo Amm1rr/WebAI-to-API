@@ -23,5 +23,5 @@ The system SHALL isolate the active tab registry, background sweep loops, and co
 
 #### Scenario: Background sweeper execution
 - **WHEN** the session is initialized
-- **THEN** it SHALL start `_reaper_loop`, `_eviction_loop`, and `_autosave_loop` tasks that run concurrently, catch internal errors to prevent process crashes, and interact with tab locking structures safely.
-
+- **THEN** it SHALL start `_reaper_loop` and `_eviction_loop` tasks that run concurrently, catch internal errors to prevent process crashes, and interact with tab locking structures safely
+- **AND** it SHALL start `_autosave_loop` only when persistence is enabled and `ENABLE_AUTOSAVE=true`

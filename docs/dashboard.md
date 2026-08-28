@@ -24,7 +24,9 @@ The API catalog is dynamically generated from the FastAPI route registry. It pro
 
 ## Security posture
 
-The dashboard routes currently have no authentication layer.
+The dashboard routes currently have no authentication layer. The API also has
+no caller authentication boundary; provider authentication only authenticates
+the service to its upstream AI provider.
 
 Treat the dashboard as an administrative surface, not a public user-facing app.
 Recommended deployment options:
@@ -33,7 +35,8 @@ Recommended deployment options:
 - place it behind a reverse proxy with external authentication
 - restrict access with an upstream auth gateway or similar control
 
-Do not expose the dashboard publicly unless you add a separate access-control layer.
+Do not expose the dashboard or API publicly unless you add external
+access-control for the entire service.
 
 Conversation actions are scoped to locally persisted Gemini WebAPI snapshots only:
 
@@ -44,9 +47,12 @@ Conversation actions are scoped to locally persisted Gemini WebAPI snapshots onl
 
 ## Docker note
 
-The default container setup exposes the service port directly. If you map that port to a public interface, you also expose the dashboard routes.
+The default container setup binds the published port to `127.0.0.1`. Setting
+`DOCKER_BIND_ADDRESS=0.0.0.0` exposes the entire unauthenticated service to
+other reachable machines, including dashboard and API routes.
 
-Keep the dashboard reachable only from trusted clients unless you have explicit authentication in front of it.
+Keep the service reachable only from trusted clients unless you have explicit
+external authentication in front of it.
 
 ## Static assets
 

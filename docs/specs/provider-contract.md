@@ -57,7 +57,7 @@ Providers must maintain strict ownership boundaries for their asynchronous execu
 
 ### 3.1 Task Boundaries
 - **Request-Scoped Tasks**: Providers may only create and own tasks that belong to a single request lifecycle (e.g., stream observers).
-- **Session-Scoped Tasks**: Background loops (reaper, autosave, eviction) are owned exclusively by `ProviderSession`. Providers must NEVER spawn session-wide background tasks.
+- **Session-Scoped Tasks**: Background loops (reaper and eviction, plus opt-in autosave when `ENABLE_AUTOSAVE=true` and persistence is enabled) are owned exclusively by `ProviderSession`. Providers must NEVER spawn session-wide background tasks.
 - **No Orphans**: Providers must not create untracked background tasks. Any spawned task must be cancellable and awaited/cleaned up during teardown.
 
 ## 4. Listener & Observer Ownership
@@ -145,7 +145,7 @@ Providers must NOT retry the following conditions; they must fail the request:
 - **Auth Loss**: Detecting authentication-invalid contexts (must escalate to trigger session-level recovery).
 
 ### 8.3 Lock Hierarchy Compliance
-- Providers MUST adhere to the global lock hierarchy (Management -> Init -> Registry -> Tab).
+- Providers MUST adhere to the five-level global lock hierarchy (Management -> Init -> Cleanup -> Registry -> Tab).
 - Providers MUST NOT hold locks during long Playwright operations or network waits.
 
 ## 9. Streaming Responsibilities
