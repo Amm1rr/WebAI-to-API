@@ -50,8 +50,10 @@ Clone the repository, enter the project directory, then run the setup wrapper fo
 git clone https://github.com/Amm1rr/WebAI-to-API.git
 cd WebAI-to-API
 ./install.sh
+```
 
 **Windows PowerShell**
+```
 git clone https://github.com/Amm1rr/WebAI-to-API.git
 cd WebAI-to-API
 .\install.ps1
