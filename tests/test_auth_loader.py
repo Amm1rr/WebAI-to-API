@@ -660,8 +660,7 @@ def test_backward_compatibility_legacy_cookies(mocker, caplog):
 
 def test_partial_configuration_gemini_only_psid(mocker):
     """
-    Test F.1: Partial Configuration - [Gemini] with only __Secure-1PSID
-    Should treat as incomplete and fallback to next source.
+    Test F.1: [Gemini] with only required __Secure-1PSID is usable.
     """
     mocker.patch.object(GeminiAuthStateLoader, "load_canonical_state", return_value=None)
 
@@ -680,13 +679,11 @@ def test_partial_configuration_gemini_only_psid(mocker):
 
     loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
 
-    # Should fall back to [Cookies] because [Gemini] is incomplete
-    assert is_legacy is True
+    assert is_legacy is False
     assert loaded is not None
     cookies = loaded["cookies"]
     cookie_dict = {c["name"]: c["value"] for c in cookies}
-    assert cookie_dict["__Secure-1PSID"] == "fallback_psid"
-    assert cookie_dict["__Secure-1PSIDTS"] == "fallback_psidts"
+    assert cookie_dict == {"__Secure-1PSID": "partial_psid"}
 
 
 def test_partial_configuration_gemini_only_psidts(mocker):
@@ -720,10 +717,9 @@ def test_partial_configuration_gemini_only_psidts(mocker):
     assert cookie_dict["__Secure-1PSIDTS"] == "fallback_psidts"
 
 
-def test_partial_configuration_cookies_only_psid(mocker):
+def test_partial_configuration_cookies_only_psid(mocker, caplog):
     """
-    Test F.3: Partial Configuration - [Cookies] with only gemini_cookie_1psid
-    Should treat as incomplete and fallback to next source.
+    Test F.3: Legacy [Cookies] with only required PSID is usable.
     """
     valid_json_data = {
         "cookies": [
@@ -747,10 +743,17 @@ def test_partial_configuration_cookies_only_psid(mocker):
 
     loaded, is_legacy = GeminiAuthStateLoader.load_auth_state_with_fallback()
 
-    # Should fall back to gemini.json because [Cookies] is incomplete
-    assert is_legacy is False
+    assert is_legacy is True
     assert loaded is not None
-    assert loaded == valid_json_data
+    assert loaded["cookies"] == [
+        {
+            "name": "__Secure-1PSID",
+            "value": "partial_psid",
+            "domain": ".google.com",
+            "path": "/",
+        }
+    ]
+    assert any("Legacy Gemini cookie configuration" in record.message for record in caplog.records)
 
 
 def test_partial_configuration_cookies_only_psidts(mocker):

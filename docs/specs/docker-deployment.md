@@ -164,8 +164,12 @@ Docker container.
 The `${DOCKER_RUNTIME_DIR:-./runtime}:/app/runtime` volume mount ensures the
 host source's `auth/gemini.json` is available at `/app/runtime/auth/gemini.json`.
 Docker fixes this application path; custom Docker auth paths are unsupported.
-For a custom source, run host login with native `RUNTIME_DIR` set to that same
-host path so it writes the mounted layout.
+For a custom source, run host login with both native paths set to that source:
+```bash
+RUNTIME_DIR=/srv/webai/runtime \
+AUTH_STATE_DIR=/srv/webai/runtime/auth \
+poetry run python verify_login.py
+```
 
 **Note:** The `/v1/auth/login` endpoint is NOT supported in Docker deployments because it requires a headful display environment.
 

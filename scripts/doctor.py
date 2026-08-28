@@ -309,8 +309,8 @@ asyncio.run(verify_chromium())
 def check_auth_material(config):
     has_fail = False
     
-    # Priority 1: [Gemini] section (current supported format)
-    # Both canonical and common alias names are accepted in the [Gemini] section
+    # Priority 1: [Gemini] section. PSID is required; PSIDTS is optional.
+    # Both canonical and common alias names are accepted in the [Gemini] section.
     psid = (
         config.get("Gemini", "__Secure-1PSID", fallback="") or 
         config.get("Gemini", "gemini_cookie_1psid", fallback="") or 
@@ -349,9 +349,9 @@ def check_auth_material(config):
         except Exception:
             pass
 
-    if psid and psidts:
+    if psid:
         print_status("Auth (Config)", "PASS", "Gemini cookies found in [Gemini] configuration")
-    elif psid_l and psidts_l:
+    elif psid_l:
         print_status("Auth (Config)", "WARN", "Using legacy [Cookies] configuration (supported but deprecated)", Colors.WARNING)
     elif json_exists:
         print_status("Auth (Config)", "WARN", f"No Gemini cookies configured; {json_path} will be used", Colors.WARNING)
@@ -378,7 +378,7 @@ def check_auth_material(config):
             has_fail = True
     else:
         # If no JSON and no config, this is where we'd advise verify_login
-        if not (psid and psidts) and not (psid_l and psidts_l):
+        if not psid and not psid_l:
             print_status("Auth (JSON)", "WARN", f"{json_path} missing. Run: poetry run python verify_login.py", Colors.WARNING)
 
     return not has_fail

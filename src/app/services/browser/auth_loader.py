@@ -150,22 +150,25 @@ class GeminiAuthStateLoader:
             cls._normalize_config_value(gemini_config.get("gemini_cookie_1PSIDTS"))
         )
 
-        # Source is usable ONLY when BOTH cookies are present and non-empty
-        if psid_val and psidts_val:
+        # PSID is required; PSIDTS is optional.
+        if psid_val:
             reconstructed_cookies = [
                 {
                     "name": "__Secure-1PSID",
                     "value": psid_val,
                     "domain": ".google.com",
                     "path": "/"
-                },
-                {
-                    "name": "__Secure-1PSIDTS",
-                    "value": psidts_val,
-                    "domain": ".google.com",
-                    "path": "/"
                 }
             ]
+            if psidts_val:
+                reconstructed_cookies.append(
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                )
             return {"cookies": reconstructed_cookies}, False
 
         return None, False
@@ -195,8 +198,8 @@ class GeminiAuthStateLoader:
             cls._normalize_config_value(config_cookies.get("__Secure-1PSIDTS"))
         )
 
-        # Source is usable ONLY when BOTH cookies are present and non-empty
-        if psid_val and psidts_val:
+        # PSID is required; PSIDTS is optional.
+        if psid_val:
             _warn_legacy_gemini_cookie_config_once()
             reconstructed_cookies = [
                 {
@@ -204,14 +207,17 @@ class GeminiAuthStateLoader:
                     "value": psid_val,
                     "domain": ".google.com",
                     "path": "/"
-                },
-                {
-                    "name": "__Secure-1PSIDTS",
-                    "value": psidts_val,
-                    "domain": ".google.com",
-                    "path": "/"
                 }
             ]
+            if psidts_val:
+                reconstructed_cookies.append(
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": psidts_val,
+                        "domain": ".google.com",
+                        "path": "/"
+                    }
+                )
             return {"cookies": reconstructed_cookies}, True
 
         return None, False
