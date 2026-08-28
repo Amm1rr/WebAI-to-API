@@ -269,7 +269,7 @@ class BrowserEngine:
             else:
                 logger.warning(f"BrowserEngine: Eviction failed for {tab.conversation_id} (Status: {tab.status})")
 
-    async def close(self, source: Optional[str] = None) -> None:
+    async def close(self, source: Optional[str] = None, save_state: Optional[bool] = None) -> None:
         try:
             async with self.management_lock:
                 if self._shutdown_started: 
@@ -314,10 +314,11 @@ class BrowserEngine:
                         )
                 
                 logger.info(f"BrowserEngine: Closing {len(self.sessions)} provider session(s)...", extra={"generation": self.browser_generation})
+                should_save_state = self.is_bootstrap if save_state is None else save_state
                 for session in list(self.sessions.values()):
                     try:
                         logger.info(f"BrowserEngine: Closing session resources for {session.name}", extra={"generation": self.browser_generation})
-                        await session.close_resources(save_state=self.is_bootstrap)
+                        await session.close_resources(save_state=should_save_state)
                         logger.info(f"BrowserEngine: Session resources for {session.name} closed successfully.", extra={"generation": self.browser_generation})
                     except Exception as e:
                         logger.error(f"BrowserEngine: Exception closing session resources for {session.name}: {e}", exc_info=True)

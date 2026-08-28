@@ -222,13 +222,11 @@ async def test_save_state_hardens_auth_state_and_repeated_replacements(
 
     written_paths = []
 
-    async def write_state(path):
-        written_paths.append(path)
-        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
-        Path(path).write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    async def capture_state():
+        return {"cookies": [], "origins": []}
 
     session.context = MagicMock()
-    session.context.storage_state = AsyncMock(side_effect=write_state)
+    session.context.storage_state = AsyncMock(side_effect=capture_state)
     mocker.patch.object(
         ProviderSession,
         "is_alive",
@@ -239,13 +237,13 @@ async def test_save_state_hardens_auth_state_and_repeated_replacements(
     assert await session.save_state() is True
     assert state_path.read_text(encoding="utf-8") == '{"cookies": [], "origins": []}'
     assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
-    assert len(written_paths) == 1
+    assert session.context.storage_state.await_count == 1
     assert not list(auth_dir.glob(".gemini.json.*.tmp"))
 
     os.chmod(state_path, 0o644)
     assert await session.save_state() is True
     assert stat.S_IMODE(os.stat(state_path).st_mode) == 0o600
-    assert len(written_paths) == 2
+    assert session.context.storage_state.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -265,13 +263,13 @@ async def test_save_state_reports_failure_and_preserves_existing_state(
     session = ProviderSession(engine, "gemini", enable_persistence=True)
     session.context = MagicMock()
 
-    async def write_state(path):
-        Path(path).write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    async def capture_state():
+        return {"cookies": [], "origins": []}
 
     if failure == "storage_state":
         session.context.storage_state = AsyncMock(side_effect=OSError("disk full"))
     else:
-        session.context.storage_state = AsyncMock(side_effect=write_state)
+        session.context.storage_state = AsyncMock(side_effect=capture_state)
         mocker.patch.object(session_module.os, "replace", side_effect=OSError("replace failed"))
 
     mocker.patch.object(
@@ -301,6 +299,66 @@ async def test_save_state_returns_false_without_runtime_persistence(mocker):
 
     assert await session.save_state() is False
     session.context.storage_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_save_state_validation_failure_preserves_existing_state(mocker, monkeypatch, tmp_path):
+    from app.services.browser import session as session_module
+
+    state_path = tmp_path / "gemini.json"
+    state_path.write_text("old state", encoding="utf-8")
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(tmp_path))
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
+    mocker.patch.object(ProviderSession, "is_alive", new_callable=PropertyMock, return_value=True)
+
+    def reject(state):
+        raise RuntimeError("shared state rejected")
+
+    with pytest.raises(RuntimeError, match="shared state rejected"):
+        await session.save_state(validate=reject)
+
+    assert state_path.read_text(encoding="utf-8") == "old state"
+
+
+@pytest.mark.asyncio
+async def test_save_state_serializes_capture_through_replace(mocker, monkeypatch, tmp_path):
+    from app.services.browser import session as session_module
+
+    monkeypatch.setitem(session_module.CONFIG["Playwright"], "auth_state_dir", str(tmp_path))
+    engine, _ = make_engine()
+    session = ProviderSession(engine, "gemini", enable_persistence=True)
+    first_capture_started = asyncio.Event()
+    release_first_capture = asyncio.Event()
+    second_capture_started = asyncio.Event()
+    capture_count = 0
+
+    async def capture_state():
+        nonlocal capture_count
+        capture_count += 1
+        if capture_count == 1:
+            first_capture_started.set()
+            await release_first_capture.wait()
+            return {"cookies": [], "origins": [], "snapshot": "first"}
+        second_capture_started.set()
+        return {"cookies": [], "origins": [], "snapshot": "second"}
+
+    session.context = MagicMock()
+    session.context.storage_state = AsyncMock(side_effect=capture_state)
+    mocker.patch.object(ProviderSession, "is_alive", new_callable=PropertyMock, return_value=True)
+
+    first_save = asyncio.create_task(session.save_state())
+    await first_capture_started.wait()
+    second_save = asyncio.create_task(session.save_state())
+    await asyncio.sleep(0)
+    assert second_capture_started.is_set() is False
+    release_first_capture.set()
+    await second_capture_started.wait()
+    assert await first_save is True
+    assert await second_save is True
+    assert (tmp_path / "gemini.json").read_text(encoding="utf-8").find('"second"') > 0
 
 
 @pytest.mark.asyncio

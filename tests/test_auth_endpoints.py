@@ -278,12 +278,23 @@ async def test_run_login_flow_success(mocker):
     mock_page_wrapper.page = mock_page
     mock_page_wrapper.close = AsyncMock()
 
-    mock_session = AsyncMock()
-    mock_session.save_state = AsyncMock(return_value=True)
+    shared_state = {
+        "cookies": [{"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com"}],
+        "origins": [],
+    }
+    mock_session = MagicMock()
+    mock_session.context.cookies = AsyncMock(return_value=shared_state["cookies"])
+
+    async def save_state(*, validate=None):
+        await validate(shared_state)
+        return True
+
+    mock_session.save_state = AsyncMock(side_effect=save_state)
 
     mock_engine = MagicMock()
     mock_engine.get_page = AsyncMock(return_value=mock_page_wrapper)
     mock_engine.get_session = AsyncMock(return_value=mock_session)
+    mock_engine.close = AsyncMock()
     mock_engine.__aenter__ = AsyncMock(return_value=mock_engine)
     mock_engine.__aexit__ = AsyncMock(return_value=False)  # DO NOT suppress exceptions
 
@@ -294,8 +305,9 @@ async def test_run_login_flow_success(mocker):
     get_engine.assert_called_once_with(headless=False, is_bootstrap=True)
     mock_engine.get_page.assert_called_once_with("gemini", enable_persistence=True)
     mock_engine.get_session.assert_called_once_with("gemini", enable_persistence=True)
-    mock_session.save_state.assert_called_once()
+    mock_session.save_state.assert_awaited_once()
     mock_page_wrapper.close.assert_called_once()
+    mock_engine.close.assert_awaited_once_with(save_state=False)
 
 
 @pytest.mark.asyncio
@@ -318,8 +330,18 @@ async def test_run_login_flow_persistence_failure_raises_and_closes_page(mocker)
 
     mock_page_wrapper = MagicMock(page=mock_page)
     mock_page_wrapper.close = AsyncMock()
+    shared_state = {
+        "cookies": [{"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com"}],
+        "origins": [],
+    }
     mock_session = MagicMock()
-    mock_session.save_state = AsyncMock(return_value=False)
+    mock_session.context.cookies = AsyncMock(return_value=shared_state["cookies"])
+
+    async def save_state(*, validate=None):
+        await validate(shared_state)
+        return False
+
+    mock_session.save_state = AsyncMock(side_effect=save_state)
 
     mock_engine = MagicMock()
     mock_engine.get_page = AsyncMock(return_value=mock_page_wrapper)
@@ -330,7 +352,51 @@ async def test_run_login_flow_persistence_failure_raises_and_closes_page(mocker)
 
     assert str(exc_info.value) == "Authenticated state could not be persisted."
     mock_session.save_state.assert_awaited_once()
-    mock_page_wrapper.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_login_flow_rejects_ui_only_auth_before_persisting(mocker):
+    from app.services.providers.gemini.auth import GeminiAuthStrategy
+    from app.services.providers.gemini.scripts.gemini_scripts import SELECTORS
+
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://gemini.google.com/app"
+    mock_page.goto = AsyncMock()
+    mock_page.locator = MagicMock(
+        side_effect=lambda selector: MagicMock(first=MagicMock(
+            is_visible=AsyncMock(return_value=selector == SELECTORS["INPUT"])
+        ))
+    )
+    page_wrapper = MagicMock(page=mock_page)
+    page_wrapper.close = AsyncMock()
+    shared_state = {
+        "cookies": [{"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com", "path": "/"}],
+        "origins": [],
+    }
+    session = MagicMock()
+    session.context.cookies = AsyncMock(return_value=[{
+        "name": "__Secure-1PSID",
+        "value": "test-psid",
+        "domain": ".google.com",
+        "path": "/",
+        "partitionKey": "https://gemini.google.com",
+    }])
+
+    async def save_state(*, validate=None):
+        await validate(shared_state)
+        return True
+
+    session.save_state = AsyncMock(side_effect=save_state)
+    engine = MagicMock()
+    engine.get_page = AsyncMock(return_value=page_wrapper)
+    engine.get_session = AsyncMock(return_value=session)
+
+    with pytest.raises(RuntimeError, match="shared WebAPI authentication material"):
+        await GeminiAuthStrategy().run_login_flow(engine)
+
+    session.save_state.assert_awaited_once()
+    page_wrapper.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -357,6 +423,7 @@ async def test_trigger_auth_login_reports_background_failure_and_releases_lock(m
     mocker.patch.object(auth_mgr, "_check_display_available", return_value=True)
 
     bootstrap_engine = MagicMock()
+    bootstrap_engine.close = AsyncMock()
     bootstrap_engine.__aenter__ = AsyncMock(return_value=bootstrap_engine)
     bootstrap_engine.__aexit__ = AsyncMock(return_value=False)
     mocker.patch(
@@ -378,6 +445,7 @@ async def test_trigger_auth_login_reports_background_failure_and_releases_lock(m
     assert auth_mgr._active_login_task is None
     assert "gemini" not in auth_mgr._active_login_tasks_by_provider
     strategy.run_post_login_recovery.assert_not_awaited()
+    bootstrap_engine.close.assert_awaited_once_with(save_state=False)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         status_response = await ac.get("/v1/auth/status")
@@ -411,6 +479,7 @@ async def test_run_login_flow_user_closed_window(mocker):
     mock_engine = MagicMock()
     mock_engine.get_page = AsyncMock(return_value=mock_page_wrapper)
     mock_engine.get_session = AsyncMock(return_value=mock_session)
+    mock_engine.close = AsyncMock()
     mock_engine.__aenter__ = AsyncMock(return_value=mock_engine)
     mock_engine.__aexit__ = AsyncMock(return_value=False)  # DO NOT suppress exceptions
 
@@ -445,6 +514,7 @@ async def test_run_login_flow_unexpected_exception_re_raised(mocker):
     mock_engine = MagicMock()
     mock_engine.get_page = AsyncMock(return_value=mock_page_wrapper)
     mock_engine.get_session = AsyncMock(return_value=mock_session)
+    mock_engine.close = AsyncMock()
     mock_engine.__aenter__ = AsyncMock(return_value=mock_engine)
     mock_engine.__aexit__ = AsyncMock(return_value=False)
 

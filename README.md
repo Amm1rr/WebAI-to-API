@@ -179,7 +179,7 @@ Gemini requires an authenticated Google session.
    poetry run python verify_login.py
    ```
 2. Complete the sign-in process in the browser window.
-3. This creates `runtime/auth/gemini.json`, used by both backends.
+3. A successful login creates one shared configured auth-state file for Playwright and WebAPI, defaulting to `runtime/auth/gemini.json`.
 
 ### 2. Manual Cookies
 1. Sign in to [Gemini](https://gemini.google.com/).

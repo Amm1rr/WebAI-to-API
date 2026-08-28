@@ -238,6 +238,13 @@ def test_readme_documents_windows_setup_recovery_without_persistent_policy_chang
     assert "poetry run python scripts/doctor.py" in content
 
 
+def test_readme_describes_shared_auth_path_as_configurable():
+    content = README.read_text(encoding="utf-8")
+
+    assert "shared configured auth-state file for Playwright and WebAPI" in content
+    assert "defaulting to `runtime/auth/gemini.json`" in content
+
+
 def _powershell_executable():
     for name in ("pwsh", "powershell"):
         executable = shutil.which(name)

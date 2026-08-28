@@ -320,7 +320,10 @@ class AuthManager:
                     raise RuntimeError("No authentication strategy registered.")
                 
                 async with bootstrap_engine as engine:
-                    await strategy.run_login_flow(engine)
+                    try:
+                        await strategy.run_login_flow(engine)
+                    finally:
+                        await engine.close(save_state=False)
                 
                 snapshot = self._cached_status_by_provider.get(provider_name, self._empty_provider_status())
                 snapshot["playwright"] = AuthStatus.VALID_SESSION
@@ -365,7 +368,10 @@ class AuthManager:
         from app.services.browser.engine import get_browser_engine
         bootstrap_engine = await get_browser_engine(headless=False, is_bootstrap=True)
         async with bootstrap_engine as engine:
-            await strategy.run_login_flow(engine)
+            try:
+                await strategy.run_login_flow(engine)
+            finally:
+                await engine.close(save_state=False)
 
     def _check_display_available(self) -> bool:
         """

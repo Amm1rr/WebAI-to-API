@@ -76,6 +76,104 @@ def test_translate_to_webapi():
     assert psidts == "psidts_val"
 
 
+@pytest.mark.parametrize("domain", [".google.com", "google.com", "gemini.google.com", "accounts.google.com"])
+def test_shared_webapi_material_accepts_google_domain_psid(domain):
+    data = {"cookies": [{"name": "__Secure-1PSID", "value": "psid", "domain": domain}]}
+
+    extracted, psid, psidts = GeminiAuthStateLoader.get_webapi_cookie_material(data, now=100)
+
+    assert extracted == {"__Secure-1PSID": "psid"}
+    assert psid == "psid"
+    assert psidts is None
+    assert GeminiAuthStateLoader.has_shared_webapi_material(data) is True
+
+
+@pytest.mark.parametrize(
+    "cookie",
+    [
+        {"name": "__Secure-1PSID", "value": "psid", "domain": "evilgoogle.com"},
+        {"name": "__Secure-1PSID", "value": "", "domain": ".google.com"},
+        {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "expires": 100},
+        {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "partitionKey": "https://gemini.google.com"},
+    ],
+)
+def test_shared_webapi_material_rejects_invalid_psid(cookie):
+    data = {"cookies": [cookie]}
+
+    extracted, psid, _ = GeminiAuthStateLoader.get_webapi_cookie_material(data, now=100)
+
+    assert extracted == {}
+    assert psid is None
+    assert GeminiAuthStateLoader.has_shared_webapi_material(data) is False
+
+
+def test_shared_webapi_material_accepts_session_cookie_and_selects_duplicates_deterministically():
+    data = {
+        "cookies": [
+            {"name": "__Secure-1PSID", "value": "host", "domain": "gemini.google.com"},
+            {"name": "__Secure-1PSID", "value": "canonical", "domain": ".google.com", "expires": -1},
+            {"name": "__Secure-1PSIDTS", "value": "psidts", "domain": ".google.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(data)
+
+    assert extracted == {"__Secure-1PSID": "canonical", "__Secure-1PSIDTS": "psidts"}
+    assert psid == "canonical"
+    assert psidts == "psidts"
+
+
+def test_shared_webapi_material_ignores_malformed_cookie_entries():
+    data = {
+        "cookies": [
+            "not-a-cookie",
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.get_webapi_cookie_material(data)
+
+    assert extracted == {"__Secure-1PSID": "psid"}
+    assert psid == "psid"
+    assert psidts is None
+
+
+def test_translate_to_webapi_preserves_valid_non_auth_google_cookies():
+    data = {
+        "cookies": [
+            {"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com"},
+            {"name": "NID", "value": "nid", "domain": ".google.com"},
+            {"name": "expired", "value": "old", "domain": ".google.com", "expires": 100},
+            {"name": "evil", "value": "no", "domain": "evilgoogle.com"},
+        ]
+    }
+
+    extracted, psid, psidts = GeminiAuthStateLoader.translate_to_webapi(data)
+
+    assert extracted == {"__Secure-1PSID": "psid", "NID": "nid"}
+    assert psid == "psid"
+    assert psidts is None
+
+
+def test_shared_material_requires_matching_non_partitioned_context_cookie():
+    state = {
+        "cookies": [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "path": "/"}]
+    }
+    partitioned_context = [{
+        "name": "__Secure-1PSID",
+        "value": "psid",
+        "domain": ".google.com",
+        "path": "/",
+        "partitionKey": "https://gemini.google.com",
+    }]
+    mismatched_context = [{"name": "__Secure-1PSID", "value": "other", "domain": ".google.com", "path": "/"}]
+    valid_context = [{"name": "__Secure-1PSID", "value": "psid", "domain": ".google.com", "path": "/"}]
+
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, partitioned_context) is False
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, mismatched_context) is False
+    assert GeminiAuthStateLoader.has_shared_webapi_material(state, valid_context) is True
+
+
 def test_load_canonical_state_missing_or_empty(tmp_path, mocker):
     # Mock get_canonical_path to a non-existent path
     mocker.patch.object(GeminiAuthStateLoader, "get_canonical_path", return_value=str(tmp_path / "missing.json"))
