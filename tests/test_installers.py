@@ -354,6 +354,10 @@ if [ "$name" = "python" ]; then
                 printf '%s\n' "Python was not found; run without arguments to install from the Microsoft Store..." >&2
                 exit 1
             fi
+            if [ "${FAKE_PYTHON_INVALID_OUTPUT:-}" = "1" ]; then
+                printf '%s\n' "not JSON"
+                exit 0
+            fi
             if probe_version "${FAKE_PYTHON_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
@@ -366,6 +370,13 @@ if [ "$name" = "python" ]; then
             exit 1
             ;;
     esac
+fi
+
+if [ "$name" = "poetry" ]; then
+    if [ "${1:-}" = "--version" ]; then
+        exit "${FAKE_POETRY_STATUS:-0}"
+    fi
+    exit 0
 fi
 exit 1
 '''
@@ -408,6 +419,10 @@ if "%1"=="-" (
     if "%FAKE_PYTHON_PROBE_FAILURE%"=="1" (
         echo Python was not found; run without arguments to install from the Microsoft Store... 1>&2
         exit /b 1
+    )
+    if "%FAKE_PYTHON_INVALID_OUTPUT%"=="1" (
+        echo not JSON
+        exit /b 0
     )
     call :probe "%FAKE_PYTHON_VERSION%"
     if not errorlevel 1 exit /b 0
@@ -465,6 +480,7 @@ def _powershell_fixture(
     py311_version=None,
     python_version=None,
     python_probe_failure=False,
+    python_invalid_output=False,
     bootstrap=0,
     doctor=0,
 ):
@@ -493,6 +509,7 @@ def _powershell_fixture(
             "FAKE_PY311_VERSION": py311_version or ("3.11.10" if py311 else ""),
             "FAKE_PYTHON_VERSION": python_version or ("3.12.4" if python else ""),
             "FAKE_PYTHON_PROBE_FAILURE": "1" if python_probe_failure else "0",
+            "FAKE_PYTHON_INVALID_OUTPUT": "1" if python_invalid_output else "0",
             "FAKE_BOOTSTRAP_STATUS": str(bootstrap),
             "FAKE_DOCTOR_STATUS": str(doctor),
             "FAKE_POETRY_STATUS": "0",
@@ -530,6 +547,24 @@ def test_install_ps1_continues_after_python_probe_execution_failure(tmp_path):
         if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
     ]
     assert phase_calls == []
+
+
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")
+def test_install_ps1_reports_invalid_python_probe_output(tmp_path):
+    repo, log, env, outside = _powershell_fixture(tmp_path, python_invalid_output=True)
+    powershell = _powershell_executable()
+
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(repo / "install.ps1")],
+        cwd=outside,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "python -> probe returned invalid JSON" in result.stderr
+    assert "probe execution failed" not in result.stderr
 
 
 @pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")

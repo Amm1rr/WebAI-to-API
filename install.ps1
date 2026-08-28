@@ -97,6 +97,13 @@ foreach ($candidate in $pythonCandidates) {
     elseif ($probeStatus -eq 0) {
         $candidateDiagnostics += "$($candidate.Label) -> probe returned invalid JSON"
     }
+    elseif (-not [string]::IsNullOrWhiteSpace($probeText)) {
+        $errorText = ($probeText -replace "\s+", " ").Trim()
+        if ($errorText.Length -gt 200) {
+            $errorText = $errorText.Substring(0, 197) + "..."
+        }
+        $candidateDiagnostics += "$($candidate.Label) -> probe execution failed: $errorText"
+    }
     else {
         $candidateDiagnostics += "$($candidate.Label) -> no usable Python version (exit code $probeStatus)"
     }
