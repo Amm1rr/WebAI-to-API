@@ -195,13 +195,19 @@ def test_install_ps1_exposes_root_and_required_contract():
     assert "$PSScriptRoot" in content
     assert "Set-Location -LiteralPath" in content
     assert "app.utils.python_version" in content
-    assert "is_supported_python" in content
+    assert "classify_python_version" in content
+    assert "json.dumps" in content
+    assert "ConvertFrom-Json" in content
+    assert "candidateDiagnostics" in content
+    assert "rejected;" in content
     assert 'platform_name="nt"' in content
     assert 'foreach ($version in @("3.12", "3.11"))' in content
     assert "Get-Command python" in content
     assert "Get-Command poetry" in content
     assert '"scripts\\bootstrap.py"' in content
     assert '"scripts\\doctor.py"' in content
+    assert "3.11.10" not in content
+    assert "3.12.4" not in content
     assert "exit $status" in content
     assert "git clone" not in content.lower()
     assert "Start-Process" not in content
@@ -220,21 +226,45 @@ set -eu
 name=$(basename "$0")
 printf '%s|%s|%s\n' "$name" "$PWD" "$*" >> "$FAKE_LOG"
 
-secure_version() {
+probe_version() {
     case "${1:-}" in
-        3.11.[1-9][0-9]*|3.12.[4-9]|3.12.[1-9][0-9]*) return 0 ;;
+        3.11.10|3.11.1[1-9]|3.11.[2-9][0-9]|3.11.[1-9][0-9][0-9]*)
+            printf '{"supported":true,"version":"%s","reason":"supported","supported_range":">=3.11,<3.13","required":"3.11.10+"}\n' "$1"
+            return 0
+            ;;
+        3.12.[4-9]|3.12.[1-9][0-9]*)
+            printf '{"supported":true,"version":"%s","reason":"supported","supported_range":">=3.11,<3.13","required":"3.12.4+"}\n' "$1"
+            return 0
+            ;;
+        3.11.*)
+            printf '{"supported":false,"version":"%s","reason":"windows_patch_too_old","supported_range":">=3.11,<3.13","required":"3.11.10+"}\n' "$1"
+            return 1
+            ;;
+        3.12.*)
+            printf '{"supported":false,"version":"%s","reason":"windows_patch_too_old","supported_range":">=3.11,<3.13","required":"3.12.4+"}\n' "$1"
+            return 1
+            ;;
+        3.*)
+            printf '{"supported":false,"version":"%s","reason":"unsupported_major_minor","supported_range":">=3.11,<3.13","required":">=3.11,<3.13"}\n' "$1"
+            return 1
+            ;;
     esac
     return 1
+}
+
+secure_version() {
+    probe_version "$1" >/dev/null 2>&1
+    return $?
 }
 
 if [ "$name" = "py" ]; then
     case "${1:-}:${2:-}" in
         -3.12:-c)
-            if secure_version "${FAKE_PY312_VERSION:-}"; then exit 0; fi
+            if probe_version "${FAKE_PY312_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
         -3.11:-c)
-            if secure_version "${FAKE_PY311_VERSION:-}"; then exit 0; fi
+            if probe_version "${FAKE_PY311_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
         -3.12:scripts\\bootstrap.py|-3.12:scripts/bootstrap.py)
@@ -260,7 +290,7 @@ fi
 if [ "$name" = "python" ]; then
     case "${1:-}" in
         -c)
-            if secure_version "${FAKE_PYTHON_VERSION:-}"; then exit 0; fi
+            if probe_version "${FAKE_PYTHON_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
         scripts\\bootstrap.py|scripts/bootstrap.py)
@@ -285,11 +315,11 @@ if /I "%~nx0"=="poetry.cmd" goto poetry
 exit /b 0
 :py
 if "%1"=="-3.12" if "%2"=="-c" (
-    call :secure "%FAKE_PY312_VERSION%"
+    call :probe "%FAKE_PY312_VERSION%"
     if not errorlevel 1 exit /b 0
 )
 if "%1"=="-3.11" if "%2"=="-c" (
-    call :secure "%FAKE_PY311_VERSION%"
+    call :probe "%FAKE_PY311_VERSION%"
     if not errorlevel 1 exit /b 0
 )
 if "%1"=="-3.12" if "%2"=="scripts\bootstrap.py" (
@@ -311,7 +341,7 @@ if "%1"=="-3.11" if "%2"=="scripts\doctor.py" (
 exit /b 1
 :python
 if "%1"=="-c" (
-    call :secure "%FAKE_PYTHON_VERSION%"
+    call :probe "%FAKE_PYTHON_VERSION%"
     if not errorlevel 1 exit /b 0
 )
 if "%1"=="scripts\bootstrap.py" (
@@ -326,6 +356,28 @@ exit /b 1
 :poetry
 if "%1"=="--version" exit /b %FAKE_POETRY_STATUS%
 exit /b 0
+:probe
+if "%~1"=="" exit /b 1
+for /f "tokens=1-3 delims=." %%A in ("%~1") do (
+    if "%%A.%%B"=="3.11" (
+        if %%C GEQ 10 (
+            echo {"supported":true,"version":"%~1","reason":"supported","supported_range":">=3.11,<3.13","required":"3.11.10+"}
+            exit /b 0
+        )
+        echo {"supported":false,"version":"%~1","reason":"windows_patch_too_old","supported_range":">=3.11,<3.13","required":"3.11.10+"}
+        exit /b 1
+    )
+    if "%%A.%%B"=="3.12" (
+        if %%C GEQ 4 (
+            echo {"supported":true,"version":"%~1","reason":"supported","supported_range":">=3.11,<3.13","required":"3.12.4+"}
+            exit /b 0
+        )
+        echo {"supported":false,"version":"%~1","reason":"windows_patch_too_old","supported_range":">=3.11,<3.13","required":"3.12.4+"}
+        exit /b 1
+    )
+)
+echo {"supported":false,"version":"%~1","reason":"unsupported_major_minor","supported_range":">=3.11,<3.13","required":">=3.11,<3.13"}
+exit /b 1
 :secure
 for /f "tokens=1-3 delims=." %%A in ("%~1") do (
     if "%%A.%%B"=="3.11" if %%C GEQ 10 exit /b 0
@@ -437,13 +489,22 @@ def test_install_ps1_propagates_phase_failure(tmp_path):
 
 @pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")
 @pytest.mark.parametrize(
-    ("py312_version", "py311_version", "python_version", "expected_status", "expected_runner"),
+    (
+        "py312_version",
+        "py311_version",
+        "python_version",
+        "expected_status",
+        "expected_runner",
+        "expected_detail",
+    ),
     [
-        ("3.12.3", "3.11.10", None, 0, "-3.11"),
-        ("3.12.4", "3.11.9", None, 0, "-3.12"),
-        ("3.11.9", None, None, 1, None),
-        (None, None, "3.12.3", 1, None),
-        (None, None, "3.12.4", 0, "python"),
+        ("3.12.3", "3.11.10", None, 0, "-3.11", None),
+        ("3.12.4", "3.11.9", None, 0, "-3.12", None),
+        ("3.11.9", None, None, 1, None, "Windows requires Python 3.11.10+"),
+        (None, None, "3.12.3", 1, None, "Windows requires Python 3.12.4+"),
+        (None, None, "3.13.1", 1, None, "supported range is >=3.11,<3.13"),
+        (None, None, "3.10.9", 1, None, "supported range is >=3.11,<3.13"),
+        (None, None, "3.12.4", 0, "python", None),
     ],
 )
 def test_install_ps1_enforces_windows_python_patch_contract(
@@ -453,6 +514,7 @@ def test_install_ps1_enforces_windows_python_patch_contract(
     python_version,
     expected_status,
     expected_runner,
+    expected_detail,
 ):
     repo, log, env, outside = _powershell_fixture(
         tmp_path,
@@ -472,7 +534,7 @@ def test_install_ps1_enforces_windows_python_patch_contract(
 
     assert result.returncode == expected_status
     if expected_runner is None:
-        assert "3.11.10+ or 3.12.4+" in result.stderr
+        assert expected_detail in result.stderr
     else:
         phase_calls = [
             line for line in log.read_text(encoding="utf-8").splitlines()

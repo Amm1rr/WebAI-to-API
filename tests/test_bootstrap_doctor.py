@@ -335,6 +335,34 @@ def test_doctor_check_python_version_matches_pyproject_contract(monkeypatch, cap
 
 
 @pytest.mark.parametrize(
+    ("version", "platform_name", "reason", "expected_ok", "required"),
+    [
+        ((3, 11, 10), "nt", "supported", True, "3.11.10+"),
+        ((3, 12, 4), "nt", "supported", True, "3.12.4+"),
+        ((3, 11, 9), "nt", "windows_patch_too_old", False, "3.11.10+"),
+        ((3, 12, 3), "nt", "windows_patch_too_old", False, "3.12.4+"),
+        ((3, 10, 99), "nt", "unsupported_major_minor", False, ">=3.11,<3.13"),
+        ((3, 13, 0), "nt", "unsupported_major_minor", False, ">=3.11,<3.13"),
+        ((3, 11, 0), "posix", "supported", True, ">=3.11,<3.13"),
+        ((3, 12, 3), "posix", "supported", True, ">=3.11,<3.13"),
+    ],
+)
+def test_python_version_classification_preserves_boolean_contract(
+    version, platform_name, reason, expected_ok, required
+):
+    from app.utils.python_version import classify_python_version, is_supported_python
+
+    result = classify_python_version(version, platform_name=platform_name)
+
+    assert result["supported"] is expected_ok
+    assert result["reason"] == reason
+    assert result["version"] == ".".join(str(part) for part in version)
+    assert result["supported_range"] == ">=3.11,<3.13"
+    assert result["required"] == required
+    assert is_supported_python(version, platform_name=platform_name) is expected_ok
+
+
+@pytest.mark.parametrize(
     ("version", "expected_ok"),
     [
         ((3, 11, 9), False),
@@ -381,6 +409,107 @@ def test_posix_python_patch_contract_remains_major_minor_only(monkeypatch, capsy
     assert bootstrap.check_python_version() is True
     assert doctor.check_python_version() is True
     assert "PASS" in capsys.readouterr().out
+
+
+def test_check_poetry_missing_fails(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: None)
+
+    assert doctor.check_poetry() is False
+    captured = capsys.readouterr().out
+    assert "Poetry" in captured
+    assert "FAIL" in captured
+    assert "not found" in captured
+
+
+def test_check_poetry_success_passes(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "poetry")
+    monkeypatch.setattr(
+        doctor.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, "Poetry (version 2.3.4)\n", ""
+        ),
+    )
+
+    assert doctor.check_poetry() is True
+    captured = capsys.readouterr().out
+    assert "PASS" in captured
+    assert "Poetry (version 2.3.4)" in captured
+
+
+def test_check_poetry_nonzero_fails_with_output_detail(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "poetry")
+    monkeypatch.setattr(
+        doctor.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 7, "partial output\n", "Poetry failed\n"
+        ),
+    )
+
+    assert doctor.check_poetry() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "exit code 7" in captured
+    assert "stderr: Poetry failed" in captured
+    assert "stdout: partial output" in captured
+
+
+def test_check_poetry_exception_fails_without_traceback(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "poetry")
+
+    def raise_error(*args, **kwargs):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(doctor.subprocess, "run", raise_error)
+
+    assert doctor.check_poetry() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "PermissionError" in captured
+    assert "access denied" in captured
+    assert "Traceback" not in captured
+
+
+def test_check_poetry_timeout_fails(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "poetry")
+
+    def raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            args[0], 5, output="partial output", stderr="still running"
+        )
+
+    monkeypatch.setattr(doctor.subprocess, "run", raise_timeout)
+
+    assert doctor.check_poetry() is False
+    captured = capsys.readouterr().out
+    assert "FAIL" in captured
+    assert "timed out after 5 seconds" in captured
+    assert "stderr: still running" in captured
+    assert "stdout: partial output" in captured
+
+
+def test_doctor_main_fails_when_poetry_check_fails(monkeypatch, capsys):
+    doctor = _load_doctor_module()
+    monkeypatch.setattr(doctor, "check_python_version", lambda: True)
+    monkeypatch.setattr(doctor, "check_config", lambda: (True, object()))
+    monkeypatch.setattr(doctor, "check_env", lambda: True)
+    monkeypatch.setattr(doctor, "check_poetry", lambda: False)
+    monkeypatch.setattr(doctor, "check_runtime_dirs", lambda: True)
+    monkeypatch.setattr(doctor, "check_platform", lambda: False)
+    monkeypatch.setattr(doctor, "check_port", lambda: True)
+    monkeypatch.setattr(doctor, "check_exposure", lambda: True)
+
+    with pytest.raises(SystemExit) as error:
+        doctor.main()
+
+    assert error.value.code == 1
+    assert "DIAGNOSTICS FAILED" in capsys.readouterr().out
 
 
 def test_check_playwright_found_path_uses_valid_script(monkeypatch, capsys):

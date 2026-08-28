@@ -6,43 +6,93 @@ $repoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 Set-Location -LiteralPath $repoRoot
 
 $pythonProbe = @'
+import json
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path.cwd() / "src"))
-from app.utils.python_version import is_supported_python
+from app.utils.python_version import classify_python_version
 
-raise SystemExit(
-    0 if is_supported_python(sys.version_info, platform_name="nt") else 1
-)
+result = classify_python_version(sys.version_info, platform_name="nt")
+print(json.dumps(result, separators=(",", ":")))
+raise SystemExit(0 if result["supported"] else 1)
 '@
 $pythonExecutable = $null
 $pythonArguments = @()
+$pythonCandidates = @()
+$candidateDiagnostics = @()
 
 $py = Get-Command py -ErrorAction SilentlyContinue
 if ($null -ne $py) {
     foreach ($version in @("3.12", "3.11")) {
-        & $py.Source "-$version" "-c" $pythonProbe *> $null
-        if ($LASTEXITCODE -eq 0) {
-            $pythonExecutable = $py.Source
-            $pythonArguments = @("-$version")
-            break
+        $pythonCandidates += @{
+            Label = "py -$version"
+            Executable = $py.Source
+            Arguments = @("-$version")
         }
     }
 }
 
-if ($null -eq $pythonExecutable) {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($null -ne $python) {
-        & $python.Source "-c" $pythonProbe *> $null
-        if ($LASTEXITCODE -eq 0) {
-            $pythonExecutable = $python.Source
+$python = Get-Command python -ErrorAction SilentlyContinue
+if ($null -ne $python) {
+    $pythonCandidates += @{
+        Label = "python"
+        Executable = $python.Source
+        Arguments = @()
+    }
+}
+
+foreach ($candidate in $pythonCandidates) {
+    $probeArguments = @($candidate.Arguments) + @("-c", $pythonProbe)
+    $probeOutput = @(& $candidate.Executable @probeArguments 2>&1)
+    $probeStatus = $LASTEXITCODE
+    $probeText = (($probeOutput | ForEach-Object { "$_" }) -join "`n").Trim()
+    $probe = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($probeText)) {
+        try {
+            $probe = $probeText | ConvertFrom-Json -ErrorAction Stop
         }
+        catch {
+            $probe = $null
+        }
+    }
+
+    if ($null -ne $probe -and [bool]$probe.supported -and $probeStatus -eq 0) {
+        $pythonExecutable = $candidate.Executable
+        $pythonArguments = @($candidate.Arguments)
+        break
+    }
+
+    if ($null -ne $probe) {
+        $version = [string]$probe.version
+        if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = "unknown"
+        }
+        $required = [string]$probe.required
+        if ([string]::IsNullOrWhiteSpace($required)) {
+            $required = [string]$probe.supported_range
+        }
+        $reasonText = switch ([string]$probe.reason) {
+            "windows_patch_too_old" { "Windows requires Python $required" }
+            "unsupported_major_minor" { "supported range is $required" }
+            default { "reason: $([string]$probe.reason)" }
+        }
+        $candidateDiagnostics += "$($candidate.Label) -> Python $version: rejected; $reasonText"
+    }
+    elseif ($probeStatus -eq 0) {
+        $candidateDiagnostics += "$($candidate.Label) -> probe returned invalid JSON"
+    }
+    else {
+        $candidateDiagnostics += "$($candidate.Label) -> no usable Python version (exit code $probeStatus)"
     }
 }
 
 if ($null -eq $pythonExecutable) {
-    [Console]::Error.WriteLine("Secure Python required: Windows Python 3.11.10+ or 3.12.4+ is required for the Gemini WebAPI private cookie cache. No secure supported interpreter was found. Upgrade Python, then rerun this script.")
+    [Console]::Error.WriteLine("No supported Python interpreter was found.")
+    foreach ($diagnostic in $candidateDiagnostics) {
+        [Console]::Error.WriteLine("  $diagnostic")
+    }
     exit 1
 }
 

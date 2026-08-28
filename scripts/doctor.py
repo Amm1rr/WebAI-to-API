@@ -104,18 +104,51 @@ def check_poetry():
     if not poetry_path:
         print_status("Poetry", "FAIL", "Poetry not found in PATH. Install Poetry: https://python-poetry.org/docs/#installation", Colors.FAIL)
         return False
-    
+
+    def summarize(value):
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            value = value.decode(errors="replace")
+        text = " ".join(str(value).split())
+        return text if len(text) <= 200 else text[:197] + "..."
+
+    def output_detail(stderr=None, stdout=None):
+        details = []
+        if summarize(stderr):
+            details.append(f"stderr: {summarize(stderr)}")
+        if summarize(stdout):
+            details.append(f"stdout: {summarize(stdout)}")
+        return "; ".join(details)
+
     try:
         res = subprocess.run(["poetry", "--version"], capture_output=True, text=True, timeout=5)
-        if res.returncode == 0:
-            version = res.stdout.strip()
-            print_status("Poetry", "PASS", version)
-        else:
-            print_status("Poetry", "PASS", "Installed")
-    except Exception:
-        print_status("Poetry", "PASS", "Installed")
-    
-    return True
+    except subprocess.TimeoutExpired as error:
+        detail = output_detail(
+            getattr(error, "stderr", None),
+            getattr(error, "stdout", getattr(error, "output", None)),
+        )
+        message = "poetry --version timed out after 5 seconds"
+        if detail:
+            message += f" ({detail})"
+        print_status("Poetry", "FAIL", message, Colors.FAIL)
+        return False
+    except Exception as error:
+        message = f"poetry --version failed ({type(error).__name__}): {summarize(error)}"
+        print_status("Poetry", "FAIL", message, Colors.FAIL)
+        return False
+
+    if res.returncode == 0:
+        version = (res.stdout or "").strip() or "Installed"
+        print_status("Poetry", "PASS", version)
+        return True
+
+    detail = output_detail(res.stderr, res.stdout)
+    message = f"poetry --version failed with exit code {res.returncode}"
+    if detail:
+        message += f" ({detail})"
+    print_status("Poetry", "FAIL", message, Colors.FAIL)
+    return False
 
 def check_runtime_dirs():
     dirs = ["runtime", "runtime/auth", "runtime/cache", "runtime/conversations"]
