@@ -209,8 +209,8 @@ RUNTIME_DIR=/srv/webai/runtime AUTH_STATE_DIR=/srv/webai/runtime/auth poetry run
 
 ### 2. Manual Cookies
 1. Sign in to [Gemini](https://gemini.google.com/).
-2. Copy `__Secure-1PSID` and `__Secure-1PSIDTS` from your browser cookies.
-3. Paste them into the `[Gemini]` section of `config.conf`.
+2. `__Secure-1PSID` is required; `__Secure-1PSIDTS` is optional. Copy available values from your browser cookies.
+3. Paste available values into the `[Gemini]` section of `config.conf`.
 
 ---
 
