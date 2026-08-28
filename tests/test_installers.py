@@ -325,6 +325,10 @@ fi
 if [ "$name" = "python" ]; then
     case "${1:-}" in
         -c)
+            if [ "${FAKE_PYTHON_PROBE_FAILURE:-}" = "1" ]; then
+                printf '%s\n' "Python was not found; run without arguments to install from the Microsoft Store..." >&2
+                exit 1
+            fi
             if probe_version "${FAKE_PYTHON_VERSION:-}"; then exit 0; fi
             exit 1
             ;;
@@ -376,6 +380,10 @@ if "%1"=="-3.11" if "%2"=="scripts\doctor.py" (
 exit /b 1
 :python
 if "%1"=="-c" (
+    if "%FAKE_PYTHON_PROBE_FAILURE%"=="1" (
+        echo Python was not found; run without arguments to install from the Microsoft Store... 1>&2
+        exit /b 1
+    )
     call :probe "%FAKE_PYTHON_VERSION%"
     if not errorlevel 1 exit /b 0
 )
@@ -431,6 +439,7 @@ def _powershell_fixture(
     py312_version=None,
     py311_version=None,
     python_version=None,
+    python_probe_failure=False,
     bootstrap=0,
     doctor=0,
 ):
@@ -458,6 +467,7 @@ def _powershell_fixture(
             "FAKE_PY312_VERSION": py312_version or ("3.12.4" if py312 else ""),
             "FAKE_PY311_VERSION": py311_version or ("3.11.10" if py311 else ""),
             "FAKE_PYTHON_VERSION": python_version or ("3.12.4" if python else ""),
+            "FAKE_PYTHON_PROBE_FAILURE": "1" if python_probe_failure else "0",
             "FAKE_BOOTSTRAP_STATUS": str(bootstrap),
             "FAKE_DOCTOR_STATUS": str(doctor),
             "FAKE_POETRY_STATUS": "0",
@@ -466,6 +476,35 @@ def _powershell_fixture(
     outside = tmp_path / "outside"
     outside.mkdir()
     return repo, log, env, outside
+
+
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")
+def test_install_ps1_continues_after_python_probe_execution_failure(tmp_path):
+    repo, log, env, outside = _powershell_fixture(
+        tmp_path,
+        python_probe_failure=True,
+    )
+    powershell = _powershell_executable()
+
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(repo / "install.ps1")],
+        cwd=outside,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "No supported Python interpreter was found." in result.stderr
+    assert "python -> probe execution failed:" in result.stderr
+    assert "Python was not found" in result.stderr
+    assert "Setup complete." not in result.stdout
+    phase_calls = [
+        line
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if f"|{repo}|scripts\\" in line or f"|{repo}|scripts/" in line
+    ]
+    assert phase_calls == []
 
 
 @pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is unavailable")

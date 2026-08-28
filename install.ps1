@@ -44,7 +44,21 @@ if ($null -ne $python) {
 
 foreach ($candidate in $pythonCandidates) {
     $probeArguments = @($candidate.Arguments) + @("-c", $pythonProbe)
-    $probeOutput = @(& $candidate.Executable @probeArguments 2>&1)
+    try {
+        $probeOutput = @(& $candidate.Executable @probeArguments 2>&1)
+    }
+    catch {
+        $errorText = [string]$_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace($errorText)) {
+            $errorText = "native command failed"
+        }
+        $errorText = ($errorText -replace "\s+", " ").Trim()
+        if ($errorText.Length -gt 200) {
+            $errorText = $errorText.Substring(0, 197) + "..."
+        }
+        $candidateDiagnostics += "$($candidate.Label) -> probe execution failed: $errorText"
+        continue
+    }
     $probeStatus = $LASTEXITCODE
     $probeText = (($probeOutput | ForEach-Object { "$_" }) -join "`n").Trim()
     $probe = $null
