@@ -245,6 +245,8 @@ Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 3. **Contracts over Wrappers**: The structural API contracts defined here take precedence over any convenience wrappers or documentation summaries.
 4. **Deprecation**: Removal of public endpoints should follow a documented deprecation process.
 
+**Stateless Execution:** The accepted future client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). The planned `/v1/stateless/*` surface is not part of the currently available public API until its implementation and contract tests land.
+
 ## 12. System and Runtime Endpoints
 
 The system exposes dedicated endpoints for health monitoring and runtime observability.

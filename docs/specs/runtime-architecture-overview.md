@@ -96,6 +96,9 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 - **[API Contract](api-contract.md)**: Authoritative API surface definitions, persistence guarantees, and endpoint classifications.
 - **[Lifecycle and Recovery](lifecycle-and-recovery.md)**: State transitions, generations, and authoritative recovery.
 - **[Docker Deployment Model](docker-deployment.md)**: Containerization, environment modes, and volume persistence guarantees.
+- **[Stateless Chat Execution](stateless-chat-contract.md)**: Accepted future contract for client-owned conversation state, stateless backend execution, and planned browser warm-page isolation.
+
+Architectural rationale for this design is recorded in [ADR-0001: Client-Owned Stateless Chat Execution](../adr/0001-stateless-chat-execution.md).
 
 ---
 
