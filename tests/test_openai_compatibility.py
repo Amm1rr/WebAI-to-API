@@ -380,6 +380,7 @@ async def test_gemini_compatibility_noops_are_not_forwarded(
     value,
 ):
     client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
     client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-3-flash",
         is_available=True,

@@ -20,6 +20,7 @@ async def _post(payload: dict, path: str = "/v1/stateless/chat/completions"):
 
 def _available_client(mocker):
     client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
     client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-3-flash",
         is_available=True,
@@ -240,6 +241,7 @@ async def test_stateless_chat_rejects_unavailable_model_without_generation(
     install_gemini_client,
 ):
     client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
     client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-unavailable",
         is_available=False,

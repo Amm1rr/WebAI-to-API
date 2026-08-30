@@ -5,7 +5,15 @@ from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-from gemini_webapi.exceptions import APIError, AuthError, GeminiError
+from gemini_webapi.exceptions import (
+    APIError,
+    AuthError,
+    GeminiError,
+    ModelInvalidError,
+    TemporarilyBlockedError,
+    TimeoutError as GeminiTimeoutError,
+    UsageLimitExceededError,
+)
 
 from app.config import CONFIG
 from app.logger import logger
@@ -23,10 +31,13 @@ from app.services.multimodal import (
 from app.services.providers.gemini.shared import (
     build_tools_prompt,
     convert_to_openai_format,
+    ensure_gemini_client_ready,
     parse_tool_call,
     validate_direct_webapi_model_name,
     validate_model_name,
 )
+
+
 from app.services.openai_compatibility import validate_openai_request_compatibility
 from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.session_manager import transform_messages
@@ -42,6 +53,9 @@ from app.utils.streaming import (
 )
 
 
+DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS = 300
+
+
 @dataclass(slots=True)
 class TemporaryChatRequestContext:
     model: str
@@ -53,9 +67,8 @@ class TemporaryChatRequestContext:
     gem: str | None
 
 
-def _resolve_temporary_chat_model(
+def _validate_temporary_chat_request(
     request: OpenAIChatRequest,
-    gemini_client,
     *,
     endpoint_name: str = "temporary",
     direct_webapi_only: bool = False,
@@ -83,8 +96,15 @@ def _resolve_temporary_chat_model(
             detail="provider_options.gemini is not supported by the Gemini WebAPI backend.",
         )
 
-    model = request.model or CONFIG["Gemini"].get("default_model", "gemini-3-flash")
-    model = model.strip()
+    if request.model is None:
+        model = CONFIG["Gemini"].get("default_model", "gemini-3-flash")
+    else:
+        model = request.model.strip()
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A non-empty model is required on the {endpoint_label}.",
+            )
 
     if model.startswith("playwright/"):
         raise HTTPException(
@@ -98,13 +118,85 @@ def _resolve_temporary_chat_model(
             detail=f"Atlas models are not supported on the {endpoint_label}.",
         )
 
+    if direct_webapi_only and "/" in model:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model}' is not supported by the Gemini WebAPI endpoint.",
+        )
+
+    if not direct_webapi_only and model.startswith("gemini/"):
+        original_model = model
+        model = model.split("/", 1)[1].strip()
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{original_model}' must include a model name.",
+            )
+
+    return model
+
+
+def _resolve_temporary_chat_model(
+    request: OpenAIChatRequest,
+    gemini_client,
+    *,
+    endpoint_name: str = "temporary",
+    direct_webapi_only: bool = False,
+) -> str:
+    model = _validate_temporary_chat_request(
+        request,
+        endpoint_name=endpoint_name,
+        direct_webapi_only=direct_webapi_only,
+    )
     if direct_webapi_only:
         validate_direct_webapi_model_name(model, gemini_client)
     else:
-        if model.startswith("gemini/"):
-            model = model.split("/", 1)[1].strip()
         validate_model_name(model, gemini_client)
     return model
+
+
+def _ensure_direct_webapi_ready(gemini_client) -> None:
+    try:
+        ensure_gemini_client_ready(gemini_client)
+    except HTTPException as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Gemini WebAPI client is not ready: {error.detail}",
+        ) from error
+
+
+def _translate_direct_gemini_error(error: Exception) -> HTTPException | None:
+    if isinstance(error, AuthError):
+        return HTTPException(
+            status_code=503,
+            detail="Gemini WebAPI authentication is unavailable.",
+        )
+    if isinstance(error, (asyncio.TimeoutError, GeminiTimeoutError)):
+        return HTTPException(
+            status_code=504,
+            detail="Gemini WebAPI request timed out.",
+        )
+    if isinstance(error, UsageLimitExceededError):
+        return HTTPException(
+            status_code=429,
+            detail="Gemini WebAPI usage limit exceeded.",
+        )
+    if isinstance(error, TemporarilyBlockedError):
+        return HTTPException(
+            status_code=429,
+            detail="Gemini WebAPI request is temporarily blocked.",
+        )
+    if isinstance(error, ModelInvalidError):
+        return HTTPException(
+            status_code=502,
+            detail="Gemini WebAPI rejected the requested model.",
+        )
+    if isinstance(error, (APIError, GeminiError)):
+        return HTTPException(
+            status_code=502,
+            detail="Gemini WebAPI provider request failed.",
+        )
+    return None
 
 
 def _streaming_headers() -> dict[str, str]:
@@ -129,12 +221,10 @@ def _prepare_temporary_chat_request(
         direct_webapi_only=direct_webapi_only,
     )
     normalized = normalize_openai_chat_messages(request.messages, allow_file_parts=True)
-    tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
-    prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
     return TemporaryChatRequestContext(
         model=model,
         normalized=normalized,
-        prompt=prompt,
+        prompt="",
         files=normalized.files or None,
         is_stream=request.stream if request.stream is not None else False,
         tools=request.tools,
@@ -174,13 +264,14 @@ async def _build_buffered_openai_response(
     gem: str | None,
     tools: list[dict[str, Any]] | None,
 ) -> dict:
-    response = await gemini_client.generate_content(
-        prompt,
-        model,
-        files=files,
-        gem=gem,
-        temporary=True,
-    )
+    async with asyncio.timeout(DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS):
+        response = await gemini_client.generate_content(
+            prompt,
+            model,
+            files=files,
+            gem=gem,
+            temporary=True,
+        )
     response_text = getattr(response, "text", "") or ""
     tool_call = parse_tool_call(response_text) if tools else None
     return build_webapi_chat_completion_response(
@@ -202,16 +293,27 @@ async def _build_incremental_streaming_response(
 ) -> StreamingResponse:
     async def sse_generator():
         final_response = None
+        execution_deadline = (
+            asyncio.get_running_loop().time() + DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS
+        )
         try:
-            gemini_client = lease.client
-            stream = await gemini_client.generate_content_stream(
-                prompt,
-                model,
-                files=files,
-                gem=gem,
-                temporary=True,
-            )
-            async for chunk in stream:
+            async with asyncio.timeout_at(execution_deadline):
+                gemini_client = lease.client
+                stream = await gemini_client.generate_content_stream(
+                    prompt,
+                    model,
+                    files=files,
+                    gem=gem,
+                    temporary=True,
+                )
+
+            while True:
+                try:
+                    async with asyncio.timeout_at(execution_deadline):
+                        chunk = await anext(stream)
+                except StopAsyncIteration:
+                    break
+
                 final_response = chunk
                 text_delta = getattr(chunk, "text_delta", "")
                 if text_delta:
@@ -226,6 +328,12 @@ async def _build_incremental_streaming_response(
                     yield await format_sse_chunk(artifact_chunk)
         except (asyncio.CancelledError, GeneratorExit):
             raise
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Gemini WebAPI /v1/{endpoint_name}/chat/completions progressive streaming timed out after "
+                f"{DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS}s"
+            )
+            return
         except (APIError, AuthError, GeminiError) as e:
             logger.error(
                 f"Gemini WebAPI /v1/{endpoint_name}/chat/completions progressive streaming terminal failure: {e}",
@@ -259,6 +367,11 @@ async def handle_temporary_chat_completions(
         request,
         GeminiWebAPIAdapter.openai_compatibility,
     )
+    _validate_temporary_chat_request(
+        request,
+        endpoint_name=endpoint_name,
+        direct_webapi_only=direct_webapi_only,
+    )
     try:
         preparation_lease = acquire_current_gemini_lease()
     except (GeminiClientNotInitializedError, RuntimeError) as e:
@@ -266,6 +379,7 @@ async def handle_temporary_chat_completions(
 
     try:
         async with preparation_lease:
+            _ensure_direct_webapi_ready(preparation_lease.client)
             prepared = _prepare_temporary_chat_request(
                 request,
                 preparation_lease.client,
@@ -273,6 +387,10 @@ async def handle_temporary_chat_completions(
                 direct_webapi_only=direct_webapi_only,
             )
             cleanup_once = _build_cleanup_once(prepared.normalized)
+            tools_prompt = build_tools_prompt(prepared.tools) if prepared.tools else ""
+            prepared.prompt = "\n\n".join(
+                transform_messages(prepared.normalized.messages, tools_prompt)
+            )
 
             if prepared.is_stream and not prepared.tools:
                 response = await _build_incremental_streaming_response(
@@ -300,14 +418,22 @@ async def handle_temporary_chat_completions(
     except HTTPException:
         raise
     except Exception as e:
+        translated_error = _translate_direct_gemini_error(e)
+        if translated_error is not None:
+            raise translated_error from e
         logger.error(
             f"Error in /v1/{endpoint_name}/chat/completions endpoint: {e}",
             exc_info=True,
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Error generating {endpoint_name} content: {str(e)}",
-        )
+            detail=f"Internal error generating {endpoint_name} content.",
+        ) from e
     finally:
         if cleanup_once is not None and not preparation_lease.is_transferred:
-            await cleanup_once()
+            try:
+                await cleanup_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.warning(f"Error cleaning up Gemini temporary request: {error}")
