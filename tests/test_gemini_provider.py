@@ -16,6 +16,7 @@ from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
     build_webapi_streaming_artifact_chunk,
 )
+from app.services.providers.gemini.shared import ToolCallParseStatus
 
 @pytest.fixture
 def provider():
@@ -110,20 +111,22 @@ def make_delete_client(mocker, status_name="AVAILABLE"):
     )
 
 def test_parse_tool_call_valid(provider):
-    """Verify _parse_tool_call correctly extracts tool calls from text."""
-    text = 'Sure, I will call the tool: {"tool_call": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}'
-    tool_call = provider._parse_tool_call(text)
-    
-    assert tool_call is not None
-    assert tool_call["name"] == "get_weather"
-    assert tool_call["arguments"] == {"location": "San Francisco"}
+    result = provider._parse_tool_call(
+        '{"tool_call": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}'
+    )
+
+    assert result.status is ToolCallParseStatus.VALID_TOOL_CALL
+    assert result.tool_call == {
+        "name": "get_weather",
+        "arguments": {"location": "San Francisco"},
+    }
 
 def test_parse_tool_call_invalid(provider):
-    """Verify _parse_tool_call returns None when no valid tool call is found."""
     text = "Hello, how can I help you today?"
-    tool_call = provider._parse_tool_call(text)
-    
-    assert tool_call is None
+    result = provider._parse_tool_call(text)
+
+    assert result.status is ToolCallParseStatus.NO_TOOL_CALL
+    assert result.tool_call is None
 
 def test_convert_to_openai_format_non_streaming(provider):
     """Verify _convert_to_openai_format for non-streaming response."""

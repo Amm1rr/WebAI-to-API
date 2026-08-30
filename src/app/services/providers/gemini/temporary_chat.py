@@ -33,12 +33,13 @@ from app.services.providers.gemini.shared import (
     convert_to_openai_format,
     ensure_gemini_client_ready,
     parse_tool_call,
+    ToolCallParseStatus,
     validate_direct_webapi_model_name,
     validate_model_name,
 )
 
-
 from app.services.openai_compatibility import validate_openai_request_compatibility
+from app.services.providers.exceptions import GeminiProviderOutputError
 from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.session_manager import transform_messages
 from app.services.providers.gemini.webapi_response_builder import (
@@ -166,6 +167,8 @@ def _ensure_direct_webapi_ready(gemini_client) -> None:
 
 
 def _translate_direct_gemini_error(error: Exception) -> HTTPException | None:
+    if isinstance(error, GeminiProviderOutputError):
+        return HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.")
     if isinstance(error, AuthError):
         return HTTPException(
             status_code=503,
@@ -273,7 +276,13 @@ async def _build_buffered_openai_response(
             temporary=True,
         )
     response_text = getattr(response, "text", "") or ""
-    tool_call = parse_tool_call(response_text) if tools else None
+    tool_call = None
+    if tools:
+        parse_result = parse_tool_call(response_text, tools=tools)
+        if parse_result.status is ToolCallParseStatus.INVALID_TOOL_CALL:
+            raise GeminiProviderOutputError(parse_result.error or "Gemini returned malformed tool-call output.")
+        if parse_result.status is ToolCallParseStatus.VALID_TOOL_CALL:
+            tool_call = parse_result.tool_call
     return build_webapi_chat_completion_response(
         response,
         model,

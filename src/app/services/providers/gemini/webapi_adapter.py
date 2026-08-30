@@ -17,6 +17,7 @@ from app.services.providers.gemini.session_manager import (
 )
 from app.services.providers.exceptions import (
     ConversationInUseError,
+    GeminiProviderOutputError,
     SessionRecoveryError,
     SnapshotNotFoundError,
     StateIntegrityError,
@@ -30,6 +31,7 @@ from app.services.providers.gemini.shared import (
     ensure_gemini_client_ready,
     parse_tool_call,
     resolve_extended_thinking,
+    ToolCallParseStatus,
     validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
 )
@@ -489,12 +491,21 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             await registry.save_session_snapshot(cid, self.provider, session_manager)
             
             # 4. Parse tool calls if necessary
-            tool_call = parse_tool_call(response.text) if request.tools else None
+            response_text = getattr(response, "text", "") or ""
+            tool_call = None
+            if request.tools:
+                parse_result = parse_tool_call(response_text, tools=request.tools)
+                if parse_result.status is ToolCallParseStatus.INVALID_TOOL_CALL:
+                    raise GeminiProviderOutputError(
+                        parse_result.error or "Gemini returned malformed tool-call output."
+                    )
+                if parse_result.status is ToolCallParseStatus.VALID_TOOL_CALL:
+                    tool_call = parse_result.tool_call
 
             # 5. Normalize Gemini WebAPI response to OpenAI format and attach artifacts
             if is_stream:
                 openai_response = convert_to_openai_format(
-                    response.text,
+                    response_text,
                     request.model or "unknown",
                     is_stream,
                     tool_call,
@@ -529,6 +540,10 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             await cleanup_once()
             await release_lease()
             raise
+        except GeminiProviderOutputError as e:
+            await cleanup_once()
+            await release_lease()
+            raise HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.") from e
         except APIError as e:
             await cleanup_once()
             await release_lease()

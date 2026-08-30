@@ -23,3 +23,8 @@ class ProviderThreadExpiredError(SessionRecoveryError):
 class ConversationInUseError(SessionRecoveryError):
     """Raised when a conversation is active or already being deleted."""
     pass
+
+
+class GeminiProviderOutputError(Exception):
+    """Raised when Gemini returns a malformed tool-call response."""
+    pass

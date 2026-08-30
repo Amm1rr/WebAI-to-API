@@ -1,10 +1,15 @@
 import json
+import re
 import time
+import uuid
+from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, List, Any, Union
 from pathlib import Path
 from fastapi import HTTPException
 from app.config import CONFIG
 from app.logger import logger
+from app.services.providers.exceptions import GeminiProviderOutputError
 from .webapi_client import resolve_model_name
 
 # Unrecoverable conversation error codes for Gemini API
@@ -119,42 +124,180 @@ def build_tools_prompt(tools: list) -> str:
             lines.append(f"  Parameters: {json.dumps(fn['parameters'])}")
     return "\n".join(lines)
 
-def parse_tool_call(text: str) -> Optional[dict]:
-    """Extract a tool_call JSON object from model response text."""
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(text):
-        if ch == '{':
-            try:
-                obj, _ = decoder.raw_decode(text, i)
-                if isinstance(obj, dict) and "tool_call" in obj:
-                    return obj["tool_call"]
-            except (json.JSONDecodeError, ValueError):
-                pass
-    return None
+class ToolCallParseStatus(str, Enum):
+    NO_TOOL_CALL = "no_tool_call"
+    VALID_TOOL_CALL = "valid_tool_call"
+    INVALID_TOOL_CALL = "invalid_tool_call"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallParseResult:
+    status: ToolCallParseStatus
+    tool_call: Optional[dict] = None
+    error: Optional[str] = None
+
+
+def _invalid_tool_call(error: str) -> ToolCallParseResult:
+    return ToolCallParseResult(ToolCallParseStatus.INVALID_TOOL_CALL, error=error)
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonstandard_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _declared_tool_names(tools: list[dict]) -> set[str]:
+    names = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        function = tool.get("function")
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            names.add(function["name"])
+    return names
+
+
+def _looks_like_tool_envelope(text: str) -> bool:
+    return bool(re.match(r'^\{\s*"tool_calls?"\s*:', text))
+
+
+def _decode_exact_json(text: str) -> tuple[Any, bool]:
+    """Decode only a complete JSON value, returning whether format was claimed."""
+    stripped = text.strip()
+    if not stripped:
+        return None, False
+
+    if stripped.startswith("```"):
+        match = re.fullmatch(
+            r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```",
+            stripped,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match is None:
+            return None, False
+        payload = match.group(1).strip()
+        try:
+            return json.loads(
+                payload,
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_nonstandard_json_constant,
+            ), True
+        except (json.JSONDecodeError, ValueError):
+            return None, _looks_like_tool_envelope(payload)
+
+    decoder = json.JSONDecoder(
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonstandard_json_constant,
+    )
+    try:
+        value, end = decoder.raw_decode(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return None, _looks_like_tool_envelope(stripped)
+
+    if stripped[end:].strip():
+        return None, False
+    return value, True
+
+
+def parse_tool_call(text: str, tools: Optional[List[dict]] = None) -> ToolCallParseResult:
+    """Parse one exact model tool envelope without searching inside prose."""
+    if not isinstance(text, str):
+        return _invalid_tool_call("Gemini returned non-text tool-call output.")
+    decoded, exact_json = _decode_exact_json(text)
+    if not exact_json:
+        return ToolCallParseResult(ToolCallParseStatus.NO_TOOL_CALL)
+    if decoded is None:
+        return _invalid_tool_call("Gemini returned malformed tool-call JSON.")
+
+    if isinstance(decoded, list):
+        if any(
+            isinstance(item, dict)
+            and (
+                "tool_call" in item
+                or "tool_calls" in item
+                or {"name", "arguments"}.issubset(item)
+            )
+            for item in decoded
+        ):
+            return _invalid_tool_call("Multiple or unsupported tool calls were returned.")
+        return ToolCallParseResult(ToolCallParseStatus.NO_TOOL_CALL)
+    if not isinstance(decoded, dict):
+        return ToolCallParseResult(ToolCallParseStatus.NO_TOOL_CALL)
+
+    if "tool_calls" in decoded:
+        return _invalid_tool_call("Multiple tool calls are not supported.")
+    if "tool_call" not in decoded:
+        return ToolCallParseResult(ToolCallParseStatus.NO_TOOL_CALL)
+    if set(decoded) != {"tool_call"}:
+        return _invalid_tool_call("Tool-call envelope contains unsupported fields.")
+
+    tool_call = decoded["tool_call"]
+    if not isinstance(tool_call, dict):
+        return _invalid_tool_call("Tool-call envelope must be an object.")
+    if set(tool_call) != {"name", "arguments"}:
+        return _invalid_tool_call("Tool call must contain only name and arguments.")
+
+    name = tool_call["name"]
+    arguments = tool_call["arguments"]
+    if not isinstance(name, str) or not name.strip():
+        return _invalid_tool_call("Tool call name must be a non-empty string.")
+    if not isinstance(arguments, dict):
+        return _invalid_tool_call("Tool call arguments must be an object.")
+    if tools is not None and name not in _declared_tool_names(tools):
+        return _invalid_tool_call(f"Tool call names undeclared tool: {name}.")
+
+    return ToolCallParseResult(ToolCallParseStatus.VALID_TOOL_CALL, tool_call=tool_call)
+
+
+def _validate_tool_call_for_openai(tool_call: Any) -> tuple[str, str]:
+    if not isinstance(tool_call, dict):
+        raise GeminiProviderOutputError("Gemini returned malformed tool-call output.")
+    if set(tool_call) != {"name", "arguments"}:
+        raise GeminiProviderOutputError("Gemini returned malformed tool-call output.")
+
+    name = tool_call["name"]
+    arguments = tool_call["arguments"]
+    if not isinstance(name, str) or not name.strip() or not isinstance(arguments, dict):
+        raise GeminiProviderOutputError("Gemini returned malformed tool-call output.")
+    try:
+        serialized_arguments = json.dumps(arguments, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise GeminiProviderOutputError("Gemini returned unserializable tool-call arguments.") from error
+    return name, serialized_arguments
+
 
 def convert_to_openai_format(response_text: str, model: str, stream: bool = False, tool_call: Optional[dict] = None):
     """Normalize Gemini response text or tool calls to OpenAI-compatible format."""
     ts = int(time.time())
+    completion_id = f"chatcmpl-{uuid.uuid4().hex}" if tool_call is not None or not stream else f"chatcmpl-{ts}"
     choice_key = "delta" if stream else "message"
     
-    if tool_call:
-        args = tool_call.get("arguments", {})
+    if tool_call is not None:
+        name, serialized_arguments = _validate_tool_call_for_openai(tool_call)
         tool_call_payload = {
             "role": "assistant",
             "content": None,
             "tool_calls": [{
-                "id": f"call_{ts}",
+                "id": f"call_{uuid.uuid4().hex}",
                 "type": "function",
                 "function": {
-                    "name": tool_call.get("name", ""),
-                    "arguments": json.dumps(args) if isinstance(args, dict) else args,
+                    "name": name,
+                    "arguments": serialized_arguments,
                 },
             }],
         }
         if stream:
             tool_call_payload["tool_calls"][0]["index"] = 0
         return {
-            "id": f"chatcmpl-{ts}",
+            "id": completion_id,
             "object": "chat.completion.chunk" if stream else "chat.completion",
             "created": ts,
             "model": model,
@@ -166,7 +309,7 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
         }
 
     return {
-        "id": f"chatcmpl-{ts}",
+        "id": completion_id,
         "object": "chat.completion.chunk" if stream else "chat.completion",
         "created": ts,
         "model": model,

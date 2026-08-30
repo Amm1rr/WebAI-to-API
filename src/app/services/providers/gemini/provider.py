@@ -166,9 +166,9 @@ class GeminiProvider(BaseProvider):
         return session_state
 
     # Backward compatibility for tests
-    def _parse_tool_call(self, text: str) -> Optional[dict]:
+    def _parse_tool_call(self, text: str, tools: Optional[List[dict]] = None):
         from app.services.providers.gemini.shared import parse_tool_call
-        return parse_tool_call(text)
+        return parse_tool_call(text, tools=tools)
 
     def _convert_to_openai_format(self, text: str, model: str, stream: bool = False, tool_call: Optional[dict] = None):
         from app.services.providers.gemini.shared import convert_to_openai_format
