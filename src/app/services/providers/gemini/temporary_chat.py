@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from gemini_webapi.exceptions import APIError, AuthError, GeminiError
 
 from app.config import CONFIG
 from app.logger import logger
@@ -144,14 +145,13 @@ def _prepare_temporary_chat_request(
 def _build_cleanup_once(
     normalized: NormalizedOpenAIChatMessages,
 ) -> Callable[[], Awaitable[None]]:
-    cleanup_started = False
+    cleanup_task: asyncio.Task[None] | None = None
 
     async def cleanup_once() -> None:
-        nonlocal cleanup_started
-        if cleanup_started:
-            return
-        cleanup_started = True
-        await cleanup_staged_files(normalized)
+        nonlocal cleanup_task
+        if cleanup_task is None:
+            cleanup_task = asyncio.create_task(cleanup_staged_files(normalized))
+        await asyncio.shield(cleanup_task)
 
     return cleanup_once
 
@@ -226,12 +226,12 @@ async def _build_incremental_streaming_response(
                     yield await format_sse_chunk(artifact_chunk)
         except (asyncio.CancelledError, GeneratorExit):
             raise
-        except Exception as e:
+        except (APIError, AuthError, GeminiError) as e:
             logger.error(
-                f"Error in /v1/{endpoint_name}/chat/completions progressive streaming: {e}",
+                f"Gemini WebAPI /v1/{endpoint_name}/chat/completions progressive streaming terminal failure: {e}",
                 exc_info=True,
             )
-            raise
+            return
         else:
             yield await get_done_chunk()
         finally:

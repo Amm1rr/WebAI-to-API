@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient, ASGITransport
+from gemini_webapi.exceptions import APIError
 from app.main import app
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
@@ -525,7 +526,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
     assert "data: " in body_text
     assert "Temporary delta" in body_text
     assert "artifacts" in body_text
-    assert "data: [DONE]" in body_text
+    assert body_text.count("data: [DONE]\n\n") == 1
     mock_client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
         "gemini-3-flash",
@@ -534,6 +535,117 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
         temporary=True,
     )
     mock_client.generate_content.assert_not_called()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("partial_text", [None, "Partial delta"], ids=["before-first-chunk", "after-chunk"])
+async def test_temporary_stream_gemini_failure_terminates_without_done(
+    mocker,
+    install_gemini_client,
+    caplog,
+    partial_text,
+):
+    async def response_stream():
+        if partial_text is not None:
+            yield SimpleNamespace(text_delta=partial_text)
+        raise APIError("Gemini stream failed")
+
+    mock_client = mocker.Mock()
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
+    mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(mock_client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    payload = {
+        "model": "gemini-3-flash",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with ac.stream("POST", "/v1/temporary/chat/completions", json=payload) as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            body = await response.aread()
+
+    body_text = body.decode()
+    assert "data: [DONE]\n\n" not in body_text
+    if partial_text is not None:
+        assert partial_text in body_text
+    assert any(
+        "progressive streaming terminal failure" in record.message
+        for record in caplog.records
+    )
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_temporary_stream_cancellation_preserves_cancel_and_releases_lease(
+    mocker,
+    install_gemini_client,
+):
+    chunk_sent = asyncio.Event()
+    blocked = asyncio.Event()
+
+    async def response_stream():
+        yield SimpleNamespace(text_delta="Partial delta")
+        await blocked.wait()
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(mock_client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    normalized = temporary_chat_module.NormalizedOpenAIChatMessages(messages=[])
+    cleanup_once = temporary_chat_module._build_cleanup_once(normalized)
+    response = await temporary_chat_module._build_incremental_streaming_response(
+        lease,
+        prompt="User: Hello",
+        model="gemini-3-flash",
+        files=None,
+        gem=None,
+        cleanup_once=cleanup_once,
+    )
+
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.body" and message["body"]:
+            chunk_sent.set()
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    response_task = asyncio.create_task(
+        response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+    )
+    await chunk_sent.wait()
+    response_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await response_task
+
+    assert any(message["type"] == "http.response.start" for message in messages)
+    assert not any(
+        message.get("body") == b"data: [DONE]\n\n"
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    cleanup.assert_awaited_once_with(normalized)
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
 
 
 @pytest.mark.asyncio
