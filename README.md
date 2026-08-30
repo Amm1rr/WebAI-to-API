@@ -152,6 +152,8 @@ Open the dashboard at `http://localhost:6969/ui`. It provides runtime status, au
 | Endpoint | Purpose |
 | --- | --- |
 | `/v1/chat/completions` | Main OpenAI-compatible chat endpoint |
+| `/v1/stateless/chat/completions` | Client-owned-history Gemini WebAPI chat endpoint |
+| `/v1/stateless/models` | Direct Gemini WebAPI models valid for stateless chat |
 | `/v1/temporary/chat/completions` | Temporary Gemini WebAPI chat without durable conversation persistence |
 | `/v1/models` | Current runtime model catalog |
 | `/v1/conversations` | Manage persisted Gemini WebAPI conversations |

@@ -23,6 +23,7 @@ from app.services.providers.gemini.shared import (
     build_tools_prompt,
     convert_to_openai_format,
     parse_tool_call,
+    validate_direct_webapi_model_name,
     validate_model_name,
 )
 from app.services.providers.gemini.session_manager import transform_messages
@@ -44,21 +45,28 @@ class TemporaryChatRequestContext:
     gem: str | None
 
 
-def _resolve_temporary_chat_model(request: OpenAIChatRequest, gemini_client) -> str:
+def _resolve_temporary_chat_model(
+    request: OpenAIChatRequest,
+    gemini_client,
+    *,
+    endpoint_name: str = "temporary",
+    direct_webapi_only: bool = False,
+) -> str:
+    endpoint_label = f"{endpoint_name} chat endpoint"
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
 
     if request.conversation_id is not None:
         raise HTTPException(
             status_code=400,
-            detail="conversation_id is not supported on the temporary chat endpoint.",
+            detail=f"conversation_id is not supported on the {endpoint_label}.",
         )
 
     provider = (request.provider or "").strip().lower()
     if provider and provider != "gemini":
         raise HTTPException(
             status_code=400,
-            detail="Only the Gemini provider is supported on the temporary chat endpoint.",
+            detail=f"Only the Gemini provider is supported on the {endpoint_label}.",
         )
 
     if request.provider_options and request.provider_options.gemini is not None:
@@ -73,19 +81,21 @@ def _resolve_temporary_chat_model(request: OpenAIChatRequest, gemini_client) -> 
     if model.startswith("playwright/"):
         raise HTTPException(
             status_code=400,
-            detail="Playwright models are not supported on the temporary chat endpoint.",
+            detail=f"Playwright models are not supported on the {endpoint_label}.",
         )
 
     if model.startswith("atlas/"):
         raise HTTPException(
             status_code=400,
-            detail="Atlas models are not supported on the temporary chat endpoint.",
+            detail=f"Atlas models are not supported on the {endpoint_label}.",
         )
 
-    if model.startswith("gemini/"):
-        model = model.split("/", 1)[1].strip()
-
-    validate_model_name(model, gemini_client)
+    if direct_webapi_only:
+        validate_direct_webapi_model_name(model, gemini_client)
+    else:
+        if model.startswith("gemini/"):
+            model = model.split("/", 1)[1].strip()
+        validate_model_name(model, gemini_client)
     return model
 
 
@@ -97,8 +107,19 @@ def _streaming_headers() -> dict[str, str]:
     }
 
 
-def _prepare_temporary_chat_request(request: OpenAIChatRequest, gemini_client) -> TemporaryChatRequestContext:
-    model = _resolve_temporary_chat_model(request, gemini_client)
+def _prepare_temporary_chat_request(
+    request: OpenAIChatRequest,
+    gemini_client,
+    *,
+    endpoint_name: str = "temporary",
+    direct_webapi_only: bool = False,
+) -> TemporaryChatRequestContext:
+    model = _resolve_temporary_chat_model(
+        request,
+        gemini_client,
+        endpoint_name=endpoint_name,
+        direct_webapi_only=direct_webapi_only,
+    )
     normalized = normalize_openai_chat_messages(request.messages, allow_file_parts=True)
     tools_prompt = build_tools_prompt(request.tools) if request.tools else ""
     prompt = "\n\n".join(transform_messages(normalized.messages, tools_prompt))
@@ -171,6 +192,7 @@ async def _build_incremental_streaming_response(
     files: list[Path] | None,
     gem: str | None,
     cleanup_once: Callable[[], Awaitable[None]],
+    endpoint_name: str = "temporary",
 ) -> StreamingResponse:
     async def sse_generator():
         final_response = None
@@ -200,7 +222,7 @@ async def _build_incremental_streaming_response(
             raise
         except Exception as e:
             logger.error(
-                f"Error in /v1/temporary/chat/completions progressive streaming: {e}",
+                f"Error in /v1/{endpoint_name}/chat/completions progressive streaming: {e}",
                 exc_info=True,
             )
             raise
@@ -220,7 +242,12 @@ async def _build_incremental_streaming_response(
     return response
 
 
-async def handle_temporary_chat_completions(request: OpenAIChatRequest):
+async def handle_temporary_chat_completions(
+    request: OpenAIChatRequest,
+    *,
+    endpoint_name: str = "temporary",
+    direct_webapi_only: bool = False,
+):
     cleanup_once = None
     try:
         preparation_lease = acquire_current_gemini_lease()
@@ -229,7 +256,12 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
 
     try:
         async with preparation_lease:
-            prepared = _prepare_temporary_chat_request(request, preparation_lease.client)
+            prepared = _prepare_temporary_chat_request(
+                request,
+                preparation_lease.client,
+                endpoint_name=endpoint_name,
+                direct_webapi_only=direct_webapi_only,
+            )
             cleanup_once = _build_cleanup_once(prepared.normalized)
 
             if prepared.is_stream and not prepared.tools:
@@ -240,6 +272,7 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
                     files=prepared.files,
                     gem=prepared.gem,
                     cleanup_once=cleanup_once,
+                    endpoint_name=endpoint_name,
                 )
                 return response
 
@@ -257,8 +290,14 @@ async def handle_temporary_chat_completions(request: OpenAIChatRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in /v1/temporary/chat/completions endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error generating temporary content: {str(e)}")
+        logger.error(
+            f"Error in /v1/{endpoint_name}/chat/completions endpoint: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating {endpoint_name} content: {str(e)}",
+        )
     finally:
         if cleanup_once is not None and not preparation_lease.is_transferred:
             await cleanup_once()

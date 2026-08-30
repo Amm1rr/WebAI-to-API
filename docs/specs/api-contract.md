@@ -16,6 +16,8 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
+| `/v1/stateless/chat/completions` | Primary | Yes | Client-owned history; Gemini WebAPI temporary | Yes | Generic stateless OpenAI-compatible surface; `conversation_id` is rejected. |
+| `/v1/stateless/models` | Primary | Yes | N/A | No | Lists currently available direct Gemini WebAPI models valid for stateless execution. |
 | `/v1/temporary/chat/completions` | Specialized | No | Gemini WebAPI temporary | Yes | OpenAI-compatible Gemini-only temporary endpoint; no durable conversation continuation. |
 | `/v1/conversations` | Primary | Yes | Lists/deletes Gemini WebAPI snapshots | No | GET lists local snapshots; DELETE bulk-deletes Gemini WebAPI conversations. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
@@ -85,6 +87,20 @@ Gemini WebAPI may return generated artifacts alongside text output.
 - **Persistence**: Artifact blobs are not persisted in local snapshots or conversation state.
 - **Metadata Semantics**: Artifact URLs are provider metadata only. Clients must not assume they are permanent, public, or stable download handles.
 
+### 3.3 Stateless Contract: /v1/stateless/chat/completions
+
+The `/v1/stateless/chat/completions` endpoint is the generic client-owned-history surface. The current implementation supports direct Gemini WebAPI execution only.
+
+- **History Ownership**: Clients must send the complete conversation history required for each request, including assistant tool calls and tool results.
+- **Conversation IDs**: `conversation_id` is rejected. The endpoint does not create or return a continuation ID.
+- **Execution**: Requests use Gemini WebAPI `temporary=True` execution and the shared message transformation, tool prompt, tool-call parsing, and response streaming paths.
+- **Persistence**: Requests do not restore or create `ChatSession` state, SQLite conversation snapshots, or Gemini conversation history.
+- **Excluded Backends**: Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless execution remains future work.
+
+### 3.4 Stateless Model Discovery: /v1/stateless/models
+
+`GET /v1/stateless/models` returns only currently available direct Gemini WebAPI models from the runtime capability catalog. It does not advertise Atlas models, Playwright models, legacy Playwright aliases, or models unavailable to the direct WebAPI backend.
+
 ## 4. Conversation Contract
 
 ### `conversation_id`
@@ -145,6 +161,7 @@ Persistence semantics vary significantly across endpoints and across `/v1/chat/c
 | Endpoint / Backend | Restart Safe | Persistence Type | Recovery Mechanism |
 | :--- | :---: | :--- | :--- |
 | `/v1/chat/completions` - Gemini WebAPI | Yes | SQLite-backed snapshots | Serialized `ChatSession` restoration via repository. |
+| `/v1/stateless/chat/completions` - Gemini WebAPI | No | Client-owned history; temporary only | Full supplied message history is transformed and sent independently on every request. |
 | `/v1/temporary/chat/completions` - Gemini WebAPI | No | Temporary only | Requests use `temporary=True` and are never written to Gemini history or SQLite snapshots. |
 | `/v1/chat/completions` - Gemini Playwright | Provider-dependent | Provider-side URL-backed | Navigate to `https://gemini.google.com/app/{conversation_id}`; reuse `PersistentTab` when still in memory. |
 | `/v1/chat/completions` - Atlas | No | Stateless | No local conversation persistence; requests are forwarded independently. |
@@ -245,7 +262,7 @@ Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 3. **Contracts over Wrappers**: The structural API contracts defined here take precedence over any convenience wrappers or documentation summaries.
 4. **Deprecation**: Removal of public endpoints should follow a documented deprecation process.
 
-**Stateless Execution:** The accepted future client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). The planned `/v1/stateless/*` surface is not part of the currently available public API until its implementation and contract tests land.
+**Stateless Execution:** The accepted client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). Phase 1 currently exposes `/v1/stateless/models` and `/v1/stateless/chat/completions` for direct Gemini WebAPI execution only; Playwright support remains future work.
 
 ## 12. System and Runtime Endpoints
 

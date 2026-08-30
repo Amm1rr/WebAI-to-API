@@ -33,6 +33,13 @@ FEATURE_REGISTRY = {
         "streaming": True,
         "persistence": "none",
     },
+    "/v1/stateless/chat/completions": {
+        "streaming": True,
+        "persistence": "none",
+    },
+    "/v1/stateless/models": {
+        "streaming": False,
+    },
     "/v1beta/models/{model_path:path}": {
         "streaming": True,
     },

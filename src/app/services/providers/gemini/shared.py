@@ -191,8 +191,12 @@ PLAYWRIGHT_GEMINI_MODEL_UI_LABELS = {
 
 PLAYWRIGHT_GEMINI_PROVIDER_NAMESPACE = "playwright/gemini"
 
-def get_gemini_models(runtime_models: Optional[List[Any]] = None) -> List[dict]:
-    """Return runtime WebAPI models followed by canonical Playwright models."""
+def get_gemini_models(
+    runtime_models: Optional[List[Any]] = None,
+    *,
+    include_playwright: bool = True,
+) -> List[dict]:
+    """Return runtime WebAPI models, optionally followed by Playwright models."""
     ts = int(time.time())
 
     models = []
@@ -208,6 +212,9 @@ def get_gemini_models(runtime_models: Optional[List[Any]] = None) -> List[dict]:
             "created": ts,
             "owned_by": "google",
         })
+
+    if not include_playwright:
+        return models
 
     # Playwright-native models
     for model_id in PLAYWRIGHT_GEMINI_MODEL_UI_LABELS.keys():
@@ -225,6 +232,16 @@ def get_gemini_models(runtime_models: Optional[List[Any]] = None) -> List[dict]:
         })
     
     return models
+
+
+def get_direct_webapi_gemini_models(runtime_models: Optional[List[Any]] = None) -> List[dict]:
+    """Return only runtime models valid for direct Gemini WebAPI execution."""
+    direct_models = []
+    for model in runtime_models or []:
+        model_id = getattr(model, "model_name", None)
+        if isinstance(model_id, str) and "/" not in resolve_model_name(model_id):
+            direct_models.append(model)
+    return get_gemini_models(direct_models, include_playwright=False)
 
 def format_files(files: Optional[List[Union[str, Path]]]) -> Optional[List[Path]]:
     """Convert a list of file paths (strings or Path objects) to Path objects."""

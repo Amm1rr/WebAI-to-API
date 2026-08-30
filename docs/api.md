@@ -144,6 +144,28 @@ Legacy Gemini browser-native routing remains supported for backward compatibilit
 
 ---
 
+### GET `/v1/stateless/models`
+
+Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract.
+
+Atlas models, Playwright models, legacy Playwright aliases, and models unavailable to the direct WebAPI backend are not advertised.
+
+### POST `/v1/stateless/chat/completions`
+
+Generic OpenAI-compatible chat completion endpoint where the client owns conversation history. Phase 1 supports Gemini WebAPI only.
+
+#### Behavior
+
+* Send the complete message history needed for every request, including `system`, `user`, `assistant`, and `tool` messages.
+* `conversation_id` is rejected with HTTP 400; no continuation ID is created or returned.
+* Requests use Gemini WebAPI `temporary=True` execution.
+* Requests do not restore or create SQLite conversation snapshots or persist Gemini conversation history.
+* Current Gemini tool-call behavior is supported for buffered and streaming requests; tool arguments remain JSON strings in the OpenAI response shape.
+* Successful streaming responses use OpenAI-compatible SSE and terminate with `[DONE]`.
+* Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless support remains future work.
+
+---
+
 ### POST `/v1/temporary/chat/completions`
 
 Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requests.

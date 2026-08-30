@@ -38,3 +38,17 @@ async def list_models(*, include_legacy_playwright_aliases: bool = True, allow_s
         "object": "list",
         "data": all_models,
     }
+
+
+async def list_stateless_models() -> dict[str, object]:
+    """Build the Gemini WebAPI-only model catalog for stateless execution."""
+    provider, _ = ProviderFactory.get_provider(
+        OpenAIChatRequest(messages=[], provider="gemini")
+    )
+    list_handler = getattr(provider, "list_stateless_models", None)
+    if list_handler is None:
+        return {"object": "list", "data": []}
+    return {
+        "object": "list",
+        "data": await list_handler(allow_stale=False),
+    }

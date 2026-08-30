@@ -121,6 +121,34 @@ TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400 = {
 }
 
 
+STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES = {
+    "statelessTextOnly": {
+        "summary": "Client-owned conversation history",
+        "value": {
+            "model": "gemini-3-flash",
+            "messages": [
+                {"role": "user", "content": "Hello!"},
+            ],
+        },
+    },
+}
+
+
+STATELESS_CHAT_COMPLETIONS_RESPONSE_400 = {
+    "description": "Bad Request",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {"detail": {"type": "string"}},
+                "required": ["detail"],
+                "additionalProperties": True,
+            },
+        }
+    },
+}
+
+
 CHAT_COMPLETIONS_RESPONSE_200 = {
     "description": "Successful Response",
     "content": {

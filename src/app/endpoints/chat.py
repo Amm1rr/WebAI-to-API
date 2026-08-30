@@ -4,6 +4,8 @@ from app.logger import logger
 from app.openapi.chat_completions import (
     CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     CHAT_COMPLETIONS_RESPONSE_200,
+    STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+    STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
     TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
 )
@@ -14,6 +16,7 @@ from app.services.gemini_client import (
 )
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
+from app.services.model_catalog import list_stateless_models as build_stateless_model_catalog
 from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
 from app.services.providers.gemini.shared import (
     ensure_gemini_client_ready,
@@ -112,6 +115,52 @@ async def translate_chat(request: GeminiRequest):
 )
 async def temporary_chat_completions(request: OpenAIChatRequest):
     return await handle_temporary_chat_completions(request)
+
+
+@router.post(
+    "/v1/stateless/chat/completions",
+    tags=["Chat"],
+    summary="Stateless OpenAI-Compatible Chat Completions",
+    description=(
+        "Generic client-owned-history chat completions endpoint. Phase 1 supports direct Gemini WebAPI execution only. "
+        "Every request is self-contained, uses temporary=True, rejects `conversation_id`, does not create SQLite "
+        "conversation snapshots, and does not persist Gemini conversation history. Playwright, Atlas, and other "
+        "non-Gemini providers are rejected. Streaming, buffered responses, multimodal file parts, and current "
+        "Gemini tool-call compatibility are supported where applicable."
+    ),
+    responses={
+        200: CHAT_COMPLETIONS_RESPONSE_200,
+        400: STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+                }
+            }
+        }
+    },
+)
+async def stateless_chat_completions(request: OpenAIChatRequest):
+    return await handle_temporary_chat_completions(
+        request,
+        endpoint_name="stateless",
+        direct_webapi_only=True,
+    )
+
+
+@router.get(
+    "/v1/stateless/models",
+    tags=["Chat"],
+    summary="List Stateless Models",
+    description=(
+        "Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract. "
+        "Playwright models, legacy browser aliases, Atlas models, and other provider models are not included."
+    ),
+)
+async def get_stateless_models():
+    return await build_stateless_model_catalog()
 
 
 @router.get(

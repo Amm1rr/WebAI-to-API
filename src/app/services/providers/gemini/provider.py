@@ -131,6 +131,16 @@ class GeminiProvider(BaseProvider):
 
         return get_gemini_models(runtime_models)
 
+    async def list_stateless_models(self, allow_stale: bool = False) -> List[dict]:
+        from app.services.providers.gemini.shared import get_direct_webapi_gemini_models
+
+        try:
+            runtime_models = get_gemini_client().list_models()
+        except GeminiClientNotInitializedError:
+            runtime_models = None
+
+        return get_direct_webapi_gemini_models(runtime_models)
+
     async def close(self) -> None:
         await self.webapi_adapter.close()
         await self.playwright_adapter.close()

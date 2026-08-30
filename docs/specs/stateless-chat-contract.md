@@ -1,8 +1,8 @@
 # Stateless Chat Execution Contract
 
-> **Status:** Accepted Design — Implementation Pending
+> **Status:** Accepted Design — Phase 1 Gemini WebAPI Implemented; Playwright Pending
 > **Scope:** `/v1/stateless/*`
-> **Authority:** This specification defines the intended stateless execution contract. Until implementation lands, these endpoints MUST NOT be represented as currently available public APIs.
+> **Authority:** This specification defines the stateless execution contract. The current implementation supports Gemini WebAPI only; Playwright support remains planned and MUST NOT be represented as available until implemented and tested.
 
 ## 1. Purpose
 
@@ -14,12 +14,14 @@ The core invariant is:
 
 No previous stateless request may be required for semantic continuation.
 
-## 2. Planned API Surface
+## 2. API Surface
 
 ```text
 GET  /v1/stateless/models
 POST /v1/stateless/chat/completions
 ```
+
+The current Phase 1 implementation supports this surface for direct Gemini WebAPI execution only.
 
 The request and response formats SHOULD remain compatible with the project's OpenAI Chat Completions surface unless this contract explicitly defines otherwise.
 
@@ -339,12 +341,12 @@ Protocol compatibility should be implemented only when intentionally supported a
 
 ## 17. Rollout Contract
 
-Implementation SHOULD proceed in stages.
+Implementation proceeds in stages.
 
-### Stage 1 — Gemini WebAPI
+### Stage 1 — Gemini WebAPI (Implemented)
 
-* implement `/v1/stateless/models`;
-* implement `/v1/stateless/chat/completions`;
+* expose `/v1/stateless/models`;
+* expose `/v1/stateless/chat/completions`;
 * enforce client-owned history;
 * reject `conversation_id`;
 * support normal chat;
