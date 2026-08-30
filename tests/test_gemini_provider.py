@@ -1415,7 +1415,7 @@ def test_transform_messages_formatting():
     assert "System: You are a helpful assistant.\n\nTools list" in result[0]
     assert "User: Hello" in result
     assert "Assistant: Hi there!" in result
-    assert "Assistant called tool get_weather: {\"loc\": \"SF\"}" in result
+    assert "Assistant tool call [] get_weather: {\"loc\": \"SF\"}" in result
     assert "Tool result [123]: Sunny" in result
 
 

@@ -34,6 +34,7 @@ from app.services.providers.gemini.shared import (
     ensure_gemini_client_ready,
     parse_tool_call,
     ToolCallParseStatus,
+    validate_tool_history,
     validate_direct_webapi_model_name,
     validate_model_name,
 )
@@ -396,6 +397,7 @@ async def handle_temporary_chat_completions(
                 direct_webapi_only=direct_webapi_only,
             )
             cleanup_once = _build_cleanup_once(prepared.normalized)
+            validate_tool_history(prepared.normalized.messages)
             tools_prompt = build_tools_prompt(prepared.tools) if prepared.tools else ""
             prepared.prompt = "\n\n".join(
                 transform_messages(prepared.normalized.messages, tools_prompt)

@@ -183,7 +183,7 @@ async def test_stateless_chat_transforms_full_history_and_tool_loop(mocker, inst
     assert "System: Be concise." in prompt
     assert "You have access to the following tools." in prompt
     assert "User: What is the weather?" in prompt
-    assert 'Assistant called tool get_weather: {"location":"SF"}' in prompt
+    assert 'Assistant tool call [call-1] get_weather: {"location":"SF"}' in prompt
     assert "Tool result [call-1]: Sunny, 18C" in prompt
     assert "User: Summarize that." in prompt
     assert client.generate_content.await_args.kwargs["temporary"] is True

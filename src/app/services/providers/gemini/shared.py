@@ -169,6 +169,87 @@ def _looks_like_tool_envelope(text: str) -> bool:
     return bool(re.match(r'^\{\s*"tool_calls?"\s*:', text))
 
 
+def _raise_tool_history_error(detail: str) -> None:
+    raise HTTPException(status_code=422, detail=f"Invalid tool history: {detail}")
+
+
+def validate_tool_history(messages: list[dict]) -> None:
+    """Validate client-supplied tool-call associations for one request."""
+    seen_call_ids: set[str] = set()
+    pending_call_ids: set[str] = set()
+    consumed_call_ids: set[str] = set()
+
+    for message in messages:
+        role = message.get("role")
+        tool_calls = message.get("tool_calls")
+
+        if role == "assistant" and tool_calls is not None:
+            if not isinstance(tool_calls, list) or not tool_calls:
+                _raise_tool_history_error("assistant tool_calls must be a non-empty list.")
+            if pending_call_ids:
+                _raise_tool_history_error(
+                    "a new assistant tool-call group cannot start while calls remain pending."
+                )
+
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    _raise_tool_history_error("each assistant tool call must be an object.")
+
+                call_id = tool_call.get("id")
+                if not isinstance(call_id, str) or not call_id.strip():
+                    _raise_tool_history_error("assistant tool-call id must be a non-empty string.")
+                if call_id in seen_call_ids:
+                    _raise_tool_history_error(f"duplicate assistant tool-call id: {call_id}.")
+                if tool_call.get("type") != "function":
+                    _raise_tool_history_error("assistant tool-call type must be 'function'.")
+
+                function = tool_call.get("function")
+                if not isinstance(function, dict):
+                    _raise_tool_history_error("assistant tool-call function must be an object.")
+
+                name = function.get("name")
+                if not isinstance(name, str) or not name.strip():
+                    _raise_tool_history_error("historical function name must be a non-empty string.")
+
+                if "arguments" not in function or not isinstance(function["arguments"], str):
+                    _raise_tool_history_error("historical function arguments must be a JSON string.")
+                try:
+                    parsed_arguments = json.loads(
+                        function["arguments"],
+                        parse_constant=_reject_nonstandard_json_constant,
+                    )
+                except (TypeError, ValueError):
+                    _raise_tool_history_error("historical function arguments must contain valid JSON.")
+                if not isinstance(parsed_arguments, dict):
+                    _raise_tool_history_error("historical function arguments must contain a JSON object.")
+
+                seen_call_ids.add(call_id)
+                pending_call_ids.add(call_id)
+            continue
+
+        if role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+                _raise_tool_history_error("tool_call_id must be a non-empty string.")
+            if tool_call_id in consumed_call_ids:
+                _raise_tool_history_error(f"duplicate tool result for call id: {tool_call_id}.")
+            if tool_call_id not in pending_call_ids:
+                _raise_tool_history_error(f"tool result references unknown call id: {tool_call_id}.")
+
+            pending_call_ids.remove(tool_call_id)
+            consumed_call_ids.add(tool_call_id)
+            continue
+
+        if pending_call_ids:
+            _raise_tool_history_error(
+                "all pending assistant tool calls must receive results before the next conversational message."
+            )
+
+    if pending_call_ids:
+        unresolved = ", ".join(sorted(pending_call_ids))
+        _raise_tool_history_error(f"historical tool calls have no results: {unresolved}.")
+
+
 def _decode_exact_json(text: str) -> tuple[Any, bool]:
     """Decode only a complete JSON value, returning whether format was claimed."""
     stripped = text.strip()
