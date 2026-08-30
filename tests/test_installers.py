@@ -9,7 +9,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = ROOT / "install.sh"
 INSTALL_PS1 = ROOT / "install.ps1"
-README = ROOT / "README.md"
+INSTALLATION = ROOT / "docs" / "installation.md"
+CONFIGURATION = ROOT / "docs" / "configuration.md"
 
 
 def _write_executable(path, content):
@@ -254,12 +255,14 @@ def test_install_ps1_delimits_version_interpolation():
     assert '$($candidate.Label) -> Python $version: rejected; $reasonText' not in content
 
 
-def test_readme_documents_windows_setup_recovery_without_persistent_policy_change():
-    content = README.read_text(encoding="utf-8")
+def test_installation_documents_windows_setup_recovery_without_persistent_policy_change():
+    content = INSTALLATION.read_text(encoding="utf-8")
 
+    assert "Windows PowerShell" in content
     assert ".\\install.ps1" in content
     assert "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass" in content
-    assert "does not permanently change user or machine execution policy" in content
+    assert "current PowerShell session only" in content
+    assert "user or machine execution policy" in content
     assert "Set-ExecutionPolicy -Scope CurrentUser" not in content
     assert "Set-ExecutionPolicy -Scope LocalMachine" not in content
     assert "%APPDATA%\\Python\\Scripts" in content
@@ -268,11 +271,15 @@ def test_readme_documents_windows_setup_recovery_without_persistent_policy_chang
     assert "poetry run python scripts/doctor.py" in content
 
 
-def test_readme_describes_shared_auth_path_as_configurable():
-    content = README.read_text(encoding="utf-8")
+def test_configuration_documents_shared_auth_path_as_configurable():
+    content = CONFIGURATION.read_text(encoding="utf-8")
 
-    assert "shared configured auth-state file for Playwright and WebAPI" in content
-    assert "defaulting to `runtime/auth/gemini.json`" in content
+    assert "runtime/auth/gemini.json" in content
+    assert "same persisted Google" in content
+    assert "authentication cookies" in content
+    assert "both Playwright and Gemini WebAPI" in content
+    assert "authentication state only" in content
+    assert "does not share browser processes" in content
 
 
 def _powershell_executable():

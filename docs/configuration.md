@@ -18,6 +18,11 @@ the required Playwright storage state. Normal Playwright initialization fails
 when no usable storage-state candidate exists, except during explicit bootstrap
 login.
 
+Where supported, `runtime/auth/gemini.json` can provide the same persisted Google
+authentication cookies to both Playwright and Gemini WebAPI. This shares
+authentication state only; it does not share browser processes, Gemini
+conversation state, runtime ownership, or transport/session objects.
+
 ---
 
 ## Authentication Methods
