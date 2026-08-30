@@ -19,7 +19,10 @@ from app.services.browser.request_executor import (
     BrowserRequestState,
 )
 from app.services.browser.tab import TabStatus
-from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
+from app.services.providers.gemini.base_adapter import (
+    GEMINI_PLAYWRIGHT_OPENAI_COMPATIBILITY,
+    GeminiBackendAdapter,
+)
 from app.services.providers.gemini.shared import (
     PLAYWRIGHT_GEMINI_MODEL_UI_LABELS,
     convert_to_openai_format,
@@ -33,6 +36,8 @@ class GeminiPlaywrightAdapter(GeminiBackendAdapter):
 
     Shared request lifecycle authority lives in BrowserRequestExecutor.
     """
+
+    openai_compatibility = GEMINI_PLAYWRIGHT_OPENAI_COMPATIBILITY
 
     def __init__(self, provider):
         self.provider = provider

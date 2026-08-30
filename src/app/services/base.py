@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, ClassVar, List, Optional
 from app.schemas.request import OpenAIChatRequest
+from app.services.openai_compatibility import (
+    DEFAULT_OPENAI_COMPATIBILITY_CAPABILITIES,
+    OpenAICompatibilityCapabilities,
+)
 from app.services.providers.base_repository import ProviderCapability
 
 class BaseProvider(ABC):
@@ -9,6 +13,15 @@ class BaseProvider(ABC):
     Defines the lightweight contract for external behavior normalization.
     """
     capabilities: set[ProviderCapability] = set()
+    openai_compatibility: ClassVar[OpenAICompatibilityCapabilities] = (
+        DEFAULT_OPENAI_COMPATIBILITY_CAPABILITIES
+    )
+
+    def get_openai_compatibility_capabilities(
+        self,
+        request: OpenAIChatRequest,
+    ) -> OpenAICompatibilityCapabilities:
+        return self.openai_compatibility
 
     @abstractmethod
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:

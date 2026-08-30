@@ -26,6 +26,8 @@ from app.services.providers.gemini.shared import (
     validate_direct_webapi_model_name,
     validate_model_name,
 )
+from app.services.openai_compatibility import validate_openai_request_compatibility
+from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.session_manager import transform_messages
 from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
@@ -253,6 +255,10 @@ async def handle_temporary_chat_completions(
     direct_webapi_only: bool = False,
 ):
     cleanup_once = None
+    validate_openai_request_compatibility(
+        request,
+        GeminiWebAPIAdapter.openai_compatibility,
+    )
     try:
         preparation_lease = acquire_current_gemini_lease()
     except (GeminiClientNotInitializedError, RuntimeError) as e:

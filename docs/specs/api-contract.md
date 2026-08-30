@@ -58,6 +58,24 @@ Requests may use typed provider-scoped options:
 
 For Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
 
+### OpenAI Request Controls
+
+The primary and Gemini temporary/stateless chat endpoints share one backend-aware compatibility validator. Request
+values are validated before leases, browser work, normalization side effects, or upstream calls.
+
+| Control | Gemini WebAPI | Gemini Playwright | Atlas |
+| --- | --- | --- | --- |
+| `max_tokens`, `max_completion_tokens` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `reasoning_effort` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `stream_options.include_usage` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `temperature`, `top_p`, `top_k` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Unsupported, HTTP 400 |
+| `response_format`, `parallel_tool_calls` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Unsupported, HTTP 400 |
+| `tool_choice` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Supported and forwarded unchanged |
+
+Malformed control values and requests supplying both token aliases fail schema validation with HTTP 422. Accepted
+no-effect controls are not forwarded to generation, do not synthesize usage, and do not change persistence or
+extended-thinking semantics. A schema-accepted field is not automatically a semantically supported field.
+
 ### 3.1 Multimodal Content Parts
 
 `messages[].content` supports both plain strings and OpenAI-style content-part arrays.

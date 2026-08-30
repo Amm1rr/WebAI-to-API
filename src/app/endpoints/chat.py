@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.logger import logger
 from app.openapi.chat_completions import (
     CHAT_COMPLETIONS_REQUEST_EXAMPLES,
+    CHAT_COMPLETIONS_RESPONSE_400,
     CHAT_COMPLETIONS_RESPONSE_200,
     STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
@@ -17,6 +18,7 @@ from app.services.gemini_client import (
 from app.services.factory import ProviderFactory
 from app.services.model_catalog import list_models as build_model_catalog
 from app.services.model_catalog import list_stateless_models as build_stateless_model_catalog
+from app.services.openai_compatibility import validate_openai_request_compatibility
 from app.services.providers.gemini.temporary_chat import handle_temporary_chat_completions
 from app.services.providers.gemini.shared import (
     ensure_gemini_client_ready,
@@ -95,6 +97,7 @@ async def translate_chat(request: GeminiRequest):
         "Gemini WebAPI-only OpenAI-compatible chat completions endpoint. Requests are sent with temporary=True, "
         "so responses are not saved in Gemini history and do not write SQLite conversation snapshots. "
         "`conversation_id` is rejected. Playwright models/providers, Atlas models/providers, and any non-Gemini provider are rejected. "
+        "Malformed audited OpenAI controls return HTTP 422; controls unsupported by Gemini WebAPI return HTTP 400. "
         "The endpoint supports streaming and non-streaming responses. File content parts are supported only by "
         "Gemini WebAPI, are request-scoped, and generated artifact metadata follows the same response shape as "
         "`/v1/chat/completions`."
@@ -125,8 +128,9 @@ async def temporary_chat_completions(request: OpenAIChatRequest):
         "Generic client-owned-history chat completions endpoint. Phase 1 supports direct Gemini WebAPI execution only. "
         "Every request is self-contained, uses temporary=True, rejects `conversation_id`, does not create SQLite "
         "conversation snapshots, and does not persist Gemini conversation history. Playwright, Atlas, and other "
-        "non-Gemini providers are rejected. Streaming, buffered responses, multimodal file parts, and current "
-        "Gemini tool-call compatibility are supported where applicable."
+        "non-Gemini providers are rejected. Malformed audited OpenAI controls return HTTP 422; controls unsupported "
+        "by Gemini WebAPI return HTTP 400. Streaming, buffered responses, multimodal file parts, and current Gemini "
+        "tool-call compatibility are supported where applicable."
     ),
     responses={
         200: CHAT_COMPLETIONS_RESPONSE_200,
@@ -180,9 +184,10 @@ async def get_models():
     description=(
         "Primary OpenAI-compatible chat completions endpoint. Gemini WebAPI supports file content parts; file parts are request-scoped and unsupported backends reject them. "
         "For Gemini WebAPI, text parts are concatenated into one prompt and file parts are passed as attachments, so exact text/file interleaving is not preserved. "
-        "Supported file formats are documented in docs/api.md. This is the recommended API for new integrations."
+        "Supported file formats are documented in docs/api.md. Audited OpenAI request controls are schema-validated, and explicitly unsupported controls return HTTP 400. "
+        "This is the recommended API for new integrations."
     ),
-    responses={200: CHAT_COMPLETIONS_RESPONSE_200},
+    responses={200: CHAT_COMPLETIONS_RESPONSE_200, 400: CHAT_COMPLETIONS_RESPONSE_400},
     openapi_extra={
         "requestBody": {
             "content": {
@@ -207,6 +212,11 @@ async def chat_completions(request: OpenAIChatRequest, http_request: Request):
 
     # Update the request with the resolved model name so the provider gets the clean version
     request.model = resolved_model
+
+    validate_openai_request_compatibility(
+        request,
+        provider.get_openai_compatibility_capabilities(request),
+    )
 
     # Delegate implementation-heavy work to the provider
     return await provider.chat_completions(request)

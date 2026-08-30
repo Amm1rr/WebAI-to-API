@@ -115,6 +115,12 @@ TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400 = {
                         "detail": "Playwright models are not supported on the temporary chat endpoint.",
                     },
                 },
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                    },
+                },
             },
         }
     },
@@ -143,6 +149,37 @@ STATELESS_CHAT_COMPLETIONS_RESPONSE_400 = {
                 "properties": {"detail": {"type": "string"}},
                 "required": ["detail"],
                 "additionalProperties": True,
+            },
+            "examples": {
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+CHAT_COMPLETIONS_RESPONSE_400 = {
+    "description": "Bad Request",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {"detail": {"type": "string"}},
+                "required": ["detail"],
+                "additionalProperties": True,
+            },
+            "examples": {
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                    },
+                },
             },
         }
     },

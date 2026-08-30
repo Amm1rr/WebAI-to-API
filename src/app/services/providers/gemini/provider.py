@@ -16,6 +16,7 @@ from app.schemas.request import OpenAIChatRequest
 from app.config import CONFIG
 
 from app.services.providers.gemini.shared import build_tools_prompt
+from app.services.openai_compatibility import validate_openai_request_compatibility
 from app.services.providers.gemini.webapi_adapter import GeminiWebAPIAdapter
 from app.services.providers.gemini.playwright_adapter import GeminiPlaywrightAdapter
 from app.services.providers.gemini.client import GeminiClientNotInitializedError, get_gemini_client
@@ -45,7 +46,15 @@ class GeminiProvider(BaseProvider):
         
         return self.webapi_adapter
 
+    def get_openai_compatibility_capabilities(self, request: OpenAIChatRequest):
+        model = request.model or CONFIG["Gemini"].get("default_model", "gemini-3-flash")
+        return self._get_adapter(model).openai_compatibility
+
     async def chat_completions(self, request: OpenAIChatRequest) -> Any:
+        validate_openai_request_compatibility(
+            request,
+            self.get_openai_compatibility_capabilities(request),
+        )
         if not request.messages:
             raise HTTPException(status_code=400, detail="No messages provided.")
 

@@ -4,6 +4,7 @@ from typing import Any, Optional
 import httpx
 
 from app.logger import logger
+from app.schemas.request import OpenAIToolChoice, OpenAIToolChoiceFunctionSelection
 
 
 class AtlasClientNotConfiguredError(Exception):
@@ -27,7 +28,7 @@ class AtlasClient:
         model: str,
         stream: bool = False,
         tools: Optional[list[dict[str, Any]]] = None,
-        tool_choice: Optional[Any] = None,
+        tool_choice: Optional[OpenAIToolChoice] = None,
     ) -> httpx.Response:
         payload: dict[str, Any] = {
             "model": model,
@@ -37,7 +38,11 @@ class AtlasClient:
         if tools:
             payload["tools"] = tools
         if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
+            payload["tool_choice"] = (
+                tool_choice.model_dump(mode="json")
+                if isinstance(tool_choice, OpenAIToolChoiceFunctionSelection)
+                else tool_choice
+            )
 
         timeout = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)
         client = httpx.AsyncClient(

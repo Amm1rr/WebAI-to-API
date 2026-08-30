@@ -31,6 +31,28 @@ OpenAI-compatible chat completion endpoint.
 * OpenAI-style multimodal `content` parts (`type: "text"` and `type: "file"`)
 * System prompt support
 
+#### OpenAI Request Controls
+
+Audited OpenAI controls are parsed and validated before backend execution. Invalid values and simultaneous
+`max_tokens` plus `max_completion_tokens` return HTTP 422. An explicitly supplied control that the selected backend
+does not support returns HTTP 400; controls are never silently forwarded as if supported.
+
+| Control | Gemini WebAPI | Gemini Playwright | Atlas |
+| --- | --- | --- | --- |
+| `max_tokens` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `max_completion_tokens` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `reasoning_effort` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `stream_options.include_usage` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `temperature` | 400 | 400 | 400, not forwarded |
+| `top_p` | 400 | 400 | 400, not forwarded |
+| `top_k` | 400 | 400 | 400, not forwarded |
+| `response_format` | 400 | 400 | 400, not forwarded |
+| `parallel_tool_calls` | 400 | 400 | 400, not forwarded |
+| `tool_choice` | 400 | 400 | Forwarded unchanged |
+
+Gemini compatibility no-ops do not alter generation settings, usage output, extended-thinking behavior, or
+conversation persistence. `reasoning_effort` is not mapped to `provider_options.gemini.extended_thinking`.
+
 #### Example
 
 ```json

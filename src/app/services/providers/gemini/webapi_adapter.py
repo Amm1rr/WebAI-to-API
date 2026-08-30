@@ -21,7 +21,10 @@ from app.services.providers.exceptions import (
     SnapshotNotFoundError,
     StateIntegrityError,
 )
-from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
+from app.services.providers.gemini.base_adapter import (
+    GEMINI_WEBAPI_OPENAI_COMPATIBILITY,
+    GeminiBackendAdapter,
+)
 from app.services.providers.gemini.shared import (
     convert_to_openai_format,
     ensure_gemini_client_ready,
@@ -48,6 +51,8 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
     Backend adapter for Google Gemini using the gemini-webapi library.
     Handles stateful sessions via SessionRegistry and SQLite.
     """
+
+    openai_compatibility = GEMINI_WEBAPI_OPENAI_COMPATIBILITY
 
     def __init__(self, provider):
         self.provider = provider

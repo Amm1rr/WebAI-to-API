@@ -284,19 +284,20 @@ The public meaning of `stateless` is consistent across backends even when their 
 
 ## 13. OpenAI Compatibility Parameters
 
-Adding the stateless surface does not itself declare support for every OpenAI request parameter.
+The stateless endpoint uses same backend-aware request-control contract as primary and temporary chat endpoints.
+Controls are validated before Gemini lease acquisition or request normalization.
 
-Parameters such as:
+| Control | Gemini WebAPI stateless behavior |
+| --- | --- |
+| `max_tokens`, `max_completion_tokens` | Accepted for compatibility, no effect |
+| `reasoning_effort` | Accepted for compatibility, no effect |
+| `stream_options.include_usage` | Accepted for compatibility, no effect |
+| `temperature`, `top_p`, `top_k` | HTTP 400 unsupported |
+| `response_format`, `parallel_tool_calls` | HTTP 400 unsupported |
+| `tool_choice` | HTTP 400 unsupported |
 
-* `max_tokens`;
-* `max_completion_tokens`;
-* `temperature`;
-* `reasoning_effort`;
-* `tool_choice`;
-* `parallel_tool_calls`;
-
-must be audited individually.
-
+Malformed values and simultaneous `max_tokens` plus `max_completion_tokens` return HTTP 422. Accepted no-effect
+controls are not forwarded, do not synthesize usage, and do not alter extended-thinking or persistence behavior.
 A field MUST NOT be documented as semantically supported merely because schema validation accepts or ignores it.
 
 ## 14. Error Semantics
