@@ -117,6 +117,7 @@ async def test_stateless_chat_uses_shared_temporary_execution_without_persistenc
     assert response.status_code == 200
     data = response.json()
     assert data["choices"][0]["message"]["content"] == "Stateless response"
+    assert "usage" not in data
     assert "conversation_id" not in data
     assert "reused_conversation" not in data
     client.generate_content.assert_awaited_once_with(
@@ -392,6 +393,7 @@ async def test_temporary_and_stateless_chat_return_openai_tool_calls(
         assert "message" not in choice
         assert choice["finish_reason"] == "tool_calls"
         message = choice["delta"]
+        assert "usage" not in payload
     else:
         assert "data: [DONE]\n\n" not in response.text
         data = response.json()
@@ -400,6 +402,7 @@ async def test_temporary_and_stateless_chat_return_openai_tool_calls(
         assert "delta" not in choice
         assert choice["finish_reason"] == "tool_calls"
         message = choice["message"]
+        assert "usage" not in data
 
     assert message["role"] == "assistant"
     assert message["content"] is None
@@ -408,6 +411,10 @@ async def test_temporary_and_stateless_chat_return_openai_tool_calls(
     assert tool_call["function"]["name"] == "get_weather"
     assert isinstance(tool_call["function"]["arguments"], str)
     assert json.loads(tool_call["function"]["arguments"]) == {"city": "SF"}
+    if stream:
+        assert tool_call["index"] == 0
+    else:
+        assert "index" not in tool_call
     prompt = client.generate_content.await_args.args[0]
     assert "You have access to the following tools." in prompt
     assert prompt.endswith("User: Weather?")

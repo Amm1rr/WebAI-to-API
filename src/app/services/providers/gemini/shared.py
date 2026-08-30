@@ -139,7 +139,7 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
     
     if tool_call:
         args = tool_call.get("arguments", {})
-        content = {
+        tool_call_payload = {
             "role": "assistant",
             "content": None,
             "tool_calls": [{
@@ -151,6 +151,8 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
                 },
             }],
         }
+        if stream:
+            tool_call_payload["tool_calls"][0]["index"] = 0
         return {
             "id": f"chatcmpl-{ts}",
             "object": "chat.completion.chunk" if stream else "chat.completion",
@@ -158,10 +160,9 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
             "model": model,
             "choices": [{
                 "index": 0,
-                choice_key: content,
+                choice_key: tool_call_payload,
                 "finish_reason": "tool_calls",
             }],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
 
     return {
@@ -177,7 +178,6 @@ def convert_to_openai_format(response_text: str, model: str, stream: bool = Fals
             },
             "finish_reason": "stop",
         }],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
 
 # Normalization mapping for Playwright backend: OpenAI ID -> Gemini UI Label

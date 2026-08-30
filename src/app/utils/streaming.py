@@ -9,7 +9,11 @@ def convert_chat_completion_to_streaming_chunk(completion: dict) -> dict:
     for choice in completion.get("choices", []):
         streaming_choice = dict(choice)
         message = streaming_choice.pop("message", None)
-        streaming_choice["delta"] = message if isinstance(message, dict) else {}
+        delta = dict(message) if isinstance(message, dict) else {}
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list) and len(tool_calls) == 1 and isinstance(tool_calls[0], dict):
+            delta["tool_calls"] = [{**tool_calls[0], "index": 0}]
+        streaming_choice["delta"] = delta
         chunk["choices"].append(streaming_choice)
     return chunk
 

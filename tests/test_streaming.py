@@ -28,7 +28,6 @@ def test_convert_chat_completion_to_streaming_chunk_preserves_tool_call_shape():
             },
             "finish_reason": "tool_calls",
         }],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
 
     chunk = convert_chat_completion_to_streaming_chunk(buffered)
@@ -39,10 +38,20 @@ def test_convert_chat_completion_to_streaming_chunk_preserves_tool_call_shape():
     assert chunk["created"] == buffered["created"]
     choice = chunk["choices"][0]
     assert "message" not in choice
-    assert choice["delta"] == buffered["choices"][0]["message"]
+    expected_delta = {
+        **buffered["choices"][0]["message"],
+        "tool_calls": [{
+            **buffered["choices"][0]["message"]["tool_calls"][0],
+            "index": 0,
+        }],
+    }
+    assert choice["delta"] == expected_delta
+    assert choice["delta"]["tool_calls"][0]["index"] == 0
     assert choice["finish_reason"] == "tool_calls"
     assert buffered["object"] == "chat.completion"
     assert "message" in buffered["choices"][0]
+    assert "index" not in buffered["choices"][0]["message"]["tool_calls"][0]
+    assert "usage" not in chunk
 
 @pytest.mark.asyncio
 async def test_simulate_streaming_generator():
