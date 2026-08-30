@@ -31,7 +31,12 @@ from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
     build_webapi_streaming_artifact_chunk,
 )
-from app.utils.streaming import format_sse_chunk, get_done_chunk, simulate_streaming_generator
+from app.utils.streaming import (
+    convert_chat_completion_to_streaming_chunk,
+    format_sse_chunk,
+    get_done_chunk,
+    simulate_streaming_generator,
+)
 
 
 @dataclass(slots=True)
@@ -150,10 +155,9 @@ def _build_cleanup_once(
 
 
 def _build_streaming_compatibility_response(openai_response: dict) -> StreamingResponse:
-    # Tool requests currently use buffered SSE compatibility mode rather than fully
-    # incremental tool-aware streaming, so the buffered response is replayed as SSE.
+    streaming_chunk = convert_chat_completion_to_streaming_chunk(openai_response)
     return StreamingResponse(
-        simulate_streaming_generator(openai_response),
+        simulate_streaming_generator(streaming_chunk),
         media_type="text/event-stream",
         headers=_streaming_headers(),
     )

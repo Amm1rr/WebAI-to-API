@@ -1,6 +1,19 @@
 import json
 from typing import AsyncGenerator, Any
 
+
+def convert_chat_completion_to_streaming_chunk(completion: dict) -> dict:
+    """Convert one buffered Chat Completions response into one SSE chunk."""
+    chunk = {**completion, "object": "chat.completion.chunk"}
+    chunk["choices"] = []
+    for choice in completion.get("choices", []):
+        streaming_choice = dict(choice)
+        message = streaming_choice.pop("message", None)
+        streaming_choice["delta"] = message if isinstance(message, dict) else {}
+        chunk["choices"].append(streaming_choice)
+    return chunk
+
+
 async def format_sse_chunk(chunk_data: dict) -> str:
     """Format a data dictionary into an OpenAI-compatible SSE chunk."""
     return f"data: {json.dumps(chunk_data)}\n\n"

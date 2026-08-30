@@ -321,6 +321,16 @@ async def test_stateless_chat_streams_sse_and_terminates_with_done(mocker, insta
     assert "Hello" in response.text
     assert "data: [DONE]\n\n" in response.text
     assert "conversation_id" not in response.text
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert [chunk["choices"][0]["delta"]["content"] for chunk in chunks] == [
+        "Hello",
+        " world",
+    ]
+    assert all("message" not in chunk["choices"][0] for chunk in chunks)
     client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
         "gemini-3-flash",
@@ -331,10 +341,18 @@ async def test_stateless_chat_streams_sse_and_terminates_with_done(mocker, insta
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/stateless/chat/completions",
+        "/v1/temporary/chat/completions",
+    ],
+)
 @pytest.mark.parametrize("stream", [False, True])
-async def test_stateless_chat_returns_openai_tool_calls_for_buffered_and_streaming_requests(
+async def test_temporary_and_stateless_chat_return_openai_tool_calls(
     mocker,
     install_gemini_client,
+    path,
     stream,
 ):
     tool_response = '{"tool_call": {"name": "get_weather", "arguments": {"city": "SF"}}}'
@@ -356,25 +374,37 @@ async def test_stateless_chat_returns_openai_tool_calls_for_buffered_and_streami
                     },
                 }
             ],
-        }
+        },
+        path=path,
     )
 
     assert response.status_code == 200
     if stream:
+        assert response.headers["content-type"].startswith("text/event-stream")
         assert "data: [DONE]\n\n" in response.text
-    else:
-        assert "data: [DONE]\n\n" not in response.text
-    if stream:
         payload = next(
             json.loads(line[6:])
             for line in response.text.splitlines()
             if line.startswith("data: {")
         )
-        message = payload["choices"][0]["message"]
+        assert payload["object"] == "chat.completion.chunk"
+        choice = payload["choices"][0]
+        assert "message" not in choice
+        assert choice["finish_reason"] == "tool_calls"
+        message = choice["delta"]
     else:
-        message = response.json()["choices"][0]["message"]
+        assert "data: [DONE]\n\n" not in response.text
+        data = response.json()
+        assert data["object"] == "chat.completion"
+        choice = data["choices"][0]
+        assert "delta" not in choice
+        assert choice["finish_reason"] == "tool_calls"
+        message = choice["message"]
 
+    assert message["role"] == "assistant"
+    assert message["content"] is None
     tool_call = message["tool_calls"][0]
+    assert tool_call["id"].startswith("call_")
     assert tool_call["function"]["name"] == "get_weather"
     assert isinstance(tool_call["function"]["arguments"], str)
     assert json.loads(tool_call["function"]["arguments"]) == {"city": "SF"}
