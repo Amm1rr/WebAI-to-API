@@ -30,7 +30,6 @@ from app.services.multimodal import (
 )
 from app.services.providers.gemini.shared import (
     build_tools_prompt,
-    convert_to_openai_format,
     ensure_gemini_client_ready,
     parse_tool_call,
     ToolCallParseStatus,
@@ -46,6 +45,9 @@ from app.services.providers.gemini.session_manager import transform_messages
 from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
     build_webapi_streaming_artifact_chunk,
+    build_progressive_terminal_chunk,
+    build_progressive_text_chunk,
+    create_stream_metadata,
 )
 from app.utils.streaming import (
     convert_chat_completion_to_streaming_chunk,
@@ -303,6 +305,7 @@ async def _build_incremental_streaming_response(
 ) -> StreamingResponse:
     async def sse_generator():
         final_response = None
+        completion_id, created = create_stream_metadata()
         execution_deadline = (
             asyncio.get_running_loop().time() + DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS
         )
@@ -327,15 +330,32 @@ async def _build_incremental_streaming_response(
                 final_response = chunk
                 text_delta = getattr(chunk, "text_delta", "")
                 if text_delta:
-                    openai_chunk = convert_to_openai_format(text_delta, model, stream=True)
+                    openai_chunk = build_progressive_text_chunk(
+                        text_delta,
+                        model,
+                        completion_id=completion_id,
+                        created=created,
+                    )
                     yield await format_sse_chunk(openai_chunk)
 
-            if final_response is not None:
-                artifact_chunk = build_webapi_streaming_artifact_chunk(final_response, model)
-                if artifact_chunk is not None:
-                    artifact_chunk.pop("conversation_id", None)
-                    artifact_chunk.pop("reused_conversation", None)
-                    yield await format_sse_chunk(artifact_chunk)
+            artifact_chunk = build_webapi_streaming_artifact_chunk(
+                final_response,
+                model,
+                completion_id=completion_id,
+                created=created,
+            )
+            if artifact_chunk is not None:
+                artifact_chunk.pop("conversation_id", None)
+                artifact_chunk.pop("reused_conversation", None)
+                yield await format_sse_chunk(artifact_chunk)
+            else:
+                yield await format_sse_chunk(
+                    build_progressive_terminal_chunk(
+                        model,
+                        completion_id=completion_id,
+                        created=created,
+                    )
+                )
         except (asyncio.CancelledError, GeneratorExit):
             raise
         except asyncio.TimeoutError:

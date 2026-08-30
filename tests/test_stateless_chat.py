@@ -118,6 +118,7 @@ async def test_stateless_chat_uses_shared_temporary_execution_without_persistenc
     assert response.status_code == 200
     data = response.json()
     assert data["choices"][0]["message"]["content"] == "Stateless response"
+    assert data["choices"][0]["finish_reason"] == "stop"
     assert "usage" not in data
     assert "conversation_id" not in data
     assert "reused_conversation" not in data
@@ -323,16 +324,26 @@ async def test_stateless_chat_streams_sse_and_terminates_with_done(mocker, insta
     assert "data: " in response.text
     assert "Hello" in response.text
     assert "data: [DONE]\n\n" in response.text
+    assert response.text.count("data: [DONE]\n\n") == 1
     assert "conversation_id" not in response.text
     chunks = [
         json.loads(line[6:])
         for line in response.text.splitlines()
         if line.startswith("data: {")
     ]
-    assert [chunk["choices"][0]["delta"]["content"] for chunk in chunks] == [
+    assert len(chunks) == 3
+    assert [chunk["choices"][0]["delta"]["content"] for chunk in chunks[:-1]] == [
         "Hello",
         " world",
     ]
+    assert all(chunk["choices"][0]["finish_reason"] is None for chunk in chunks[:-1])
+    terminal = chunks[-1]
+    assert terminal["choices"][0]["delta"] == {}
+    assert terminal["choices"][0]["finish_reason"] == "stop"
+    assert len({chunk["id"] for chunk in chunks}) == 1
+    assert chunks[0]["id"].startswith("chatcmpl-")
+    assert len({chunk["created"] for chunk in chunks}) == 1
+    assert {chunk["model"] for chunk in chunks} == {"gemini-3-flash"}
     assert all("message" not in chunk["choices"][0] for chunk in chunks)
     client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
@@ -341,6 +352,118 @@ async def test_stateless_chat_streams_sse_and_terminates_with_done(mocker, insta
         gem=None,
         temporary=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_stateless_empty_progressive_stream_emits_terminal_stop(mocker, install_gemini_client):
+    async def response_stream():
+        if False:
+            yield SimpleNamespace(text_delta="")
+
+    client = _available_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+
+    response = await _post(
+        {
+            "model": "gemini-3-flash",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+    )
+
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert response.status_code == 200
+    assert len(chunks) == 1
+    assert chunks[0]["choices"][0]["delta"] == {}
+    assert chunks[0]["choices"][0]["finish_reason"] == "stop"
+    assert response.text.count("data: [DONE]\n\n") == 1
+
+
+@pytest.mark.asyncio
+async def test_stateless_artifact_only_progressive_stream_uses_one_terminal_chunk(
+    mocker,
+    install_gemini_client,
+):
+    async def response_stream():
+        yield SimpleNamespace(
+            text_delta="",
+            images=[SimpleNamespace(url="https://example.com/image.png", title="Generated")],
+            videos=[],
+            media=[],
+        )
+
+    client = _available_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+
+    response = await _post(
+        {
+            "model": "gemini-3-flash",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Draw this"}],
+        }
+    )
+
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert response.status_code == 200
+    assert len(chunks) == 1
+    assert chunks[0]["choices"][0]["delta"] == {}
+    assert chunks[0]["choices"][0]["finish_reason"] == "stop"
+    assert chunks[0]["choices"][0]["artifacts"][0]["url"] == "https://example.com/image.png"
+    assert response.text.count("data: [DONE]\n\n") == 1
+
+
+@pytest.mark.asyncio
+async def test_stateless_text_and_artifact_progressive_stream_has_one_terminal_stop(
+    mocker,
+    install_gemini_client,
+):
+    async def response_stream():
+        yield SimpleNamespace(text_delta="Hello", images=[], videos=[], media=[])
+        yield SimpleNamespace(
+            text_delta="",
+            images=[SimpleNamespace(url="https://example.com/image.png", title="Generated")],
+            videos=[],
+            media=[],
+        )
+
+    client = _available_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+
+    response = await _post(
+        {
+            "model": "gemini-3-flash",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Describe this"}],
+        }
+    )
+
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert response.status_code == 200
+    assert len(chunks) == 2
+    assert chunks[0]["choices"][0]["delta"]["content"] == "Hello"
+    assert chunks[0]["choices"][0]["finish_reason"] is None
+    assert chunks[1]["choices"][0]["delta"] == {}
+    assert chunks[1]["choices"][0]["finish_reason"] == "stop"
+    assert "artifacts" in chunks[1]["choices"][0]
+    assert sum(chunk["choices"][0]["finish_reason"] == "stop" for chunk in chunks) == 1
+    assert len({chunk["id"] for chunk in chunks}) == 1
+    assert len({chunk["created"] for chunk in chunks}) == 1
+    assert response.text.count("data: [DONE]\n\n") == 1
 
 
 @pytest.mark.asyncio

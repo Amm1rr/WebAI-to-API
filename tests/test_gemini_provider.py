@@ -1203,7 +1203,12 @@ async def test_chat_completions_stateful_streaming(mocker, provider, install_gem
     async def mock_generator(*args, **kwargs):
         yield {
             "type": "chunk",
-            "text_delta": "Stateful delta content",
+            "text_delta": "Stateful delta ",
+            "is_reused": True
+        }
+        yield {
+            "type": "chunk",
+            "text_delta": "content",
             "is_reused": True
         }
         yield {
@@ -1244,15 +1249,31 @@ async def test_chat_completions_stateful_streaming(mocker, provider, install_gem
     async for chunk in response.body_iterator:
         chunks.append(chunk)
         
-    assert len(chunks) == 2
+    assert len(chunks) == 4
     assert chunks[0].startswith("data: ")
-    assert chunks[1] == "data: [DONE]\n\n"
+    assert chunks[3] == "data: [DONE]\n\n"
     
     chunk_data = json.loads(chunks[0][6:-2])
-    assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta content"
-    assert "usage" not in chunk_data
-    assert chunk_data["conversation_id"] == "test_token_XYZ"
-    assert chunk_data["reused_conversation"] is True
+    second_chunk_data = json.loads(chunks[1][6:-2])
+    assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta "
+    assert second_chunk_data["choices"][0]["delta"]["content"] == "content"
+    assert all(
+        chunk["choices"][0]["finish_reason"] is None
+        for chunk in (chunk_data, second_chunk_data)
+    )
+    assert all(chunk["conversation_id"] == "test_token_XYZ" for chunk in (chunk_data, second_chunk_data))
+    assert all(chunk["reused_conversation"] is True for chunk in (chunk_data, second_chunk_data))
+    terminal_data = json.loads(chunks[2][6:-2])
+    assert terminal_data["choices"][0]["delta"] == {}
+    assert terminal_data["choices"][0]["finish_reason"] == "stop"
+    assert terminal_data["conversation_id"] == "test_token_XYZ"
+    assert terminal_data["reused_conversation"] is True
+    json_chunks = (chunk_data, second_chunk_data, terminal_data)
+    assert len({chunk["id"] for chunk in json_chunks}) == 1
+    assert chunk_data["id"].startswith("chatcmpl-")
+    assert len({chunk["created"] for chunk in json_chunks}) == 1
+    assert {chunk["model"] for chunk in json_chunks} == {"gemini-3-flash"}
+    assert all("usage" not in chunk for chunk in json_chunks)
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
@@ -1322,6 +1343,7 @@ async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_be
     artifact_chunk = json.loads(chunks[1][6:-2])
 
     assert text_chunk["choices"][0]["delta"]["content"] == "Stateful delta content"
+    assert text_chunk["choices"][0]["finish_reason"] is None
     assert text_chunk["conversation_id"] == "test_token_XYZ"
     assert text_chunk["reused_conversation"] is False
 
@@ -1339,13 +1361,20 @@ async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_be
     assert "thoughts" not in artifact_chunk["choices"][0]
     assert artifact_chunk["conversation_id"] == "test_token_XYZ"
     assert artifact_chunk["reused_conversation"] is False
+    assert artifact_chunk["id"] == text_chunk["id"]
+    assert artifact_chunk["created"] == text_chunk["created"]
+    assert artifact_chunk["model"] == text_chunk["model"]
+    assert sum(
+        json.loads(chunk[6:-2])["choices"][0]["finish_reason"] == "stop"
+        for chunk in chunks[:2]
+    ) == 1
     assert chunks[2] == "data: [DONE]\n\n"
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artifact_chunk(mocker, provider, install_gemini_client):
-    """Verify interrupting WebAPI streaming does not emit an artifact chunk."""
+    """Verify interrupted WebAPI streaming emits no terminal chunk or [DONE]."""
     from app.schemas.request import OpenAIChatRequest
     from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
 
@@ -1392,9 +1421,12 @@ async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artif
     async for chunk in response.body_iterator:
         chunks.append(chunk)
 
-    assert len(chunks) == 2
+    assert len(chunks) == 1
     assert json.loads(chunks[0][6:-2])["choices"][0]["delta"]["content"] == "Stateful delta content"
-    assert chunks[1] == "data: [DONE]\n\n"
+    interrupted_chunk = json.loads(chunks[0][6:-2])
+    assert interrupted_chunk["choices"][0]["finish_reason"] is None
+    assert "data: [DONE]\n\n" not in chunks
+    mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 def test_transform_messages_formatting():

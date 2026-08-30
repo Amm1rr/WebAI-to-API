@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -275,6 +276,14 @@ async def test_stateless_progressive_timeout_terminates_without_done(mocker, ins
     assert response.status_code == 200
     assert "Partial response" in response.text
     assert "data: [DONE]\n\n" not in response.text
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert len(chunks) == 1
+    assert chunks[0]["choices"][0]["finish_reason"] is None
+    assert chunks[0]["choices"][0]["delta"]["content"] == "Partial response"
     cleanup.assert_awaited_once()
     assert gemini_client_module._gemini_generation_records[0].lease_count == 0
 
