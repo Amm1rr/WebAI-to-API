@@ -169,6 +169,25 @@ See [API Documentation](docs/api.md) for the complete API surface, including com
 
 ---
 
+## Hermes / Stateless API
+
+Hermes Agent and other client-owned-history clients can use:
+
+```text
+http://127.0.0.1:6969/v1/stateless
+```
+
+Append `/models` for discovery or `/chat/completions` for requests:
+
+```text
+GET  /models
+POST /chat/completions
+```
+
+This surface uses direct Gemini WebAPI execution only. Send full conversation history with every request. Streaming and tool calling are supported. See the [API Documentation](docs/api.md#stateless-chat-api) and [Stateless Chat Contract](docs/specs/stateless-chat-contract.md).
+
+---
+
 ## Supported Models and Routing
 
 Available models depend on configured providers and runtime availability. Use `/v1/models` as the authoritative current catalog.

@@ -590,6 +590,6 @@ async def test_stateless_openapi_documents_both_routes(mocker, install_gemini_cl
     assert "/v1/stateless/models" in paths
     assert "/v1/stateless/chat/completions" in paths
     chat = paths["/v1/stateless/chat/completions"]["post"]
-    assert "client-owned-history" in chat["description"]
+    assert "client-owned-history" in chat["description"].lower()
     assert "temporary=True" in chat["description"]
     assert "Playwright" in chat["description"]

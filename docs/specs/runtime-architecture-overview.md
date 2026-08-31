@@ -27,12 +27,14 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - **Terminal Shutdown Authority:** The authoritative coordinator for irreversible shutdown. It ensures all background activity is halted and requests are drained before process termination.
 
 ### 3. Managed Resource Lifecycle
-- **ManagedPage & Lease Ownership:** Every request operates within a `ManagedPage` wrapper, which owns a dedicated semaphore permit and a `PersistentTab` lease. Raw page lifecycle management outside this wrapper is strictly forbidden.
+- **ManagedPage & Lease Ownership:** Every browser-native request operates within a `ManagedPage` wrapper, which owns a dedicated semaphore permit and a `PersistentTab` lease. Raw page lifecycle management outside this wrapper is strictly forbidden.
+- **Direct WebAPI Lease Ownership:** Direct Gemini WebAPI requests, including stateless requests, use an application-level Gemini client-generation lease rather than a browser page lease.
 - **Deterministic Cleanup:** Release semantics are idempotent, best-effort, cancellation-safe, and shielded via `asyncio.shield` to ensure that resource release is guaranteed even during request cancellation.
 
 ### 4. Conversation Continuity Models
-- **Gemini WebAPI persistent chat:** Uses SQLite-backed conversation snapshots to restore serialized `ChatSession` state across process restarts. Temporary stateless endpoints, including `/translate` and `/v1/temporary/chat/completions`, do not use these snapshots.
+- **Gemini WebAPI persistent chat:** Uses SQLite-backed conversation snapshots to restore serialized `ChatSession` state across process restarts. Temporary stateless endpoints, including `/translate`, `/v1/temporary/chat/completions`, and `/v1/stateless/chat/completions`, do not use these snapshots.
 - **Gemini Playwright:** Uses provider-side Gemini conversation URLs and in-memory `PersistentTab` reuse. It does not use SQLite snapshots for normal conversation continuity.
+- **Stateless Gemini WebAPI:** `/v1/stateless/chat/completions` uses client-owned history and request-scoped `temporary=True` generation. It does not use `SessionRegistry`, `PersistentTab`, or SQLite conversation snapshots.
 - **Stateless Providers:** Some providers, such as Atlas, forward each request independently and do not persist `conversation_id` state locally.
 
 ### 5. Authentication Ownership Model
@@ -66,7 +68,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 
 ## Strategic Roadmap
 
-### Phase 1: Hardened Foundation (Current)
+### Current Hardened Foundation
 - [x] Authoritative lifecycle orchestration and terminal shutdown.
 - [x] Generation-aware lease invalidation.
 - [x] Cancellation-safe resource cleanup with `asyncio.shield`.
@@ -96,7 +98,7 @@ This document provides a high-level strategic overview. Detailed behavioral guar
 - **[API Contract](api-contract.md)**: Authoritative API surface definitions, persistence guarantees, and endpoint classifications.
 - **[Lifecycle and Recovery](lifecycle-and-recovery.md)**: State transitions, generations, and authoritative recovery.
 - **[Docker Deployment Model](docker-deployment.md)**: Containerization, environment modes, and volume persistence guarantees.
-- **[Stateless Chat Execution](stateless-chat-contract.md)**: Accepted contract; Phase 1 currently implements client-owned conversation state and stateless direct Gemini WebAPI execution. Browser warm-page isolation remains planned.
+- **[Stateless Chat Execution](stateless-chat-contract.md)**: Implemented client-owned conversation state and direct Gemini WebAPI execution through `temporary=True`. Playwright stateless execution is not implemented.
 
 Architectural rationale for this design is recorded in [ADR-0001: Client-Owned Stateless Chat Execution](../adr/0001-stateless-chat-execution.md).
 
@@ -105,7 +107,7 @@ Architectural rationale for this design is recorded in [ADR-0001: Client-Owned S
 ## Operational Guide
 
 ### 1. Manual Authentication (Session Setup)
-The API requires an authenticated browser session for browser-native execution. While the server can often retrieve cookies from a local browser automatically, you can explicitly trigger a headful login workflow via the API:
+Browser-native execution requires an authenticated browser session. The direct Gemini WebAPI and stateless surfaces require usable Gemini authentication material. While the server can often retrieve cookies from a local browser automatically, you can explicitly trigger a headful login workflow via the API:
 
 ```bash
 # Trigger the browser-based login workflow

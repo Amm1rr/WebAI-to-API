@@ -54,9 +54,9 @@ Requests may use typed provider-scoped options:
 }
 ```
 
-`gemini.extended_thinking` applies to Gemini WebAPI and Playwright models. Effective value is resolved on every request: an explicit request value takes precedence over `[Gemini].extended_thinking`, which falls back to `false` when the key is missing. The value accepts only case-insensitive, trimmed `true` or `false`; config stores canonical lowercase values. The option is request-scoped and is not part of session identity or persisted snapshots, so reused conversations may switch values between turns. Omitted Playwright request options do not inherit UI state from a reused `PersistentTab`. Atlas rejects the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Extended thinking is not declared equivalent to `reasoning_effort`.
+`gemini.extended_thinking` applies to stateful `/v1/chat/completions` requests for Gemini WebAPI and Playwright models. Effective value is resolved on every request: an explicit request value takes precedence over `[Gemini].extended_thinking`, which falls back to `false` when the key is missing. The value accepts only case-insensitive, trimmed `true` or `false`; config stores canonical lowercase values. The option is request-scoped and is not part of session identity or persisted snapshots, so reused conversations may switch values between turns. Omitted Playwright request options do not inherit UI state from a reused `PersistentTab`. Atlas rejects the option with HTTP 400. `/v1/stateless/chat/completions` and `/v1/temporary/chat/completions` reject `provider_options.gemini` with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Extended thinking is not declared equivalent to `reasoning_effort`.
 
-For Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
+For stateful Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
 
 ### OpenAI Request Controls
 
@@ -107,13 +107,13 @@ Gemini WebAPI may return generated artifacts alongside text output.
 
 ### 3.3 Stateless Contract: /v1/stateless/chat/completions
 
-The `/v1/stateless/chat/completions` endpoint is the generic client-owned-history surface. The current implementation supports direct Gemini WebAPI execution only.
+The `/v1/stateless/chat/completions` endpoint is the implemented generic client-owned-history surface. It supports direct Gemini WebAPI execution only. The complete request, response, tool, timeout, error, and limitation rules are defined in the [Stateless Chat Execution Contract](stateless-chat-contract.md).
 
 - **History Ownership**: Clients must send the complete conversation history required for each request, including assistant tool calls and tool results.
 - **Conversation IDs**: `conversation_id` is rejected. The endpoint does not create or return a continuation ID.
 - **Execution**: Requests use Gemini WebAPI `temporary=True` execution and the shared message transformation, tool prompt, tool-call parsing, and response streaming paths.
 - **Persistence**: Requests do not restore or create `ChatSession` state, SQLite conversation snapshots, or Gemini conversation history.
-- **Excluded Backends**: Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless execution remains future work.
+- **Excluded Backends**: Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless execution is not implemented.
 
 ### 3.4 Stateless Model Discovery: /v1/stateless/models
 
@@ -280,7 +280,7 @@ Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 3. **Contracts over Wrappers**: The structural API contracts defined here take precedence over any convenience wrappers or documentation summaries.
 4. **Deprecation**: Removal of public endpoints should follow a documented deprecation process.
 
-**Stateless Execution:** The accepted client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). Phase 1 currently exposes `/v1/stateless/models` and `/v1/stateless/chat/completions` for direct Gemini WebAPI execution only; Playwright support remains future work.
+**Stateless Execution:** The implemented client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). `/v1/stateless/models` and `/v1/stateless/chat/completions` expose direct Gemini WebAPI execution only; Playwright stateless execution is not implemented.
 
 ## 12. System and Runtime Endpoints
 

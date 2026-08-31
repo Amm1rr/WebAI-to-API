@@ -5,6 +5,7 @@ from app.openapi.chat_completions import (
     CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     CHAT_COMPLETIONS_RESPONSE_400,
     CHAT_COMPLETIONS_RESPONSE_200,
+    STATELESS_CHAT_COMPLETIONS_ERROR_RESPONSES,
     STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
     TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
@@ -125,16 +126,20 @@ async def temporary_chat_completions(request: OpenAIChatRequest):
     tags=["Chat"],
     summary="Stateless OpenAI-Compatible Chat Completions",
     description=(
-        "Generic client-owned-history chat completions endpoint. Phase 1 supports direct Gemini WebAPI execution only. "
-        "Every request is self-contained, uses temporary=True, rejects `conversation_id`, does not create SQLite "
-        "conversation snapshots, and does not persist Gemini conversation history. Playwright, Atlas, and other "
-        "non-Gemini providers are rejected. Malformed audited OpenAI controls return HTTP 422; controls unsupported "
-        "by Gemini WebAPI return HTTP 400. Streaming, buffered responses, multimodal file parts, and current Gemini "
-        "tool-call compatibility are supported where applicable."
+        "Client-owned-history chat completions endpoint for direct Gemini WebAPI execution only. Every request is "
+        "self-contained, uses temporary=True, rejects `conversation_id`, does not create SQLite conversation "
+        "snapshots, and does not persist Gemini conversation history. Playwright, Atlas, and other non-Gemini "
+        "providers are not supported. Malformed request values return HTTP 422; unsupported Gemini controls, "
+        "providers, backends, and `provider_options.gemini` return HTTP 400. Buffered responses, progressive SSE "
+        "streaming, multimodal file parts, and one generated function tool call are supported. `stream=true` with "
+        "tools uses buffered OpenAI-compatible SSE replay rather than native progressive tool streaming. "
+        "`max_tokens`, `max_completion_tokens`, `reasoning_effort`, and `stream_options.include_usage` are accepted "
+        "compatibility no-ops. Direct Gemini WebAPI execution has a 300-second deadline."
     ),
     responses={
         200: CHAT_COMPLETIONS_RESPONSE_200,
         400: STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
+        **STATELESS_CHAT_COMPLETIONS_ERROR_RESPONSES,
     },
     openapi_extra={
         "requestBody": {
@@ -160,7 +165,8 @@ async def stateless_chat_completions(request: OpenAIChatRequest):
     summary="List Stateless Models",
     description=(
         "Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract. "
-        "Playwright models, legacy browser aliases, Atlas models, and other provider models are not included."
+        "Playwright stateless execution is not implemented; Playwright models, legacy browser aliases, Atlas models, "
+        "and other provider models are not included."
     ),
 )
 async def get_stateless_models():

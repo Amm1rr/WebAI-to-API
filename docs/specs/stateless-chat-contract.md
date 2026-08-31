@@ -1,387 +1,270 @@
 # Stateless Chat Execution Contract
 
-> **Status:** Accepted Design — Phase 1 Gemini WebAPI Implemented; Playwright Pending
+> **Status:** Implemented
 > **Scope:** `/v1/stateless/*`
-> **Authority:** This specification defines the stateless execution contract. The current implementation supports Gemini WebAPI only; Playwright support remains planned and MUST NOT be represented as available until implemented and tested.
+> **Authority:** This specification defines the implemented stateless execution contract. The current surface supports direct Gemini WebAPI execution only.
 
 ## 1. Purpose
 
-The stateless chat API is designed for clients that own their conversation history, including autonomous agents and other OpenAI-compatible runtimes.
+The stateless chat API serves clients that own conversation history, including
+Hermes Agent and other autonomous OpenAI-compatible runtimes.
 
-The core invariant is:
+The defining invariant is:
 
 > Every request contains all conversational state required to execute that request.
 
 No previous stateless request may be required for semantic continuation.
 
-## 2. API Surface
+## 2. Implemented Endpoint Surface
 
 ```text
 GET  /v1/stateless/models
 POST /v1/stateless/chat/completions
 ```
 
-The current Phase 1 implementation supports this surface for direct Gemini WebAPI execution only.
+The surface is OpenAI Chat Completions-compatible within the limits described
+here. `GET /v1/stateless/models` advertises only currently available direct
+Gemini WebAPI models that can execute through this contract.
 
-The request and response formats SHOULD remain compatible with the project's OpenAI Chat Completions surface unless this contract explicitly defines otherwise.
+The stateless surface does not support:
 
-## 3. State Ownership
+* Gemini Playwright execution;
+* Atlas execution;
+* other non-Gemini providers;
+* server-owned conversation continuation.
 
-### Client-owned state
+## 3. State Ownership and Execution
 
-The client owns:
+### 3.1 Client-owned history
 
-* conversation history;
-* system/developer instructions;
+The client owns and must resend all history required for each request:
+
+* system instructions;
+* user messages;
 * assistant messages;
-* tool-call history;
+* assistant tool calls;
 * tool results;
-* context compression;
-* retry/replay decisions.
+* any context compression or replay decisions.
 
-### Server-owned execution state
+The backend may transform the supplied messages into a Gemini prompt, but it
+must not depend on history from an earlier stateless request.
 
-WebAI-to-API owns only resources necessary to execute the current request, such as:
+### 3.2 Gemini WebAPI execution
 
-* provider client leases;
-* browser page leases;
-* request observers;
-* stream queues;
-* request-scoped temporary files;
-* request lifecycle metadata.
+Every stateless request uses direct Gemini WebAPI execution with
+`temporary=True`. The request does not restore or create a server conversation
+session, a SQLite conversation snapshot, or a Gemini conversation-history
+continuation.
 
-Execution-resource reuse MUST NOT imply conversation-state reuse.
+`conversation_id` is rejected with HTTP 400. The endpoint neither creates nor
+returns a continuation ID.
 
-## 4. `conversation_id`
+The stateful `/v1/chat/completions` API remains separate. Its provider/backend
+conversation-continuation behavior is not inherited by this surface.
 
-`conversation_id` is incompatible with the stateless continuation model.
+## 4. Request Compatibility
 
-The stateless chat endpoint MUST reject a supplied `conversation_id`.
+### 4.1 Accepted no-op controls
 
-It MUST NOT:
+The following controls are accepted for OpenAI client compatibility but do not
+change Gemini WebAPI generation:
 
-* create a public continuation token;
-* require a continuation token on subsequent turns;
-* restore a previous stateless request;
-* associate one stateless request with another through hidden conversation state.
+| Control | Behavior |
+| --- | --- |
+| `max_tokens` | Accepted, no effect |
+| `max_completion_tokens` | Accepted, no effect |
+| `reasoning_effort` | Accepted, no effect |
+| `stream_options.include_usage` | Accepted, no effect |
 
-## 5. Message History
+These controls are not forwarded as Gemini generation settings and do not
+synthesize usage output.
 
-The backend MUST process the complete supplied message list needed for the current turn.
+### 4.2 Unsupported controls
 
-Supported conversational roles must preserve OpenAI-compatible semantics required by the selected backend, including at minimum:
+The following controls return HTTP 400 when supplied:
 
-* `system`;
-* `user`;
-* `assistant`;
-* `tool`.
+| Control | Behavior |
+| --- | --- |
+| `temperature` | Unsupported |
+| `top_p` | Unsupported |
+| `top_k` | Unsupported |
+| `response_format` | Unsupported |
+| `parallel_tool_calls` | Unsupported |
+| `tool_choice` | Unsupported |
 
-Assistant tool calls and corresponding tool results MUST remain reconstructable from the supplied request history.
+Malformed values, invalid types or ranges, and supplying both
+`max_tokens` and `max_completion_tokens` return HTTP 422 request-validation
+errors. Schema acceptance alone does not make a control semantically
+supported.
 
-Backend-specific prompt transformation may flatten these messages, but it MUST NOT intentionally depend on a previous stateless request for missing history.
+### 4.3 Extended thinking
 
-## 6. Tool Calling
+`provider_options.gemini.extended_thinking` is rejected with HTTP 400 on the
+stateless endpoint. The stateful Gemini WebAPI provider option does not apply
+automatically to stateless or temporary requests.
 
-Tools are request-scoped.
+## 5. Response Contract
 
-A stateless request may supply OpenAI-compatible `tools`.
+### 5.1 Buffered responses
 
-When a model requests a tool, the response SHOULD use the existing OpenAI-compatible structured tool-call shape.
+With `stream=false` or an omitted `stream` field, a successful normal text
+response is an OpenAI-compatible `chat.completion` object:
 
-The normal agent loop is:
+* normal text uses `finish_reason: "stop"`;
+* no fake `usage` object is added;
+* `conversation_id` is absent;
+* `reused_conversation` is absent.
 
-```text
-Request N
-  messages + tools
-       |
-       v
-assistant.tool_calls
-       |
-       v
-client executes tool
-       |
-       v
-Request N+1
-  previous messages
-  + assistant tool call
-  + tool result
-  + tools
-```
+Generated tool calls and artifacts follow their sections below.
 
-Request N+1 MUST be executable without access to the backend conversation used for Request N.
+### 5.2 Progressive streaming
 
-`tool_choice` and other optional OpenAI request controls are separate capability concerns and MUST NOT be claimed as supported unless their semantics are implemented and tested.
+With `stream=true` and no tools, the endpoint emits SSE
+`chat.completion.chunk` objects.
 
-## 7. Gemini WebAPI Backend
+For one successful stream:
 
-Gemini WebAPI is the first intended implementation.
+* `id`, `created`, and `model` remain stable across all chunks;
+* content chunks use `delta.content`;
+* content chunks use `finish_reason: null`;
+* exactly one terminal chunk uses `delta: {}` and `finish_reason: "stop"`;
+* `data: [DONE]` follows the terminal chunk.
 
-It MUST:
+If generated artifacts exist, the artifact chunk is the terminal `"stop"`
+chunk and carries `delta: {}` plus the artifact metadata. No additional empty
+terminal chunk is emitted.
 
-* use `temporary=True`;
-* reject `conversation_id`;
-* avoid `SessionRegistry` conversation continuation;
-* avoid SQLite conversation snapshots;
-* avoid Gemini history persistence provided by normal non-temporary requests;
-* transform the full supplied message history;
-* support tools through the shared tool-prompt and tool-call normalization path;
-* support streaming and buffered responses according to the existing OpenAI-compatible response contract.
+If a provider failure or timeout occurs after SSE headers are sent, the stream
+ends without a terminal `"stop"` chunk and without `[DONE]`. Such a stream is
+incomplete and must not be treated as successful completion.
 
-## 8. Gemini Playwright Backend
+### 5.3 Tool-buffered streaming
 
-Playwright support is planned but is not required for the initial stateless implementation.
+When `stream=true` and `tools` are supplied, the endpoint buffers provider
+generation first and then emits an OpenAI-compatible SSE replay. This is not
+native progressive tool streaming.
 
-When implemented, it MUST preserve stateless conversation semantics despite browser-resource reuse.
+The generated tool chunk contains:
 
-### 8.1 Conversation Isolation
+* `delta.tool_calls`;
+* `index: 0`;
+* `finish_reason: "tool_calls"`;
+* followed by `data: [DONE]`.
 
-Every Playwright stateless request MUST execute from a verified fresh Gemini chat state.
+## 6. Tool Contract
 
-It MUST NOT:
+### 6.1 Generated tool calls
 
-* continue the prior stateless request's Gemini thread;
-* reuse a provider-side conversation because the browser page was reused;
-* register the request as a stateful `PersistentTab` conversation;
-* expose a generated Gemini conversation ID as stateless continuation state.
+The implementation supports one model-generated function tool call per
+response.
 
-### 8.2 Warm Page Reuse
+The generated call must:
 
-Playwright MAY reuse browser pages to avoid the cost of:
+* use a function name that is a non-empty string and matches a function declared in the current request's `tools`;
+* contain arguments whose root value is a JSON object.
 
-* `context.new_page()`;
-* initial page load;
-* repeated SPA startup;
-* repeated authentication bootstrap.
+The OpenAI response exposes `function.arguments` as a JSON string. Malformed
+provider tool output returns HTTP 502. Multiple generated tool calls are
+unsupported. Declared function parameter JSON Schema is passed to the model,
+but arguments are not independently validated against that schema.
 
-A reusable stateless page is an execution resource, not a conversation resource.
+### 6.2 Client-owned tool history
 
-The future runtime SHOULD maintain a dedicated warm-page pool independent from `conversation_registry`.
+Historical assistant tool calls must include:
 
-Conceptually:
+* a unique, non-empty call ID;
+* `type: "function"`;
+* the function name must be a non-empty string;
+* JSON-string arguments whose root value is an object.
 
-```text
-ProviderSession
-├── Persistent Conversation Registry
-│   └── PersistentTab
-│       └── stateful /v1/chat/completions
-│
-└── Stateless Warm Page Pool
-    └── WarmPage
-        └── stateless /v1/stateless/chat/completions
-```
+Each historical tool result must reference an existing pending call ID and may
+consume that ID only once.
 
-### 8.3 Warm Page Lifecycle
+The history contract allows:
 
-A stateless warm page MUST have an exclusive request lease.
+* multiple calls in one assistant tool-call group;
+* tool results in an order different from call declarations;
+* historical function names that are absent from the current request's
+  `tools`.
 
-Before execution it MUST:
+Malformed, orphan, duplicate, or unresolved tool associations return HTTP 422.
+The next request in a tool loop must include the prior assistant tool call and
+its tool result in the client-owned history.
 
-1. belong to the current browser generation;
-2. be structurally alive;
-3. be in a known reusable state;
-4. enter a fresh Gemini chat;
-5. verify that the input UI is ready.
+## 7. Timeout and Error Contract
 
-After execution it MUST:
+Direct Gemini WebAPI execution has a 300-second request deadline covering
+buffered generation and progressive stream generation.
 
-1. stop request observers;
-2. remove request bridge callbacks;
-3. remove request-specific listeners;
-4. release request ownership;
-5. ensure generation consistency;
-6. either return cleanly to the pool or be invalidated.
+For pre-header request failures, the stateless endpoint uses this mapping:
 
-Any uncertain cleanup or state corruption MUST poison the page rather than return it to the pool.
+| Case | Status |
+| --- | ---: |
+| Unsupported capability, provider, or backend | 400 |
+| Invalid request or tool history | 422 |
+| Usage limit or temporary provider block | 429 |
+| Gemini unavailable or authentication not ready | 503 |
+| Direct Gemini timeout | 504 |
+| Expected upstream/provider failure | 502 |
+| Malformed provider tool output | 502 |
+| Unexpected server defect | 500 |
 
-### 8.4 Reset Strategy
+The endpoint must not silently fall back to stateful conversation continuation
+when stateless validation or execution fails.
 
-The baseline reset mechanism SHOULD prioritize correctness.
+## 8. Concurrency and Resource Boundary
 
-Initial implementation SHOULD use deterministic navigation/reset to the canonical Gemini new-chat surface.
+Stateless direct requests acquire an application-level Gemini generation lease.
+Buffered requests release it after generation and response construction.
+Progressive streams transfer lease cleanup to the streaming response boundary,
+which releases it after normal completion, timeout, failure, cancellation, or
+response-start failure.
 
-A direct UI `New Chat` action MAY later be used as a performance optimization if independently verified to:
+The lease protects client-generation lifecycle ownership; it does not create or
+represent a conversation. Stateless requests remain conversation-independent
+even when they use the same application-level client infrastructure.
 
-* clear conversational state;
-* preserve authentication;
-* leave no previous conversation context;
-* reach a stable request-ready state.
+No stateless request acquires stateful conversation continuation through
+`SessionRegistry`, a SQLite snapshot, or a persistent conversation session.
 
-The optimized path MUST retain a fallback to the correctness-first reset path.
+## 9. Known Limitations and Deferred Scope
 
-### 8.5 Provider-Side History
+These are limitations, not current requirements or implemented capabilities:
 
-Playwright stateless execution does not guarantee absence of Gemini-side history.
+* Playwright stateless execution is not implemented.
+* Generated multiple tool calls are unsupported.
+* `parallel_tool_calls` is unsupported.
+* `tool_choice` is unsupported.
+* Client disconnect or cancellation may not immediately abort the underlying
+  curl transfer (Phase 4C).
+* Concurrent requests share upstream Gemini WebAPI client infrastructure;
+  provider-level recovery and failure isolation are not guaranteed (Phase 4D).
 
-The contract guarantees only that WebAI-to-API will not reuse that conversation as hidden state for subsequent stateless requests.
-
-This distinction MUST be documented publicly if Playwright stateless support is exposed.
-
-## 9. Model Discovery
-
-`GET /v1/stateless/models` returns only models that support the stateless execution contract.
-
-It MUST NOT advertise a model merely because it appears in `/v1/models`.
-
-Initial expected scope:
-
-```text
-Gemini WebAPI models
-```
-
-Future scope may include:
-
-```text
-playwright/gemini/...
-```
-
-only after the Playwright stateless lifecycle is implemented and tested.
-
-Model IDs remain provider/backend-aware and MUST follow the project's canonical routing rules.
-
-## 10. Streaming
-
-The stateless endpoint supports OpenAI-compatible SSE streaming.
-
-A successful stream normally terminates with:
-
-```text
-data: [DONE]
-```
-
-Backends MAY implement tool-call streaming through buffered compatibility replay when native progressive tool parsing is unavailable.
-
-The client-facing structured response must remain compatible with the expected Chat Completions tool-call format.
-
-## 11. Persistence
-
-Stateless requests MUST NOT create WebAI-owned durable conversation continuation state.
-
-| Backend           | SQLite Conversation Snapshot | WebAI Conversation Reuse | Provider History        |
-| ----------------- | ---------------------------: | -----------------------: | ----------------------- |
-| Gemini WebAPI     |                           No |                       No | No via `temporary=True` |
-| Gemini Playwright |                           No |                       No | May exist               |
-| Future backend    |                           No |                       No | Backend-dependent       |
-
-Request-scoped operational metadata, logs, metrics, or temporary files are not considered conversation continuation state.
-
-## 12. Relationship to Existing APIs
+## 10. Relationship to Existing APIs
 
 ### `/v1/chat/completions`
 
-Remains the primary provider-aware API where conversation continuity may be backend-dependent and `conversation_id` may be supported.
+The primary provider-aware API. Conversation continuity and supported controls
+remain backend-dependent.
 
 ### `/v1/temporary/chat/completions`
 
-Remains a specialized Gemini WebAPI endpoint with the stronger `temporary=True` persistence guarantee.
+The specialized Gemini WebAPI temporary endpoint. It shares the direct
+`temporary=True` and no-persistence guarantees but retains its own endpoint
+compatibility surface.
 
-It MUST NOT be silently broadened to Playwright if that would weaken its existing no-Gemini-history contract.
+The stateless endpoint must not weaken or silently redefine either existing
+API.
 
-### `/v1/stateless/chat/completions`
+## 11. Fundamental Invariants
 
-Provides the generic client-owned-history contract.
-
-The public meaning of `stateless` is consistent across backends even when their internal execution mechanics differ.
-
-## 13. OpenAI Compatibility Parameters
-
-The stateless endpoint uses same backend-aware request-control contract as primary and temporary chat endpoints.
-Controls are validated before Gemini lease acquisition or request normalization.
-
-| Control | Gemini WebAPI stateless behavior |
-| --- | --- |
-| `max_tokens`, `max_completion_tokens` | Accepted for compatibility, no effect |
-| `reasoning_effort` | Accepted for compatibility, no effect |
-| `stream_options.include_usage` | Accepted for compatibility, no effect |
-| `temperature`, `top_p`, `top_k` | HTTP 400 unsupported |
-| `response_format`, `parallel_tool_calls` | HTTP 400 unsupported |
-| `tool_choice` | HTTP 400 unsupported |
-
-Malformed values and simultaneous `max_tokens` plus `max_completion_tokens` return HTTP 422. Accepted no-effect
-controls are not forwarded, do not synthesize usage, and do not alter extended-thinking or persistence behavior.
-A field MUST NOT be documented as semantically supported merely because schema validation accepts or ignores it.
-
-## 14. Error Semantics
-
-Errors SHOULD use the same public policy as the corresponding OpenAI-compatible API.
-
-Capability failures must be explicit.
-
-Examples include:
-
-* model not available for stateless execution;
-* backend not supporting stateless execution;
-* unsupported content parts;
-* unsupported provider options;
-* supplied `conversation_id`.
-
-The server MUST NOT silently fall back from stateless execution to stateful conversation continuation.
-
-## 15. Browser Runtime Boundaries
-
-Future Playwright support must preserve existing BrowserEngine and ProviderSession lifecycle authority.
-
-The stateless warm-page design MUST:
-
-* remain generation-aware;
-* use managed leases;
-* obey request concurrency bounds;
-* participate in deterministic shutdown;
-* release resources under cancellation;
-* never bypass BrowserEngine/ProviderSession ownership;
-* never reuse poisoned pages.
-
-Warm-page pooling is an additional ProviderSession-owned resource class, not a replacement for `PersistentTab`.
-
-## 16. Compatibility Non-Goals
-
-The stateless surface does not require emulation of native local-server protocols.
-
-The project MUST NOT add endpoints such as Ollama, LM Studio, llama.cpp, or vLLM-specific discovery probes solely to suppress client detection errors.
-
-Protocol compatibility should be implemented only when intentionally supported as a real compatibility surface.
-
-## 17. Rollout Contract
-
-Implementation proceeds in stages.
-
-### Stage 1 — Gemini WebAPI (Implemented)
-
-* expose `/v1/stateless/models`;
-* expose `/v1/stateless/chat/completions`;
-* enforce client-owned history;
-* reject `conversation_id`;
-* support normal chat;
-* support streaming;
-* support tool calling;
-* verify multi-turn tool loops;
-* verify no SQLite snapshot creation;
-* verify temporary Gemini execution.
-
-### Stage 2 — Playwright Foundation
-
-* introduce stateless warm-page ownership;
-* separate warm pages from `PersistentTab`;
-* implement deterministic fresh-chat reset;
-* implement full-history serialization;
-* support tool-call normalization;
-* verify cleanup and generation safety.
-
-### Stage 3 — Playwright Optimization
-
-* benchmark navigation-based reset;
-* audit Gemini's direct `New Chat` UI action;
-* introduce faster reset only if semantics are equivalent;
-* retain a safe fallback.
-
-## 18. Fundamental Invariants
-
-The following invariants are authoritative:
-
-1. **Client owns stateless conversation history.**
-2. **A stateless request must be independently executable from its supplied input.**
-3. **Browser-resource reuse must never imply conversation reuse.**
-4. **Stateful `PersistentTab` and stateless warm pages are separate resource concepts.**
-5. **Correctness takes precedence over warm-page reuse.**
-6. **A poisoned or uncertain page is invalidated, not recycled.**
-7. **Playwright may differ from WebAPI in provider-side history, but not in WebAI-owned conversation continuity.**
-8. **Existing stateful and temporary endpoint guarantees remain unchanged.**
+1. The client owns stateless conversation history.
+2. Every stateless request is independently executable from its supplied input.
+3. Direct stateless execution uses Gemini WebAPI `temporary=True`.
+4. Stateless requests do not create WebAI-owned conversation continuation state.
+5. `conversation_id` is rejected on the stateless chat endpoint.
+6. Accepted compatibility no-ops do not alter Gemini generation or synthesize usage.
+7. Unsupported controls return HTTP 400; malformed request or tool history returns HTTP 422.
+8. Successful progressive streams emit one terminal stop chunk followed by `[DONE]`.
+9. Terminally failed progressive streams do not emit a false terminal stop or `[DONE]`.
+10. Tool-loop continuation is reconstructed only from client-supplied history.
