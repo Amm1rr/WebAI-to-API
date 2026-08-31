@@ -118,7 +118,7 @@ TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400 = {
                 "unsupportedRequestFields": {
                     "summary": "Backend-incompatible request controls",
                     "value": {
-                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
                     },
                 },
             },
@@ -166,7 +166,7 @@ STATELESS_CHAT_COMPLETIONS_RESPONSE_400 = {
                 "unsupportedRequestFields": {
                     "summary": "Backend-incompatible request controls",
                     "value": {
-                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
                     },
                 },
                 "extendedThinkingRejected": {
@@ -204,7 +204,7 @@ CHAT_COMPLETIONS_RESPONSE_400 = {
                 "unsupportedRequestFields": {
                     "summary": "Backend-incompatible request controls",
                     "value": {
-                        "detail": "Unsupported fields for Gemini WebAPI: response_format, temperature.",
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
                     },
                 },
             },

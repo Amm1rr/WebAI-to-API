@@ -48,18 +48,21 @@ def validate_openai_request_compatibility(
     request: OpenAIChatRequest,
     capabilities: OpenAICompatibilityCapabilities,
 ) -> None:
-    """Reject explicitly supplied controls the selected backend cannot honor."""
-    unsupported_fields = sorted(
-        field_name
-        for field_name in OPENAI_COMPATIBILITY_FIELDS
-        if getattr(request, field_name, None) is not None
-        and capabilities.status(field_name) is OpenAIRequestCapability.UNSUPPORTED
+    """Reject unsupported controls, reporting one deterministic field per error."""
+    unsupported_field = next(
+        (
+            field_name
+            for field_name in OPENAI_COMPATIBILITY_FIELDS
+            if getattr(request, field_name, None) is not None
+            and capabilities.status(field_name) is OpenAIRequestCapability.UNSUPPORTED
+        ),
+        None,
     )
-    if unsupported_fields:
+    if unsupported_field is not None:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unsupported fields for {capabilities.backend_name}: "
-                f"{', '.join(unsupported_fields)}."
+                f"Unsupported parameter: {unsupported_field} "
+                "(code: unsupported_parameter)."
             ),
         )

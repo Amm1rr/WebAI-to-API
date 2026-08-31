@@ -187,7 +187,39 @@ def test_gemini_capability_validator_rejects_explicit_unsupported_fields(field_n
         )
 
     assert error.value.status_code == 400
-    assert error.value.detail == f"Unsupported fields for Gemini WebAPI: {field_name}."
+    assert (
+        error.value.detail
+        == f"Unsupported parameter: {field_name} (code: unsupported_parameter)."
+    )
+
+
+def test_gemini_capability_validator_reports_one_unsupported_field_in_order():
+    with pytest.raises(HTTPException) as first_error:
+        validate_openai_request_compatibility(
+            _request(
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            ),
+            GEMINI_WEBAPI_OPENAI_COMPATIBILITY,
+        )
+
+    assert first_error.value.status_code == 400
+    assert (
+        first_error.value.detail
+        == "Unsupported parameter: temperature (code: unsupported_parameter)."
+    )
+
+    with pytest.raises(HTTPException) as second_error:
+        validate_openai_request_compatibility(
+            _request(response_format={"type": "json_object"}),
+            GEMINI_WEBAPI_OPENAI_COMPATIBILITY,
+        )
+
+    assert second_error.value.status_code == 400
+    assert (
+        second_error.value.detail
+        == "Unsupported parameter: response_format (code: unsupported_parameter)."
+    )
 
 
 @pytest.mark.asyncio
@@ -249,8 +281,44 @@ async def test_primary_route_rejects_unsupported_controls_before_provider_execut
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Unsupported fields for Gemini WebAPI: temperature."
+    assert (
+        response.json()["detail"]
+        == "Unsupported parameter: temperature (code: unsupported_parameter)."
+    )
     provider.chat_completions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/v1/stateless/chat/completions", "/v1/temporary/chat/completions"])
+async def test_gemini_routes_report_unsupported_parameters_one_at_a_time(mocker, path):
+    acquire_lease = mocker.patch(
+        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+    )
+    payload = {
+        "model": "gemini-3-flash",
+        "messages": _messages(),
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(path, json=payload)
+        retry_response = await client.post(
+            path,
+            json={key: value for key, value in payload.items() if key != "temperature"},
+        )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "Unsupported parameter: temperature (code: unsupported_parameter)."
+    )
+    assert retry_response.status_code == 400
+    assert (
+        retry_response.json()["detail"]
+        == "Unsupported parameter: response_format (code: unsupported_parameter)."
+    )
+    acquire_lease.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -357,7 +425,10 @@ async def test_atlas_route_rejects_unforwarded_controls_before_provider_executio
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Unsupported fields for Atlas: max_tokens."
+    assert (
+        response.json()["detail"]
+        == "Unsupported parameter: max_tokens (code: unsupported_parameter)."
+    )
     provider.chat_completions.assert_not_awaited()
 
 
@@ -525,4 +596,10 @@ async def test_openapi_exposes_audited_controls_and_400_contract():
 
     chat_responses = schema["paths"]["/v1/chat/completions"]["post"]["responses"]
     assert "400" in chat_responses
-    assert "unsupportedRequestFields" in chat_responses["400"]["content"]["application/json"]["examples"]
+    unsupported_example = chat_responses["400"]["content"]["application/json"]["examples"][
+        "unsupportedRequestFields"
+    ]
+    assert (
+        unsupported_example["value"]["detail"]
+        == "Unsupported parameter: temperature (code: unsupported_parameter)."
+    )
