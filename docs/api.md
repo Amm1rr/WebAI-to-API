@@ -245,7 +245,7 @@ The current provider contract supports one model-generated function tool call pe
 * The function name must be a non-empty string and must match a function declared in the current request's `tools`.
 * Arguments must be a JSON object.
 * OpenAI responses expose arguments as a JSON string.
-* Malformed provider tool output returns HTTP 502.
+* Malformed client tool declarations return HTTP 422; malformed provider tool output returns HTTP 502.
 * Multiple generated tool calls are unsupported.
 
 Tool parameter JSON Schema is provided to the model but is not independently validated by this endpoint.

@@ -61,6 +61,23 @@ def test_openai_request_declares_audited_controls_and_preserves_tolerant_extras(
 
 
 @pytest.mark.parametrize(
+    "tools",
+    [
+        ["not-an-object"],
+        [{"type": "function", "function": {}}],
+        [{"type": "function", "function": {"name": ""}}],
+        [{"type": "function", "function": {"name": 123}}],
+        [{"type": "function"}],
+        [{"type": "function", "function": None}],
+        [{"type": "other", "function": {"name": "lookup"}}],
+    ],
+)
+def test_openai_request_rejects_malformed_tool_declarations(tools):
+    with pytest.raises(ValidationError, match="Invalid tool declaration"):
+        _request(tools=tools)
+
+
+@pytest.mark.parametrize(
     "tool_choice",
     [
         "none",
@@ -402,6 +419,47 @@ async def test_http_malformed_tool_choice_returns_422_before_provider_resolution
         )
 
     assert response.status_code == 422
+    get_provider.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/v1/stateless/chat/completions", "/v1/temporary/chat/completions"])
+async def test_gemini_routes_reject_malformed_tool_declarations_before_lease(mocker, path):
+    acquire_lease = mocker.patch(
+        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            path,
+            json={
+                "model": "gemini-3-flash",
+                "messages": _messages(),
+                "tools": [{"type": "function", "function": {}}],
+            },
+        )
+
+    assert response.status_code == 422
+    assert "function.name" in response.json()["detail"][0]["msg"]
+    acquire_lease.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_primary_gemini_rejects_malformed_tool_declaration_before_provider_resolution(mocker):
+    get_provider = mocker.patch("app.endpoints.chat.ProviderFactory.get_provider")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": _messages(),
+                "tools": [{"type": "function", "function": {"name": 123}}],
+            },
+        )
+
+    assert response.status_code == 422
+    assert "function.name" in response.json()["detail"][0]["msg"]
     get_provider.assert_not_called()
 
 

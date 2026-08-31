@@ -2,12 +2,14 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.services.providers.exceptions import GeminiProviderOutputError
 from app.services.providers.gemini.shared import (
     ToolCallParseStatus,
+    build_tools_prompt,
     convert_to_openai_format,
     parse_tool_call,
 )
@@ -50,6 +52,14 @@ def _available_client(mocker, response_text: str):
         return_value=SimpleNamespace(text=response_text),
     )
     return client
+
+
+def test_build_tools_prompt_rejects_malformed_declaration_without_keyerror():
+    with pytest.raises(HTTPException) as error:
+        build_tools_prompt([{"type": "function", "function": {}}])
+
+    assert error.value.status_code == 422
+    assert error.value.detail == "Invalid tool declaration: function.name must be a non-empty string."
 
 
 async def _post(payload: dict):

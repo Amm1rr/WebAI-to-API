@@ -5,6 +5,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     StrictBool,
     StrictFloat,
     StrictInt,
@@ -76,6 +77,30 @@ class OpenAIResponseFormat(BaseModel):
         if self.type != "json_schema" and self.json_schema is not None:
             raise ValueError("response_format.json_schema is only valid for type 'json_schema'.")
         return self
+
+
+def validate_openai_tool_declarations(tools: Any) -> Any:
+    """Validate the structural shape consumed by OpenAI-compatible tool paths."""
+    if tools is None:
+        return tools
+    if not isinstance(tools, list):
+        raise ValueError("Invalid tool declaration: tools must be a list.")
+
+    for tool in tools:
+        if not isinstance(tool, dict):
+            raise ValueError("Invalid tool declaration: each tool must be an object.")
+        if tool.get("type") != "function":
+            raise ValueError("Invalid tool declaration: type must be 'function'.")
+
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            raise ValueError("Invalid tool declaration: function must be an object.")
+
+        name = function.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Invalid tool declaration: function.name must be a non-empty string.")
+
+    return tools
 
 
 class OpenAIChatTextContentPart(BaseModel):
@@ -222,6 +247,11 @@ class OpenAIChatRequest(BaseModel):
     gem: Optional[str] = Field(default=None, description="Gem ID or name to use as system prompt.")
     conversation_id: Optional[str] = Field(default=None, description="ID to continue an existing browser conversation.")
     provider_options: Optional[ProviderOptions] = None
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def validate_tool_declarations(cls, tools: Any) -> Any:
+        return validate_openai_tool_declarations(tools)
 
     @model_validator(mode="after")
     def validate_token_aliases(self) -> Self:

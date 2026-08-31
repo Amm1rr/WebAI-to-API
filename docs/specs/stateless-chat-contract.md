@@ -164,9 +164,10 @@ The generated call must:
 * contain arguments whose root value is a JSON object.
 
 The OpenAI response exposes `function.arguments` as a JSON string. Malformed
-provider tool output returns HTTP 502. Multiple generated tool calls are
-unsupported. Declared function parameter JSON Schema is passed to the model,
-but arguments are not independently validated against that schema.
+client tool declarations return HTTP 422; malformed provider tool output
+returns HTTP 502. Multiple generated tool calls are unsupported. Declared
+function parameter JSON Schema is passed to the model, but arguments are not
+independently validated against that schema.
 
 ### 6.2 Client-owned tool history
 

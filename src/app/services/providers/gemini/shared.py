@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from app.config import CONFIG
 from app.logger import logger
+from app.schemas.request import validate_openai_tool_declarations
 from app.services.providers.exceptions import GeminiProviderOutputError
 from .webapi_client import resolve_model_name
 
@@ -106,6 +107,11 @@ def ensure_gemini_client_ready(
 
 def build_tools_prompt(tools: list) -> str:
     """Convert OpenAI tool definitions to a system prompt for Gemini."""
+    try:
+        validate_openai_tool_declarations(tools)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
     declarations = []
     for t in tools:
         if t.get("type") == "function" and "function" in t:
