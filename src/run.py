@@ -172,5 +172,6 @@ if __name__ == "__main__":
         log_level=resolved_level.lower(),
         access_log=not resolved_disable_access,
         workers=1,
+        timeout_graceful_shutdown=15,
     )
     run_server(config)

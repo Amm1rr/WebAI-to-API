@@ -611,3 +611,36 @@ def test_non_windows_branch_never_instantiates_listener(mocker):
 
     listener_cls.assert_not_called()
     fake_server.run.assert_called_once_with()
+
+
+# --- Graceful shutdown timeout configuration ---------------------------------
+
+
+def test_server_main_configures_graceful_shutdown_timeout():
+    """run.py passes timeout_graceful_shutdown=15 to the production uvicorn.Config."""
+    import ast
+    from pathlib import Path
+
+    source = Path("src/run.py").read_text()
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "Config"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "uvicorn"
+        ):
+            for kw in node.keywords:
+                if kw.arg == "timeout_graceful_shutdown":
+                    assert isinstance(kw.value, ast.Constant)
+                    assert kw.value.value == 15
+                    return
+            raise AssertionError(
+                "uvicorn.Config() in src/run.py missing timeout_graceful_shutdown"
+            )
+
+    raise AssertionError("no uvicorn.Config() call found in src/run.py")
