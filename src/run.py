@@ -1,11 +1,17 @@
 # src/run.py
 import argparse
 import asyncio
+import logging
 import os
+import signal
 import sys
 import threading
 
 import uvicorn
+
+logger = logging.getLogger("app")
+
+from app.shutdown import request_shutdown as request_generic_shutdown
 # --- App and Service Imports ---
 from app.config import CONFIG, get_runtime_dir, resolve_logging_config
 from app.utils.startup import (
@@ -68,15 +74,28 @@ class ApplicationServer(uvicorn.Server):
         if self._shutdown_intent_marked:
             return
         self._shutdown_intent_marked = True
+        # Generic application intent (neutral, for ASGI boundary)
+        request_generic_shutdown("application")
+        # BrowserEngine intent remains authoritative for browser lifecycle
         from app.services.browser.engine import request_application_shutdown
+
         request_application_shutdown()
 
     def handle_exit(self, sig, frame):
-        # Real signal path: mark intent first (at most once, under the same
-        # lock as the programmatic path), then delegate unchanged so Uvicorn
-        # keeps its own logging and second-signal force-exit behavior.
+        # Emergency hard exit: second SIGINT while shutdown already active
+        # must terminate immediately with POSIX 130 without delegating to
+        # Uvicorn's force-exit machinery.
+        # This is the operator force-quit path; first SIGINT and SIGTERM
+        # retain normal graceful shutdown.
+        should_hard_exit = False
         with self._shutdown_lock:
-            self._mark_application_shutdown_intent()
+            if self.should_exit and sig == signal.SIGINT:
+                should_hard_exit = True
+            else:
+                self._mark_application_shutdown_intent()
+        if should_hard_exit:
+            logger.warning("Emergency shutdown: second SIGINT received, exiting immediately.")
+            os._exit(130)
         super().handle_exit(sig, frame)
 
     def request_shutdown(self, reason: str = "programmatic") -> bool:

@@ -15,6 +15,7 @@ from app.services.providers.gemini.session_manager import (
 )
 from app.services.browser.auth_manager import get_auth_manager
 from app.logger import logger
+from app.middleware.shutdown_boundary import ShutdownBoundaryMiddleware
 
 # Import endpoint routers
 from app.endpoints import gemini, chat, google_generative, auth, system, ui
@@ -60,27 +61,6 @@ async def lifespan(app: FastAPI):
 
     # B: FastAPI lifespan shutdown log
     logger.info("FastAPI application lifespan shutdown executing.")
-
-    # Restore temporary shutdown task-dump diagnostics at DEBUG level for investigation
-    try:
-        tasks = asyncio.all_tasks()
-        curr_task = asyncio.current_task()
-        logger.debug(f"[SHUTDOWN-DEBUG] [TASK-DUMP] Total asyncio tasks: {len(tasks)}")
-
-        for idx, task in enumerate(tasks):
-            if task is curr_task:
-                continue
-            cancelling_val = getattr(task, "cancelling", lambda: "N/A")() if hasattr(task, "cancelling") else "N/A"
-            logger.debug(
-                f"[SHUTDOWN-DEBUG] [TASK-DUMP] Task {idx + 1}:\n"
-                f"name={task.get_name()}\n"
-                f"done={task.done()}\n"
-                f"cancelled={task.cancelled()}\n"
-                f"cancelling={cancelling_val}\n"
-                f"repr={repr(task)}"
-            )
-    except Exception as e:
-        logger.error(f"[SHUTDOWN-DEBUG] Error during task inspection: {e}", exc_info=True)
 
     try:
         await shutdown_session_managers()
@@ -167,6 +147,12 @@ class RequestIDMiddleware:
 
 
 app.add_middleware(RequestIDMiddleware)
+
+# Outermost shutdown-aware boundary must wrap the complete HTTP stack
+# and see cancellation after downstream provider/request cleanup has unwound.
+# Added last so Starlette's insert(0, ...) makes it outermost user middleware
+# (ServerErrorMiddleware remains framework-owned outermost).
+app.add_middleware(ShutdownBoundaryMiddleware)
 
 # Register the endpoint routers for WebAI-to-API
 app.include_router(gemini.router)

@@ -21,6 +21,15 @@ def started_server():
     return server
 
 
+@pytest.fixture(autouse=True)
+def _reset_generic_shutdown_state():
+    from app.shutdown import _reset_for_tests
+
+    _reset_for_tests()
+    yield
+    _reset_for_tests()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows policy only")
 def test_windows_runner_uses_proactor_policy(mocker):
     policy = object()
@@ -50,6 +59,7 @@ def test_signal_marks_application_intent_before_uvicorn_exit(mocker):
         "app.services.browser.engine.request_application_shutdown",
         side_effect=lambda: calls.append("application-shutdown"),
     )
+    mocker.patch("run.request_generic_shutdown", side_effect=lambda source="application": calls.append("generic-shutdown") or True)
     mocker.patch.object(
         uvicorn.Server,
         "handle_exit",
@@ -61,7 +71,9 @@ def test_signal_marks_application_intent_before_uvicorn_exit(mocker):
 
     make_server().handle_exit(sig, frame)
 
-    assert calls == ["application-shutdown", ("uvicorn-exit", sig, frame)]
+    assert calls[0] == "generic-shutdown"
+    assert calls[1] == "application-shutdown"
+    assert calls[2] == ("uvicorn-exit", sig, frame)
 
 
 def test_real_sig_and_frame_forwarded_unchanged(mocker):
@@ -70,6 +82,7 @@ def test_real_sig_and_frame_forwarded_unchanged(mocker):
     mocker.patch(
         "app.services.browser.engine.request_application_shutdown"
     )
+    mocker.patch("run.request_generic_shutdown")
     uvicorn_exit = mocker.patch.object(
         uvicorn.Server, "handle_exit", autospec=True
     )
@@ -81,8 +94,9 @@ def test_real_sig_and_frame_forwarded_unchanged(mocker):
 
 
 def test_second_real_signal_still_reaches_uvicorn(mocker):
-    """Force-exit escalation must survive the once-only intent guard."""
+    """Force-exit escalation must survive the once-only intent guard (non-SIGINT)."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("app.shutdown.request_shutdown")
     uvicorn_exit = mocker.patch.object(
         uvicorn.Server, "handle_exit", autospec=True
     )
@@ -557,14 +571,89 @@ def test_real_signal_always_delegates_to_uvicorn_even_when_intent_exists(
     mocker,
 ):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("app.shutdown.request_shutdown")
     uvicorn_exit = mocker.patch.object(
         uvicorn.Server, "handle_exit", autospec=True
     )
     server = make_server()
     server.handle_exit(15, None)
-    server.handle_exit(2, None)  # second real signal
+    server.handle_exit(15, None)  # second SIGTERM still delegates (hard exit only for SIGINT)
 
     assert uvicorn_exit.call_count == 2
+
+
+# --- Emergency SIGINT hard exit (ASGI_BOUNDARY_PLUS_HARD_EXIT) -------------------
+
+import signal as _signal
+
+
+def test_first_sigint_delegates_and_marks_intent(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown", return_value=True)
+    uvicorn_exit = mocker.patch.object(uvicorn.Server, "handle_exit", autospec=True)
+    mock_exit = mocker.patch("run.os._exit")
+
+    server = make_server()
+    server.handle_exit(_signal.SIGINT, None)
+
+    uvicorn_exit.assert_called_once()
+    mock_exit.assert_not_called()
+    assert server._shutdown_intent_marked is True
+
+
+def test_second_sigint_hard_exits_with_130(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+    mock_exit = mocker.patch("run.os._exit", side_effect=SystemExit(130))
+
+    server = make_server()
+    # first SIGINT → graceful, sets should_exit via real Uvicorn handle_exit (not mocked)
+    server.handle_exit(_signal.SIGINT, None)
+    assert server.should_exit is True
+    with pytest.raises(SystemExit):
+        server.handle_exit(_signal.SIGINT, None)  # second → hard exit
+
+    mock_exit.assert_called_once_with(130)
+
+
+def test_sigterm_does_not_hard_exit(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+    mock_exit = mocker.patch("run.os._exit")
+
+    server = make_server()
+    server.handle_exit(_signal.SIGINT, None)
+    assert server.should_exit is True
+    server.handle_exit(_signal.SIGTERM, None)
+
+    mock_exit.assert_not_called()
+    assert server.should_exit is True
+
+
+def test_programmatic_shutdown_does_not_hard_exit(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("run.os._exit")
+
+    server = started_server()
+    assert server.request_shutdown("programmatic") is True
+    # no hard exit on programmatic alone
+    assert server.should_exit is True
+
+
+def test_sigint_after_programmatic_shutdown_hard_exits(mocker):
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown", return_value=True)
+    mock_exit = mocker.patch("run.os._exit", side_effect=SystemExit(130))
+
+    server = started_server()
+    assert server.request_shutdown("programmatic") is True
+    assert server.should_exit is True
+    # SIGINT after programmatic should be treated as emergency
+    with pytest.raises(SystemExit):
+        server.handle_exit(_signal.SIGINT, None)
+
+    mock_exit.assert_called_once_with(130)
 
 
 # --- run_server Windows wiring (Phase 4) -------------------------------------
