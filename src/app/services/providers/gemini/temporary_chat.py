@@ -23,9 +23,32 @@ from app.services.providers.gemini.stateless_chat import (  # noqa: F401
 
 # Compatibility aliases for historical import paths.
 TemporaryChatRequestContext = StatelessChatRequestContext
-_validate_temporary_chat_request = _validate_stateless_chat_request
-_resolve_temporary_chat_model = _resolve_stateless_chat_model
-_prepare_temporary_chat_request = _prepare_stateless_chat_request
+
+
+def _validate_temporary_chat_request(request):
+    return _validate_stateless_chat_request(
+        request,
+        endpoint_name="temporary",
+        direct_webapi_only=False,
+    )
+
+
+def _resolve_temporary_chat_model(request, gemini_client):
+    return _resolve_stateless_chat_model(
+        request,
+        gemini_client,
+        endpoint_name="temporary",
+        direct_webapi_only=False,
+    )
+
+
+def _prepare_temporary_chat_request(request, gemini_client):
+    return _prepare_stateless_chat_request(
+        request,
+        gemini_client,
+        endpoint_name="temporary",
+        direct_webapi_only=False,
+    )
 
 
 async def handle_temporary_chat_completions(request, *, endpoint_name: str = "temporary", direct_webapi_only: bool = False):
