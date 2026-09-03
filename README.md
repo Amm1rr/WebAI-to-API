@@ -3,9 +3,6 @@
 <p align="center">
   <img src="./assets/Server-Run-WebAI.png" alt="WebAI-to-API Server" height="160" />
   <img src="./assets/Dashboard.png" alt="Dashboard" height="160" />
-  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API">
-    <img src="./assets/ATLAS_CLOUD_LOGO_BLACK.png" alt="Atlas Cloud" height="160" />
-  </a>
 </p>
 
 **WebAI-to-API** is a browser-native AI runtime that exposes browser-based AI services through OpenAI-compatible APIs.
@@ -29,10 +26,6 @@
 ### Gemini
 
 Provides access to Google Gemini models through either the WebAPI backend or a browser-native Playwright runtime.
-
-### Atlas Cloud
-
-Provides access to cloud-hosted AI models through a native API integration powered by [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=WebAI-to-API).
 
 ---
 
@@ -72,7 +65,7 @@ default_model = gemini-3-flash
 extended_thinking = false
 ```
 
-Configure Atlas separately when needed. See the [Configuration Guide](docs/configuration.md) for provider, proxy, logging, and authentication settings.
+See the [Configuration Guide](docs/configuration.md) for provider, proxy, logging, and authentication settings.
 
 ### 3. Authenticate
 
@@ -195,7 +188,6 @@ Available models depend on configured providers and runtime availability. Use `/
 ```text
 gemini-3-flash
 playwright/gemini-3-flash
-atlas/<model-id>
 ```
 
 Unprefixed Gemini models use the configured Gemini backend. `playwright/...` forces browser-native Gemini routing, while `atlas/...` routes to Atlas. See [API Documentation](docs/api.md) for full routing behavior.
