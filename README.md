@@ -242,7 +242,7 @@ Interactive API documentation is available through Swagger UI when the server is
 
 ## License
 
-WebAI-to-API is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full text.
+WebAI-to-API is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
 
 
 <br>

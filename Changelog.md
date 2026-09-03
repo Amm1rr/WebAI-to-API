@@ -31,7 +31,6 @@
 
 ##### Changed
 
-- Migrated the project licensing model to Apache License 2.0 as the sole project license.
 - Updated `/translate` to use Gemini temporary requests so translation conversations are not stored in Gemini history.
 
 ##### Fixed

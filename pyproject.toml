@@ -7,7 +7,7 @@ description = "WebAI-to-API is a modular web server built with FastAPI, designed
 authors = [
     { name = "Mohammad", email = "m.khani2810@gmail.com" },
 ]
-license = "Apache-2.0"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dynamic = ["dependencies"]
