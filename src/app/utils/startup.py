@@ -90,6 +90,7 @@ def print_server_info(host: str, port: int, mode: str, default_model: str | None
         print(f"  - POST {base_url}/v1beta/models/{{model_path:path}}")
         print("\n🔗 Useful Endpoints:")
         print(f"  - GET  {base_url}/v1/models")
+        print(f"  - GET  {base_url}/v1/stateless/models")
         print(f"  - GET  {base_url}/v1/auth/status")
         print(f"  - POST {base_url}/v1/auth/login")
     print("\n" + "=" * 80)
