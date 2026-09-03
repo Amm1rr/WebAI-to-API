@@ -27,6 +27,22 @@ def test_startup_output_reconfigures_redirected_streams_and_preserves_symbols(
     assert "⚠️" in stderr.buffer.getvalue().decode()
 
 
+def test_startup_primary_apis_lists_stateless_not_temporary(monkeypatch):
+    stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    monkeypatch.setattr(startup.sys, "stdout", stdout)
+    monkeypatch.setattr(startup.sys, "stderr", io.TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+
+    startup.print_server_info("127.0.0.1", 6969, "webai")
+    stdout.flush()
+    output = stdout.buffer.getvalue().decode()
+
+    # Extract Primary APIs section
+    primary_section = output.split("🔗 Primary APIs:")[1].split("🔗 Useful Endpoints:")[0] if "🔗 Primary APIs:" in output else output
+    assert "/v1/stateless/chat/completions" in primary_section
+    assert "/v1/temporary/chat/completions" not in primary_section
+    assert "/v1/chat/completions" in primary_section
+
+
 def test_startup_output_ignores_streams_without_reconfigure(monkeypatch):
     class PlainStream:
         def __init__(self):

@@ -32,7 +32,7 @@ The architecture is built for **isolation**, **concurrency safety**, and **lifec
 - **Deterministic Cleanup:** Release semantics are idempotent, best-effort, cancellation-safe, and shielded via `asyncio.shield` to ensure that resource release is guaranteed even during request cancellation.
 
 ### 4. Conversation Continuity Models
-- **Gemini WebAPI persistent chat:** Uses SQLite-backed conversation snapshots to restore serialized `ChatSession` state across process restarts. Temporary stateless endpoints, including `/translate`, `/v1/temporary/chat/completions`, and `/v1/stateless/chat/completions`, do not use these snapshots.
+- **Gemini WebAPI persistent chat:** Uses SQLite-backed conversation snapshots to restore serialized `ChatSession` state across process restarts. Stateless Gemini WebAPI execution via the canonical `/v1/stateless/chat/completions` (and its deprecated wrapper `/v1/temporary/chat/completions`) and `/translate` do not use these snapshots.
 - **Gemini Playwright:** Uses provider-side Gemini conversation URLs and in-memory `PersistentTab` reuse. It does not use SQLite snapshots for normal conversation continuity.
 - **Stateless Gemini WebAPI:** `/v1/stateless/chat/completions` uses client-owned history and request-scoped `temporary=True` generation. It does not use `SessionRegistry`, `PersistentTab`, or SQLite conversation snapshots.
 - **Stateless Providers:** Some providers, such as Atlas, forward each request independently and do not persist `conversation_id` state locally.

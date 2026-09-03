@@ -15,8 +15,10 @@ Conversation ownership on that endpoint is backend-dependent:
 * Gemini Playwright can continue provider-side conversations through
   `conversation_id` and `PersistentTab`.
 * Stateless providers may execute requests independently.
-* `/v1/temporary/chat/completions` provides a separate Gemini WebAPI-only
-  temporary mode.
+* `/v1/temporary/chat/completions` historically provided a separate Gemini
+  WebAPI-only temporary mode; it is now a deprecated backward-compatibility
+  wrapper that delegates to the canonical stateless implementation
+  (see Existing Temporary Endpoint).
 
 This model works for clients that want WebAI-to-API to own conversation
 continuity.
@@ -200,10 +202,22 @@ claim either capability.
 
 ## Existing Temporary Endpoint
 
-`/v1/temporary/chat/completions` remains a Gemini WebAPI-specific specialized
-endpoint with `temporary=True`, no SQLite snapshot, and no Gemini
-conversation-history persistence. The generic stateless API does not redefine
-or weaken that contract.
+`/v1/temporary/chat/completions` remains as a deprecated backward-compatibility
+wrapper. It delegates to the canonical stateless implementation
+(`POST /v1/stateless/chat/completions`) and therefore preserves the same
+Gemini WebAPI execution semantics: `temporary=True`, no SQLite snapshot, and
+no Gemini conversation-history persistence. The generic stateless API does not
+redefine or weaken that contract.
+
+Current architecture:
+
+```text
+/v1/stateless/chat/completions
+    = canonical client-owned-history Gemini WebAPI endpoint
+
+/v1/temporary/chat/completions
+    = deprecated backward-compatibility wrapper
+```
 
 ## Compatibility Non-Goals
 
