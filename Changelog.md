@@ -1,5 +1,25 @@
 ### WebAI to API
 
+#### v0.7.0 – 2026-09-03
+
+#### Added
+
+- Added the new Stateless API for OpenAI-compatible clients. (`v1/stateless/chat/completions`)
+- Added support for streaming, tool calling, and client-managed conversation history. (Beta)
+
+##### Changed
+
+- Improved OpenAI API compatibility.
+- Deprecated the legacy Temporary Chat endpoint while keeping backward compatibility. (`/v1/temporary/chat/completions`)
+- Improved server startup and shutdown behavior.
+- Updated project dependencies.
+
+##### Fixed
+
+- Fixed various issues with streaming, request handling.
+
+---
+
 #### v0.6.0 – 2026-08-26
 
 #### Added
@@ -79,7 +99,7 @@
 ##### Changed
 
 - Updated internal libraries.
-- Upgraded to [Gemini API v1.14.0](https://github.com/HanaokaYuzu/Gemini-API).
+- Upgraded to [Gemini Web API v1.14.0](https://github.com/HanaokaYuzu/Gemini-API).
 
 ##### Fixed
 
