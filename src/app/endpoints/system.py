@@ -1,8 +1,19 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Response, status
+from fastapi.responses import FileResponse
+
 from app.services.browser.auth_manager import get_auth_manager
 from app.services.browser.engine import get_existing_browser_engine
 
 router = APIRouter(tags=["System"])
+
+_FAVICON_PATH = Path(__file__).resolve().parents[1] / "static" / "ui" / "favicon.ico"
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(str(_FAVICON_PATH), media_type="image/x-icon")
 
 @router.get(
     "/health",

@@ -123,3 +123,40 @@ def test_runtime_status_uninitialized(mock_auth_mgr):
         assert response.status_code == 200
         data = response.json()
         assert data["engine"]["status"] == "NOT_INITIALIZED"
+
+
+def test_favicon_returns_200_with_icon_content_type():
+    response = client.get("/favicon.ico")
+    assert response.status_code == 200
+    assert len(response.content) > 0
+    content_type = response.headers.get("content-type", "").lower()
+    # Starlette/FileResponse uses image/x-icon; allow framework-equivalent
+    assert "icon" in content_type or "x-icon" in content_type
+    assert "image/" in content_type
+
+
+def test_favicon_not_in_openapi():
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/favicon.ico" not in paths
+    # existing routes remain exposed
+    assert "/health" in paths
+    assert "/ready" in paths
+    assert "/v1/runtime/status" in paths
+
+
+def test_favicon_does_not_affect_dashboard_and_health():
+    health = client.get("/health")
+    assert health.status_code in (200, 503)
+    dashboard = client.get("/ui")
+    assert dashboard.status_code == 200
+    assert 'rel="icon" href="/favicon.ico"' in dashboard.text
+
+
+def test_favicon_file_exists_on_disk():
+    from pathlib import Path
+
+    favicon_path = Path("src/app/static/ui/favicon.ico")
+    assert favicon_path.is_file()
+    assert favicon_path.stat().st_size > 0
