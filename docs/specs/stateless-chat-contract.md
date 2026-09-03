@@ -19,12 +19,17 @@ No previous stateless request may be required for semantic continuation.
 
 ```text
 GET  /v1/stateless/models
-POST /v1/stateless/chat/completions
+POST /v1/stateless/chat/completions   canonical
+POST /v1/temporary/chat/completions   deprecated compatibility wrapper
 ```
 
 The surface is OpenAI Chat Completions-compatible within the limits described
 here. `GET /v1/stateless/models` advertises only currently available direct
-Gemini WebAPI models that can execute through this contract.
+Gemini WebAPI models that can execute through this contract, including valid
+slash-containing model IDs when the runtime catalog reports them as available.
+
+Every model returned by `GET /v1/stateless/models` is accepted by
+`POST /v1/stateless/chat/completions` under the same runtime state.
 
 The stateless surface does not support:
 
@@ -61,6 +66,20 @@ returns a continuation ID.
 
 The stateful `/v1/chat/completions` API remains separate. Its provider/backend
 conversation-continuation behavior is not inherited by this surface.
+
+### 3.3 Model ID validity
+
+Slash-containing model IDs are valid when the active Gemini WebAPI runtime
+model catalog/resolver reports them as available. The catalog is the sole
+authority; slash does not imply provider routing and does not bypass
+availability checks. Unknown slash IDs, `playwright/*`, and `atlas/*` are
+rejected. The invariant
+
+> Every model advertised by `GET /v1/stateless/models` is accepted by
+> `POST /v1/stateless/chat/completions` under the same runtime state
+
+is maintained via shared classification logic between model advertisement and
+request validation.
 
 ## 4. Request Compatibility
 
@@ -250,12 +269,23 @@ remain backend-dependent.
 
 ### `/v1/temporary/chat/completions`
 
-The specialized Gemini WebAPI temporary endpoint. It shares the direct
-`temporary=True` and no-persistence guarantees but retains its own endpoint
-compatibility surface.
+Deprecated compatibility wrapper. New integrations must use the canonical
+`POST /v1/stateless/chat/completions`. The temporary endpoint delegates to the
+same stateless Gemini WebAPI implementation (`temporary=True`, client-owned
+history, no `conversation_id`, no SQLite snapshots), is marked `deprecated=True`
+in OpenAPI, and is retained only for backward compatibility. It shares the
+response shape, streaming, tool, multimodal, and timeout behavior with the
+canonical endpoint.
 
 The stateless endpoint must not weaken or silently redefine either existing
-API.
+API. The canonical ownership is:
+
+```text
+stateless implementation
+    ↑
+    ├── /v1/stateless/chat/completions
+    └── /v1/temporary/chat/completions   deprecated wrapper
+```
 
 ## 11. Fundamental Invariants
 

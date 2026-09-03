@@ -174,13 +174,13 @@ The stateless surface is intended for Hermes Agent and other clients that own co
 
 ### GET `/v1/stateless/models`
 
-Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract.
+Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract, including valid slash-containing model IDs when advertised by the Gemini WebAPI runtime catalog. The catalog is the authority; every model returned here is accepted by `/v1/stateless/chat/completions` under the same runtime state.
 
 Atlas models, Playwright models, legacy Playwright aliases, and models unavailable to the direct WebAPI backend are not advertised. Playwright stateless execution is not implemented.
 
 ### POST `/v1/stateless/chat/completions`
 
-OpenAI-compatible chat completion endpoint where the client owns conversation history.
+Canonical stateless Gemini WebAPI endpoint. OpenAI-compatible chat completion where the client owns conversation history.
 
 #### Backend and state
 
@@ -191,6 +191,7 @@ OpenAI-compatible chat completion endpoint where the client owns conversation hi
 * The client owns conversation history and must send the complete history required for each request, including `system`, `user`, `assistant`, and `tool` messages.
 * `conversation_id` is rejected with HTTP 400. No server continuation ID is created or returned.
 * Requests do not use server conversation continuation or SQLite conversation snapshots.
+* Slash-containing model IDs are valid when advertised by `/v1/stateless/models` and recognized as available by the runtime Gemini catalog; unknown slash IDs are rejected. Slash does not imply provider routing. `playwright/*` and `atlas/*` remain rejected.
 
 #### Request controls
 
@@ -292,7 +293,7 @@ Malformed, orphan, duplicate, or unresolved tool associations return HTTP 422.
 
 ### POST `/v1/temporary/chat/completions`
 
-Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requests.
+Deprecated compatibility endpoint. New integrations must use `POST /v1/stateless/chat/completions`. This endpoint remains for backward compatibility and delegates to the same canonical stateless Gemini WebAPI implementation (`temporary=True`, client-owned history, no `conversation_id`, no SQLite snapshots).
 
 #### Features
 
@@ -310,6 +311,7 @@ Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requ
 * `atlas/*` models and `provider=atlas` are rejected with HTTP 400
 * File parts are staged per request and cleaned up after completion
 * Successful streaming responses emit OpenAI-compatible SSE chunks and `[DONE]`; terminally truncated streams may end without `[DONE]`
+* Marked `deprecated=True` in OpenAPI; prefer `/v1/stateless/chat/completions`
 ---
 
 ### GET `/v1/conversations`

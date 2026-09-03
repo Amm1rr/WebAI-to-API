@@ -16,9 +16,9 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
-| `/v1/stateless/chat/completions` | Primary | Yes | Client-owned history; Gemini WebAPI temporary | Yes | Generic stateless OpenAI-compatible surface; `conversation_id` is rejected. |
-| `/v1/stateless/models` | Primary | Yes | N/A | No | Lists currently available direct Gemini WebAPI models valid for stateless execution. |
-| `/v1/temporary/chat/completions` | Specialized | No | Gemini WebAPI temporary | Yes | OpenAI-compatible Gemini-only temporary endpoint; no durable conversation continuation. |
+| `/v1/stateless/chat/completions` | Primary | Yes | Client-owned history; Gemini WebAPI temporary | Yes | Canonical stateless Gemini WebAPI endpoint; `conversation_id` rejected; slash IDs valid when advertised. |
+| `/v1/stateless/models` | Primary | Yes | N/A | No | Lists currently available direct Gemini WebAPI models valid for stateless execution (including valid slash IDs). |
+| `/v1/temporary/chat/completions` | Deprecated | No | Gemini WebAPI temporary (delegates to stateless) | Yes | Deprecated compatibility wrapper; use `/v1/stateless/chat/completions`. |
 | `/v1/conversations` | Primary | Yes | Lists/deletes Gemini WebAPI snapshots | No | GET lists local snapshots; DELETE bulk-deletes Gemini WebAPI conversations. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for registered providers and their available model IDs. |
@@ -107,17 +107,18 @@ Gemini WebAPI may return generated artifacts alongside text output.
 
 ### 3.3 Stateless Contract: /v1/stateless/chat/completions
 
-The `/v1/stateless/chat/completions` endpoint is the implemented generic client-owned-history surface. It supports direct Gemini WebAPI execution only. The complete request, response, tool, timeout, error, and limitation rules are defined in the [Stateless Chat Execution Contract](stateless-chat-contract.md).
+The `/v1/stateless/chat/completions` endpoint is the canonical generic client-owned-history surface. It supports direct Gemini WebAPI execution only (`temporary=True`, no `conversation_id`, no SQLite snapshots). The complete request, response, tool, timeout, error, and limitation rules are defined in the [Stateless Chat Execution Contract](stateless-chat-contract.md).
 
 - **History Ownership**: Clients must send the complete conversation history required for each request, including assistant tool calls and tool results.
 - **Conversation IDs**: `conversation_id` is rejected. The endpoint does not create or return a continuation ID.
 - **Execution**: Requests use Gemini WebAPI `temporary=True` execution and the shared message transformation, tool prompt, tool-call parsing, and response streaming paths.
 - **Persistence**: Requests do not restore or create `ChatSession` state, SQLite conversation snapshots, or Gemini conversation history.
 - **Excluded Backends**: Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless execution is not implemented.
+- **Model IDs**: Slash-containing model IDs are valid when the runtime Gemini catalog reports them as available. Validity is determined solely by the runtime catalog/resolver; slash does not imply provider routing and unknown slash IDs are rejected.
 
 ### 3.4 Stateless Model Discovery: /v1/stateless/models
 
-`GET /v1/stateless/models` returns only currently available direct Gemini WebAPI models from the runtime capability catalog. It does not advertise Atlas models, Playwright models, legacy Playwright aliases, or models unavailable to the direct WebAPI backend.
+`GET /v1/stateless/models` returns only currently available direct Gemini WebAPI models from the runtime capability catalog, including valid slash-containing model IDs when the runtime reports them as available. It does not advertise Atlas models, Playwright models, legacy Playwright aliases, or models unavailable to the direct WebAPI backend. Every model advertised here is accepted by `/v1/stateless/chat/completions` under the same runtime state.
 
 ## 4. Conversation Contract
 
@@ -219,11 +220,12 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 
 ### `/v1/temporary/chat/completions`
 
-- **Status**: **Supported (Specialized)**.
+- **Status**: **Deprecated – compatibility wrapper**.
 - **Scope**: Gemini WebAPI only. Playwright and Atlas models/providers are rejected.
 - **Schema**: OpenAI-compatible request/response shape.
 - **Persistence**: Requests use `temporary=True`, do not persist in Gemini history, and do not write SQLite conversation snapshots.
 - **Conversation IDs**: `conversation_id` is rejected to avoid implying durable continuation.
+- **Implementation**: Delegates to the canonical `/v1/stateless/chat/completions` implementation; marked `deprecated=True` in OpenAPI. New integrations must use `/v1/stateless/chat/completions`.
 
 ## 9. Authentication Contract
 

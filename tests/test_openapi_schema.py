@@ -59,8 +59,11 @@ async def test_openapi_temporary_chat_endpoint_metadata():
 
     temporary_path = schema["paths"].get("/v1/temporary/chat/completions")
     assert temporary_path is not None
+    assert temporary_path["post"].get("deprecated") is True
     assert "Chat" in temporary_path["post"]["tags"]
     assert "Temporary OpenAI-Compatible Chat Completions" in temporary_path["post"]["summary"]
+    assert "deprecated" in temporary_path["post"]["description"].lower()
+    assert "/v1/stateless/chat/completions" in temporary_path["post"]["description"]
     assert "temporary=True" in temporary_path["post"]["description"]
     assert "not saved in Gemini history" in temporary_path["post"]["description"]
     assert "do not write SQLite conversation snapshots" in temporary_path["post"]["description"]

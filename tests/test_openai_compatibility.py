@@ -260,7 +260,7 @@ async def test_gemini_temporary_routes_reject_unsupported_controls_before_lease(
     value,
 ):
     acquire_lease = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -309,7 +309,7 @@ async def test_primary_route_rejects_unsupported_controls_before_provider_execut
 @pytest.mark.parametrize("path", ["/v1/stateless/chat/completions", "/v1/temporary/chat/completions"])
 async def test_gemini_routes_report_unsupported_parameters_one_at_a_time(mocker, path):
     acquire_lease = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
     )
     payload = {
         "model": "gemini-3-flash",
@@ -426,7 +426,7 @@ async def test_http_malformed_tool_choice_returns_422_before_provider_resolution
 @pytest.mark.parametrize("path", ["/v1/stateless/chat/completions", "/v1/temporary/chat/completions"])
 async def test_gemini_routes_reject_malformed_tool_declarations_before_lease(mocker, path):
     acquire_lease = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

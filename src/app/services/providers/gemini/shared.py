@@ -32,6 +32,23 @@ def is_unknown_model_error(error: ValueError) -> bool:
     return "Unknown model name" in str(error)
 
 
+def _is_allowed_direct_webapi_model_id(model_id: str) -> bool:
+    """Shared predicate for direct WebAPI model advertisement.
+
+    Excludes only explicit Playwright/Atlas routing IDs (case-insensitive
+    prefix check). All other IDs, including slash-containing Gemini WebAPI
+    IDs that the runtime catalog reports as available, are allowed. The
+    resolver is the authority for validity; this predicate only removes
+    non-Gemini routing namespaces.
+    """
+    lowered = model_id.lower()
+    if lowered.startswith("playwright/"):
+        return False
+    if lowered.startswith("atlas/"):
+        return False
+    return True
+
+
 def _ensure_model_available(model: str, resolved_model: Any) -> None:
     if getattr(resolved_model, "is_available", None) is not True:
         raise HTTPException(
@@ -62,16 +79,23 @@ def validate_model_name(model: Optional[str], gemini_client: Any = None) -> None
 
 
 def validate_direct_webapi_model_name(model: Optional[str], gemini_client: Any) -> None:
-    """Validate a model for direct WebAPI endpoints without provider routing."""
+    """Validate a model for direct WebAPI endpoints without provider routing.
+
+    Slash-containing IDs are valid when the runtime Gemini catalog reports them
+    as available. Only explicit Playwright/Atlas prefixes are rejected before
+    the resolver is consulted; unknown IDs (with or without slash) fail via the
+    resolver's availability check.
+    """
     if not model:
         return
 
-    resolved_model = resolve_model_name(model)
-    if "/" in resolved_model:
+    if not _is_allowed_direct_webapi_model_id(model):
         raise HTTPException(
             status_code=400,
             detail=f"Model '{model}' is not supported by the Gemini WebAPI endpoint.",
         )
+
+    resolved_model = resolve_model_name(model)
 
     try:
         resolved = gemini_client.resolve_model(resolved_model)
@@ -469,8 +493,11 @@ def get_direct_webapi_gemini_models(runtime_models: Optional[List[Any]] = None) 
     direct_models = []
     for model in runtime_models or []:
         model_id = getattr(model, "model_name", None)
-        if isinstance(model_id, str) and "/" not in resolve_model_name(model_id):
-            direct_models.append(model)
+        if not isinstance(model_id, str):
+            continue
+        if not _is_allowed_direct_webapi_model_id(model_id):
+            continue
+        direct_models.append(model)
     return get_gemini_models(direct_models, include_playwright=False)
 
 def format_files(files: Optional[List[Union[str, Path]]]) -> Optional[List[Path]]:

@@ -18,6 +18,7 @@ from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
 import app.services.providers.gemini.client as gemini_client_module
 import app.services.providers.gemini.temporary_chat as temporary_chat_module
+import app.services.providers.gemini.stateless_chat as stateless_chat_module
 from app.services.providers.atlas import AtlasProvider
 
 
@@ -44,7 +45,7 @@ async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, 
     gemini_client_module._retire_generation(record)
     cleanup = mocker.AsyncMock()
     monkeypatch.setattr(
-        temporary_chat_module,
+        stateless_chat_module,
         "GeminiLeaseStreamingResponse",
         mocker.Mock(side_effect=RuntimeError("response construction failed")),
     )
@@ -76,7 +77,7 @@ async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, 
     [
         pytest.param(
             {
-                "model": "gemini/gemini-3-flash",
+                "model": "playwright/gemini-3-flash",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             id="legacy-provider-model-prefix",
@@ -101,7 +102,7 @@ async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, 
 )
 async def test_stateless_validation_runs_before_lease(mocker, payload):
     acquire_lease = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -144,7 +145,7 @@ async def test_stateless_validation_runs_before_lease(mocker, payload):
 )
 async def test_temporary_validation_precedes_unavailable_lease(mocker, path, payload):
     acquire_lease = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.acquire_current_gemini_lease"
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -202,7 +203,7 @@ async def test_stateless_buffered_errors_map_to_http_status(
     client.generate_content = mocker.AsyncMock(side_effect=error)
     install_gemini_client(client)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -228,9 +229,9 @@ async def test_stateless_buffered_timeout_releases_lease_and_cleans_up(mocker, i
     client = _ready_direct_client(mocker)
     client.generate_content = mocker.AsyncMock(side_effect=never_returns)
     install_gemini_client(client)
-    mocker.patch.object(temporary_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -257,9 +258,9 @@ async def test_stateless_progressive_timeout_terminates_without_done(mocker, ins
     client = _ready_direct_client(mocker)
     client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
     install_gemini_client(client)
-    mocker.patch.object(temporary_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -300,9 +301,9 @@ async def test_stateless_progressive_timeout_before_first_chunk_returns_clean_ss
     client = _ready_direct_client(mocker)
     client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
     install_gemini_client(client)
-    mocker.patch.object(temporary_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -335,15 +336,15 @@ async def test_progressive_timeout_does_not_cancel_blocked_downstream_send(
     client = _ready_direct_client(mocker)
     client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
     install_gemini_client(client)
-    mocker.patch.object(temporary_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
     lease = gemini_client_module.acquire_current_gemini_lease()
-    normalized = temporary_chat_module.NormalizedOpenAIChatMessages(messages=[])
-    cleanup_once = temporary_chat_module._build_cleanup_once(normalized)
-    response = await temporary_chat_module._build_incremental_streaming_response(
+    normalized = stateless_chat_module.NormalizedOpenAIChatMessages(messages=[])
+    cleanup_once = stateless_chat_module._build_cleanup_once(normalized)
+    response = await stateless_chat_module._build_incremental_streaming_response(
         lease,
         prompt="User: Hello",
         model="gemini-3-flash",
@@ -402,9 +403,9 @@ async def test_stateless_tool_stream_timeout_returns_504_without_fake_sse(
     client = _ready_direct_client(mocker)
     client.generate_content = mocker.AsyncMock(side_effect=never_returns)
     install_gemini_client(client)
-    mocker.patch.object(temporary_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -444,7 +445,7 @@ async def test_stateless_cleanup_failure_does_not_mask_provider_error(
     client.generate_content = mocker.AsyncMock(side_effect=APIError("provider error"))
     install_gemini_client(client)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(side_effect=RuntimeError("cleanup error")),
     )
 
@@ -475,12 +476,12 @@ async def test_stateless_cleanup_owns_staged_files_after_tool_preparation_failur
     client.generate_content = mocker.AsyncMock()
     install_gemini_client(client)
     mocker.patch.object(
-        temporary_chat_module,
+        stateless_chat_module,
         "build_tools_prompt",
         side_effect=RuntimeError("tool preparation failed"),
     )
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(side_effect=real_cleanup_staged_files),
     )
 
@@ -534,7 +535,7 @@ async def test_stateless_staged_files_are_removed_after_provider_error(mocker, i
     client.generate_content = mocker.AsyncMock(side_effect=APIError("provider error"))
     install_gemini_client(client)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(side_effect=real_cleanup_staged_files),
     )
 
@@ -1080,7 +1081,7 @@ async def test_temporary_stream_gemini_failure_terminates_without_done(
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
     install_gemini_client(mock_client)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
 
@@ -1124,13 +1125,13 @@ async def test_temporary_stream_cancellation_preserves_cancel_and_releases_lease
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
     install_gemini_client(mock_client)
     cleanup = mocker.patch(
-        "app.services.providers.gemini.temporary_chat.cleanup_staged_files",
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
         mocker.AsyncMock(),
     )
     lease = gemini_client_module.acquire_current_gemini_lease()
-    normalized = temporary_chat_module.NormalizedOpenAIChatMessages(messages=[])
-    cleanup_once = temporary_chat_module._build_cleanup_once(normalized)
-    response = await temporary_chat_module._build_incremental_streaming_response(
+    normalized = stateless_chat_module.NormalizedOpenAIChatMessages(messages=[])
+    cleanup_once = stateless_chat_module._build_cleanup_once(normalized)
+    response = await stateless_chat_module._build_incremental_streaming_response(
         lease,
         prompt="User: Hello",
         model="gemini-3-flash",

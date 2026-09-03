@@ -28,6 +28,21 @@ def _available_client(mocker):
     return client
 
 
+def _client_with_resolver(mocker, available_models: set[str]):
+    """Create client where only models in available_models are reported available."""
+    client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
+
+    def _resolve(name: str):
+        if name in available_models:
+            return SimpleNamespace(model_name=name, is_available=True)
+        # Simulate unknown model – raise ValueError as real client does
+        raise ValueError(f"Unknown model name: {name}")
+
+    client.resolve_model.side_effect = _resolve
+    return client
+
+
 @pytest.mark.asyncio
 async def test_stateless_models_return_only_available_direct_gemini_models(
     mocker,
@@ -39,7 +54,8 @@ async def test_stateless_models_return_only_available_direct_gemini_models(
         SimpleNamespace(model_name="playwright/gemini-3.1-pro", is_available=True),
         SimpleNamespace(model_name="playwright/gemini/gemini-3.1-pro", is_available=True),
         SimpleNamespace(model_name="atlas/MiniMax-M2", is_available=True),
-        SimpleNamespace(model_name="gemini/gemini-3-flash", is_available=True),
+        SimpleNamespace(model_name="my-custom/slash-model", is_available=True),
+        SimpleNamespace(model_name="unknown/slash-model", is_available=True),
     ]
     client = _available_client(mocker)
     client.list_models.return_value = runtime_models
@@ -51,10 +67,37 @@ async def test_stateless_models_return_only_available_direct_gemini_models(
     data = response.json()
     assert data["object"] == "list"
     model_ids = [model["id"] for model in data["data"]]
-    assert model_ids == ["gemini-available"]
+    # Slash-containing direct WebAPI models are now included; only playwright/atlas excluded
+    assert model_ids == ["gemini-available", "my-custom/slash-model", "unknown/slash-model"]
     assert not any(model_id.startswith("atlas/") for model_id in model_ids)
     assert not any(model_id.startswith("playwright/") for model_id in model_ids)
     client.list_models.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_stateless_models_include_valid_slash_models_and_exclude_playwright_atlas(
+    mocker,
+    install_gemini_client,
+):
+    # Explicit regression for slash handling: valid slash IDs advertised, routing IDs excluded
+    runtime_models = [
+        SimpleNamespace(model_name="gemini-3-flash", is_available=True),
+        SimpleNamespace(model_name="exp/slash-variant", is_available=True),
+        SimpleNamespace(model_name="team/custom-model", is_available=True),
+        SimpleNamespace(model_name="playwright/gemini-3.1-pro", is_available=True),
+        SimpleNamespace(model_name="atlas/MiniMax-M2", is_available=True),
+    ]
+    client = _available_client(mocker)
+    client.list_models.return_value = runtime_models
+    install_gemini_client(client)
+
+    response = await _get("/v1/stateless/models")
+    model_ids = [m["id"] for m in response.json()["data"]]
+    assert "exp/slash-variant" in model_ids
+    assert "team/custom-model" in model_ids
+    assert "gemini-3-flash" in model_ids
+    assert not any(mid.startswith("playwright/") for mid in model_ids)
+    assert not any(mid.startswith("atlas/") for mid in model_ids)
 
 
 @pytest.mark.asyncio
@@ -87,6 +130,32 @@ async def test_stateless_models_are_accepted_by_stateless_chat_validation(
         gem=None,
         temporary=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_stateless_models_slash_advertised_are_valid_for_chat(
+    mocker,
+    install_gemini_client,
+):
+    # Every model advertised must be accepted under same runtime state (slash variant)
+    slash_model = "my-team/slash-model"
+    runtime_models = [SimpleNamespace(model_name=slash_model, is_available=True)]
+    client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
+    client.list_models.return_value = runtime_models
+    client.resolve_model.return_value = SimpleNamespace(model_name=slash_model, is_available=True)
+    client.generate_content = mocker.AsyncMock(return_value=SimpleNamespace(text="ok"))
+    install_gemini_client(client)
+
+    catalog_response = await _get("/v1/stateless/models")
+    assert catalog_response.json()["data"][0]["id"] == slash_model
+
+    response = await _post(
+        {"model": slash_model, "messages": [{"role": "user", "content": "Hello"}]}
+    )
+    assert response.status_code == 200
+    client.resolve_model.assert_called_with(slash_model)
+    client.generate_content.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -215,24 +284,52 @@ async def test_stateless_chat_rejects_conversation_id_without_generation(
 
 
 @pytest.mark.asyncio
-async def test_stateless_chat_rejects_gemini_provider_prefix_without_generation(
+async def test_stateless_chat_accepts_available_slash_model(
     mocker,
     install_gemini_client,
 ):
-    client = _available_client(mocker)
+    slash_model = "my-team/slash-model"
+    client = _client_with_resolver(mocker, {slash_model, "gemini-3-flash"})
+    client.generate_content = mocker.AsyncMock(return_value=SimpleNamespace(text="ok"))
+    install_gemini_client(client)
+
+    response = await _post(
+        {
+            "model": slash_model,
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+    )
+
+    assert response.status_code == 200
+    client.resolve_model.assert_called_once_with(slash_model)
+    client.generate_content.assert_awaited_once_with(
+        "User: Hello",
+        slash_model,
+        files=None,
+        gem=None,
+        temporary=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stateless_chat_rejects_unknown_slash_model(
+    mocker,
+    install_gemini_client,
+):
+    client = _client_with_resolver(mocker, {"gemini-3-flash"})
     client.generate_content = mocker.AsyncMock()
     install_gemini_client(client)
 
     response = await _post(
         {
-            "model": "gemini/gemini-3-flash",
+            "model": "unknown/slash-model",
             "messages": [{"role": "user", "content": "Hello"}],
         }
     )
 
     assert response.status_code == 400
-    assert "not supported by the Gemini WebAPI endpoint" in response.json()["detail"]
-    client.resolve_model.assert_not_called()
+    assert "Unknown model" in response.json()["detail"] or "not available" in response.json()["detail"].lower()
+    client.resolve_model.assert_called_once_with("unknown/slash-model")
     client.generate_content.assert_not_awaited()
 
 
@@ -580,6 +677,36 @@ async def test_temporary_chat_preserves_gemini_model_prefix_compatibility(
 
 
 @pytest.mark.asyncio
+async def test_temporary_endpoint_still_works_and_delegates_to_stateless(
+    mocker,
+    install_gemini_client,
+):
+    client = _available_client(mocker)
+    client.generate_content = mocker.AsyncMock(return_value=SimpleNamespace(text="ok"))
+    install_gemini_client(client)
+
+    response = await _post(
+        {"model": "gemini-3-flash", "messages": [{"role": "user", "content": "hi"}]},
+        path="/v1/temporary/chat/completions",
+    )
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "ok"
+    client.generate_content.assert_awaited_once()
+    assert client.generate_content.await_args.kwargs["temporary"] is True
+
+
+@pytest.mark.asyncio
+async def test_temporary_openapi_is_deprecated(mocker, install_gemini_client):
+    install_gemini_client(mocker.Mock())
+    response = await _get("/openapi.json")
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert paths["/v1/temporary/chat/completions"]["post"].get("deprecated") is True
+    assert "deprecated" in paths["/v1/temporary/chat/completions"]["post"]["description"].lower()
+    assert "/v1/stateless/chat/completions" in paths["/v1/temporary/chat/completions"]["post"]["description"]
+
+
+@pytest.mark.asyncio
 async def test_stateless_openapi_documents_both_routes(mocker, install_gemini_client):
     install_gemini_client(mocker.Mock())
 
@@ -593,3 +720,4 @@ async def test_stateless_openapi_documents_both_routes(mocker, install_gemini_cl
     assert "client-owned-history" in chat["description"].lower()
     assert "temporary=True" in chat["description"]
     assert "Playwright" in chat["description"]
+    assert "slash" in chat["description"].lower()
