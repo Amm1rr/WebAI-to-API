@@ -1,10 +1,68 @@
 from __future__ import annotations
 
+import time
+import uuid
 from typing import Any, Optional
 
 from app.services.providers.gemini.shared import convert_to_openai_format
 
 ARTIFACT_PROVIDER = "gemini_webapi"
+
+
+def create_stream_metadata() -> tuple[str, int]:
+    return f"chatcmpl-{uuid.uuid4().hex}", int(time.time())
+
+
+def _build_streaming_chunk(
+    model: str,
+    *,
+    completion_id: str,
+    created: int,
+    delta: dict,
+    finish_reason: Optional[str],
+) -> dict:
+    return {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": delta,
+            "finish_reason": finish_reason,
+        }],
+    }
+
+
+def build_progressive_text_chunk(
+    response_text: str,
+    model: str,
+    *,
+    completion_id: str,
+    created: int,
+) -> dict:
+    return _build_streaming_chunk(
+        model,
+        completion_id=completion_id,
+        created=created,
+        delta={"role": "assistant", "content": response_text},
+        finish_reason=None,
+    )
+
+
+def build_progressive_terminal_chunk(
+    model: str,
+    *,
+    completion_id: str,
+    created: int,
+) -> dict:
+    return _build_streaming_chunk(
+        model,
+        completion_id=completion_id,
+        created=created,
+        delta={},
+        finish_reason="stop",
+    )
 
 
 def _string_value(value: Any) -> Optional[str]:
@@ -138,13 +196,25 @@ def build_webapi_streaming_artifact_chunk(
     *,
     conversation_id: Optional[str] = None,
     reused_conversation: bool = False,
+    completion_id: Optional[str] = None,
+    created: Optional[int] = None,
 ) -> Optional[dict]:
     artifacts = build_choice_artifacts(response)
     if not artifacts:
         return None
 
-    openai_chunk = convert_to_openai_format("", model, True)
-    openai_chunk["choices"][0]["delta"] = {}
+    if completion_id is None or created is None:
+        generated_id, generated_created = create_stream_metadata()
+        completion_id = completion_id or generated_id
+        created = created if created is not None else generated_created
+
+    openai_chunk = _build_streaming_chunk(
+        model,
+        completion_id=completion_id,
+        created=created,
+        delta={},
+        finish_reason="stop",
+    )
     openai_chunk["choices"][0]["artifacts"] = artifacts
     openai_chunk["conversation_id"] = conversation_id
     openai_chunk["reused_conversation"] = reused_conversation

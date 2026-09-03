@@ -152,7 +152,9 @@ Open the dashboard at `http://localhost:6969/ui`. It provides runtime status, au
 | Endpoint | Purpose |
 | --- | --- |
 | `/v1/chat/completions` | Main OpenAI-compatible chat endpoint |
-| `/v1/temporary/chat/completions` | Temporary Gemini WebAPI chat without durable conversation persistence |
+| `/v1/stateless/chat/completions` | Canonical client-owned-history Gemini WebAPI chat endpoint |
+| `/v1/stateless/models` | Direct Gemini WebAPI models valid for stateless chat (including valid slash-containing IDs) |
+| `/v1/temporary/chat/completions` | Deprecated temporary compatibility endpoint (delegates to stateless) |
 | `/v1/models` | Current runtime model catalog |
 | `/v1/conversations` | Manage persisted Gemini WebAPI conversations |
 | `/v1/auth/status` | Authentication status |
@@ -164,6 +166,25 @@ Open the dashboard at `http://localhost:6969/ui`. It provides runtime status, au
 | `/ui` | Dashboard |
 
 See [API Documentation](docs/api.md) for the complete API surface, including compatibility and legacy endpoints.
+
+---
+
+## Hermes / Stateless API
+
+Hermes Agent and other client-owned-history clients can use the canonical stateless endpoint:
+
+```text
+http://127.0.0.1:6969/v1/stateless
+```
+
+Append `/models` for discovery or `/chat/completions` for requests:
+
+```text
+GET  /models
+POST /chat/completions
+```
+
+This surface uses direct Gemini WebAPI execution only (`temporary=True`, no `conversation_id`, no SQLite snapshots, client owns and resends all history). Slash-containing model IDs are valid when advertised by the Gemini WebAPI runtime catalog. Streaming and tool calling are supported. The legacy `/v1/temporary/chat/completions` endpoint remains as a deprecated compatibility wrapper that delegates to the same implementation. See the [API Documentation](docs/api.md#stateless-chat-api) and [Stateless Chat Contract](docs/specs/stateless-chat-contract.md).
 
 ---
 

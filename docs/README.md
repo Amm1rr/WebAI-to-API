@@ -17,6 +17,7 @@ This directory contains user guides and runtime specifications for WebAI-to-API.
 These documents define the authoritative runtime behavior, contracts, and operational guarantees of the system.
 
 * [API Contract](specs/api-contract.md)
+* [Stateless Chat Contract](specs/stateless-chat-contract.md)
 * [Provider Contract](specs/provider-contract.md)
 * [Concurrency Model](specs/concurrency-model.md)
 * [Streaming Pipeline](specs/streaming-pipeline.md)
@@ -25,3 +26,7 @@ These documents define the authoritative runtime behavior, contracts, and operat
 * [Runtime Architecture Overview](specs/runtime-architecture-overview.md)
 * [Browser Runtime Architecture](specs/browser-runtime-architecture.md)
 * [Docker Deployment Model](specs/docker-deployment.md)
+
+## Architecture Decision Records
+
+* [ADR-0001: Client-Owned Stateless Chat Execution](adr/0001-stateless-chat-execution.md)

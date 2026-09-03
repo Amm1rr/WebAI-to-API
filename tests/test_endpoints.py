@@ -1,14 +1,35 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient, ASGITransport
+from gemini_webapi.exceptions import (
+    APIError,
+    AuthError,
+    GeminiError,
+    ModelInvalidError,
+    TemporarilyBlockedError,
+    TimeoutError as GeminiTimeoutError,
+    UsageLimitExceededError,
+)
 from app.main import app
 from app.services.factory import ProviderFactory
 from app.services.providers.gemini.provider import GeminiProvider
 import app.services.providers.gemini.client as gemini_client_module
 import app.services.providers.gemini.temporary_chat as temporary_chat_module
+import app.services.providers.gemini.stateless_chat as stateless_chat_module
 from app.services.providers.atlas import AtlasProvider
+
+
+def _ready_direct_client(mocker):
+    client = mocker.Mock()
+    client.client.account_status.name = "AVAILABLE"
+    client.resolve_model.return_value = SimpleNamespace(
+        model_name="gemini-3-flash",
+        is_available=True,
+    )
+    return client
 
 
 @pytest.mark.asyncio
@@ -24,7 +45,7 @@ async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, 
     gemini_client_module._retire_generation(record)
     cleanup = mocker.AsyncMock()
     monkeypatch.setattr(
-        temporary_chat_module,
+        stateless_chat_module,
         "GeminiLeaseStreamingResponse",
         mocker.Mock(side_effect=RuntimeError("response construction failed")),
     )
@@ -48,6 +69,506 @@ async def test_temporary_stream_wrapper_failure_keeps_lease_with_caller(mocker, 
     assert record.lease_count == 0
     cleanup.assert_awaited_once_with()
     client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            {
+                "model": "playwright/gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="legacy-provider-model-prefix",
+        ),
+        pytest.param(
+            {
+                "provider": "atlas",
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="unsupported-provider",
+        ),
+        pytest.param(
+            {
+                "model": "gemini-3-flash",
+                "conversation_id": "existing-conversation",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="conversation-id",
+        ),
+    ],
+)
+async def test_stateless_validation_runs_before_lease(mocker, payload):
+    acquire_lease = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/v1/stateless/chat/completions", json=payload)
+
+    assert response.status_code == 400
+    acquire_lease.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        pytest.param(
+            "/v1/stateless/chat/completions",
+            {
+                "model": "gemini-3-flash",
+                "provider_options": {"gemini": {"extended_thinking": True}},
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="provider-options",
+        ),
+        pytest.param(
+            "/v1/temporary/chat/completions",
+            {
+                "model": "   ",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="whitespace-model",
+        ),
+        pytest.param(
+            "/v1/temporary/chat/completions",
+            {
+                "model": "gemini/",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            id="empty-temporary-legacy-model",
+        ),
+    ],
+)
+async def test_temporary_validation_precedes_unavailable_lease(mocker, path, payload):
+    acquire_lease = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.acquire_current_gemini_lease"
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(path, json=payload)
+
+    assert response.status_code == 400
+    acquire_lease.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_name", ["UNAUTHENTICATED", "BLOCKED", "UNKNOWN"])
+async def test_stateless_unready_client_maps_to_503(mocker, install_gemini_client, status_name):
+    client = _ready_direct_client(mocker)
+    client.client.account_status.name = status_name
+    client.generate_content = mocker.AsyncMock()
+    install_gemini_client(client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 503
+    client.resolve_model.assert_not_called()
+    client.generate_content.assert_not_awaited()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        pytest.param(AuthError("auth failed"), 503, id="auth"),
+        pytest.param(asyncio.TimeoutError("request timed out"), 504, id="application-timeout"),
+        pytest.param(GeminiTimeoutError("request timed out"), 504, id="gemini-timeout"),
+        pytest.param(UsageLimitExceededError("quota exceeded"), 429, id="usage-limit"),
+        pytest.param(TemporarilyBlockedError("temporarily blocked"), 429, id="temporarily-blocked"),
+        pytest.param(ModelInvalidError("invalid model"), 502, id="invalid-model"),
+        pytest.param(APIError("provider error"), 502, id="api-error"),
+        pytest.param(GeminiError("server error"), 502, id="gemini-error"),
+        pytest.param(RuntimeError("programming defect"), 500, id="unexpected-error"),
+    ],
+)
+async def test_stateless_buffered_errors_map_to_http_status(
+    mocker,
+    install_gemini_client,
+    error,
+    expected_status,
+):
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock(side_effect=error)
+    install_gemini_client(client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == expected_status
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_buffered_timeout_releases_lease_and_cleans_up(mocker, install_gemini_client):
+    async def never_returns(*args, **kwargs):
+        await asyncio.sleep(60)
+
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock(side_effect=never_returns)
+    install_gemini_client(client)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 504
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_progressive_timeout_terminates_without_done(mocker, install_gemini_client):
+    async def response_stream():
+        yield SimpleNamespace(text_delta="Partial response")
+        await asyncio.sleep(60)
+
+    client = _ready_direct_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "stream": True,
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert "Partial response" in response.text
+    assert "data: [DONE]\n\n" not in response.text
+    chunks = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
+    assert len(chunks) == 1
+    assert chunks[0]["choices"][0]["finish_reason"] is None
+    assert chunks[0]["choices"][0]["delta"]["content"] == "Partial response"
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_progressive_timeout_before_first_chunk_returns_clean_sse(
+    mocker,
+    install_gemini_client,
+):
+    async def response_stream():
+        await asyncio.sleep(60)
+        yield SimpleNamespace(text_delta="never sent")
+
+    client = _ready_direct_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "stream": True,
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.text == ""
+    assert "data: [DONE]\n\n" not in response.text
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_progressive_timeout_does_not_cancel_blocked_downstream_send(
+    mocker,
+    install_gemini_client,
+):
+    async def response_stream():
+        yield SimpleNamespace(text_delta="Partial response")
+        await asyncio.sleep(60)
+
+    client = _ready_direct_client(mocker)
+    client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(client)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    normalized = stateless_chat_module.NormalizedOpenAIChatMessages(messages=[])
+    cleanup_once = stateless_chat_module._build_cleanup_once(normalized)
+    response = await stateless_chat_module._build_incremental_streaming_response(
+        lease,
+        prompt="User: Hello",
+        model="gemini-3-flash",
+        files=None,
+        gem=None,
+        cleanup_once=cleanup_once,
+    )
+
+    sent_messages = []
+    first_chunk_send_started = asyncio.Event()
+    resume_send = asyncio.Event()
+
+    async def send(message):
+        sent_messages.append(message)
+        if message["type"] == "http.response.body" and message["body"]:
+            first_chunk_send_started.set()
+            await resume_send.wait()
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    response_task = asyncio.create_task(
+        response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+    )
+    await asyncio.wait_for(first_chunk_send_started.wait(), timeout=1)
+    await asyncio.sleep(0.03)
+    assert not response_task.done()
+
+    resume_send.set()
+    await asyncio.wait_for(response_task, timeout=1)
+
+    assert any(
+        message["type"] == "http.response.body" and b"Partial response" in message["body"]
+        for message in sent_messages
+    )
+    assert not any(
+        message["type"] == "http.response.body" and message["body"] == b"data: [DONE]\n\n"
+        for message in sent_messages
+    )
+    cleanup.assert_awaited_once_with(normalized)
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_tool_stream_timeout_returns_504_without_fake_sse(
+    mocker,
+    install_gemini_client,
+):
+    async def never_returns(*args, **kwargs):
+        await asyncio.sleep(60)
+
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock(side_effect=never_returns)
+    install_gemini_client(client)
+    mocker.patch.object(stateless_chat_module, "DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "stream": True,
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "parameters": {"type": "object"},
+                        },
+                    }
+                ],
+                "messages": [{"role": "user", "content": "Look this up."}],
+            },
+        )
+
+    assert response.status_code == 504
+    assert not response.headers["content-type"].startswith("text/event-stream")
+    assert "data: [DONE]\n\n" not in response.text
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_cleanup_failure_does_not_mask_provider_error(
+    mocker,
+    install_gemini_client,
+    caplog,
+):
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock(side_effect=APIError("provider error"))
+    install_gemini_client(client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(side_effect=RuntimeError("cleanup error")),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Gemini WebAPI provider request failed."
+    cleanup.assert_awaited_once()
+    assert any("Error cleaning up Gemini temporary request" in record.message for record in caplog.records)
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_cleanup_owns_staged_files_after_tool_preparation_failure(
+    mocker,
+    install_gemini_client,
+):
+    from app.services.multimodal import cleanup_staged_files as real_cleanup_staged_files
+
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock()
+    install_gemini_client(client)
+    mocker.patch.object(
+        stateless_chat_module,
+        "build_tools_prompt",
+        side_effect=RuntimeError("tool preparation failed"),
+    )
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(side_effect=real_cleanup_staged_files),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "parameters": {"type": "object"},
+                        },
+                    }
+                ],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Summarize this file."},
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": "invoice.pdf",
+                                    "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal error generating stateless content."
+    cleanup.assert_awaited_once()
+    normalized = cleanup.await_args.args[0]
+    assert normalized.cleanup_dir is None
+    assert not normalized.files[0].exists()
+    client.generate_content.assert_not_awaited()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stateless_staged_files_are_removed_after_provider_error(mocker, install_gemini_client):
+    from app.services.multimodal import cleanup_staged_files as real_cleanup_staged_files
+
+    client = _ready_direct_client(mocker)
+    client.generate_content = mocker.AsyncMock(side_effect=APIError("provider error"))
+    install_gemini_client(client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(side_effect=real_cleanup_staged_files),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post(
+            "/v1/stateless/chat/completions",
+            json={
+                "model": "gemini-3-flash",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Summarize this file."},
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": "invoice.pdf",
+                                    "file_data": "data:application/pdf;base64,JVBERi0xLjQK",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 502
+    cleanup.assert_awaited_once()
+    normalized = cleanup.await_args.args[0]
+    assert normalized.cleanup_dir is None
+    assert not normalized.files[0].exists()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
 
 @pytest.mark.asyncio
 async def test_list_models_endpoint(mocker):
@@ -372,6 +893,7 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker, install
     )
 
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = mocker.AsyncMock(return_value=mock_response)
     mock_client.generate_content_stream = mocker.AsyncMock()
@@ -428,6 +950,7 @@ async def test_temporary_chat_completions_endpoint_non_streaming(mocker, install
 @pytest.mark.asyncio
 async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_generation(mocker, install_gemini_client):
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.side_effect = ValueError("Unknown model name: gemini-3")
     mock_client.generate_content = mocker.AsyncMock()
     install_gemini_client(mock_client)
@@ -448,6 +971,7 @@ async def test_temporary_chat_completions_endpoint_rejects_unknown_model_before_
 @pytest.mark.asyncio
 async def test_temporary_chat_completions_rejects_known_unavailable_model_before_generation(mocker, install_gemini_client):
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(
         model_name="gemini-3-flash", is_available=False
     )
@@ -488,6 +1012,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
         )
 
     mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
     mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
     mock_client.generate_content = mocker.AsyncMock()
     mock_client.generate_content_stream = mocker.AsyncMock(return_value=mock_stream())
@@ -525,7 +1050,7 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
     assert "data: " in body_text
     assert "Temporary delta" in body_text
     assert "artifacts" in body_text
-    assert "data: [DONE]" in body_text
+    assert body_text.count("data: [DONE]\n\n") == 1
     mock_client.generate_content_stream.assert_awaited_once_with(
         "User: Hello",
         "gemini-3-flash",
@@ -534,6 +1059,118 @@ async def test_temporary_chat_completions_endpoint_streaming(mocker, install_gem
         temporary=True,
     )
     mock_client.generate_content.assert_not_called()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("partial_text", [None, "Partial delta"], ids=["before-first-chunk", "after-chunk"])
+async def test_temporary_stream_gemini_failure_terminates_without_done(
+    mocker,
+    install_gemini_client,
+    caplog,
+    partial_text,
+):
+    async def response_stream():
+        if partial_text is not None:
+            yield SimpleNamespace(text_delta=partial_text)
+        raise APIError("Gemini stream failed")
+
+    mock_client = mocker.Mock()
+    mock_client.client.account_status.name = "AVAILABLE"
+    mock_client.resolve_model.return_value = SimpleNamespace(model_name="gemini-3-flash", is_available=True)
+    mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(mock_client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+
+    payload = {
+        "model": "gemini-3-flash",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        async with ac.stream("POST", "/v1/temporary/chat/completions", json=payload) as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            body = await response.aread()
+
+    body_text = body.decode()
+    assert "data: [DONE]\n\n" not in body_text
+    if partial_text is not None:
+        assert partial_text in body_text
+    assert any(
+        "progressive streaming terminal failure" in record.message
+        for record in caplog.records
+    )
+    cleanup.assert_awaited_once()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_temporary_stream_cancellation_preserves_cancel_and_releases_lease(
+    mocker,
+    install_gemini_client,
+):
+    chunk_sent = asyncio.Event()
+    blocked = asyncio.Event()
+
+    async def response_stream():
+        yield SimpleNamespace(text_delta="Partial delta")
+        await blocked.wait()
+
+    mock_client = mocker.Mock()
+    mock_client.generate_content_stream = mocker.AsyncMock(return_value=response_stream())
+    install_gemini_client(mock_client)
+    cleanup = mocker.patch(
+        "app.services.providers.gemini.stateless_chat.cleanup_staged_files",
+        mocker.AsyncMock(),
+    )
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    normalized = stateless_chat_module.NormalizedOpenAIChatMessages(messages=[])
+    cleanup_once = stateless_chat_module._build_cleanup_once(normalized)
+    response = await stateless_chat_module._build_incremental_streaming_response(
+        lease,
+        prompt="User: Hello",
+        model="gemini-3-flash",
+        files=None,
+        gem=None,
+        cleanup_once=cleanup_once,
+    )
+
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.body" and message["body"]:
+            chunk_sent.set()
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    response_task = asyncio.create_task(
+        response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+    )
+    await chunk_sent.wait()
+    response_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await response_task
+
+    assert any(message["type"] == "http.response.start" for message in messages)
+    assert not any(
+        message.get("body") == b"data: [DONE]\n\n"
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    cleanup.assert_awaited_once_with(normalized)
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
 
 
 @pytest.mark.asyncio

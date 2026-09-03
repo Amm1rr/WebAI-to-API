@@ -59,8 +59,11 @@ async def test_openapi_temporary_chat_endpoint_metadata():
 
     temporary_path = schema["paths"].get("/v1/temporary/chat/completions")
     assert temporary_path is not None
+    assert temporary_path["post"].get("deprecated") is True
     assert "Chat" in temporary_path["post"]["tags"]
     assert "Temporary OpenAI-Compatible Chat Completions" in temporary_path["post"]["summary"]
+    assert "deprecated" in temporary_path["post"]["description"].lower()
+    assert "/v1/stateless/chat/completions" in temporary_path["post"]["description"]
     assert "temporary=True" in temporary_path["post"]["description"]
     assert "not saved in Gemini history" in temporary_path["post"]["description"]
     assert "do not write SQLite conversation snapshots" in temporary_path["post"]["description"]
@@ -97,6 +100,48 @@ async def test_openapi_temporary_chat_endpoint_metadata():
     assert "streamTextDelta" in stream_examples
     assert "streamFinalArtifacts" in stream_examples
     assert "streamDone" in stream_examples
+
+
+@pytest.mark.asyncio
+async def test_openapi_stateless_chat_endpoint_metadata():
+    """Verify the implemented stateless endpoint contract is exposed in OpenAPI."""
+    schema = await _get_openapi_schema()
+
+    models = schema["paths"]["/v1/stateless/models"]["get"]
+    assert "direct Gemini WebAPI" in models["description"]
+    assert "not implemented" in models["description"]
+
+    chat = schema["paths"]["/v1/stateless/chat/completions"]["post"]
+    description = chat["description"]
+    assert "client-owned-history" in description.lower()
+    assert "temporary=True" in description
+    assert "conversation_id" in description
+    assert "SQLite conversation snapshots" in description
+    assert "provider_options.gemini" in description
+    assert "buffered OpenAI-compatible SSE replay" in description
+    assert "stream_options.include_usage" in description
+    assert "compatibility no-ops" in description
+    assert "300-second deadline" in description
+    assert "Phase 1" not in description
+
+    responses = chat["responses"]
+    for status in ("200", "400", "422", "429", "500", "502", "503", "504"):
+        assert status in responses
+
+    request_examples = chat["requestBody"]["content"]["application/json"]["examples"]
+    assert "statelessTextOnly" in request_examples
+    assert request_examples["statelessTextOnly"]["value"]["model"] == "gemini-3-flash"
+
+    response_examples = responses["400"]["content"]["application/json"]["examples"]
+    assert "conversationIdRejected" in response_examples
+    assert "unsupportedProviderRejected" in response_examples
+    assert "extendedThinkingRejected" in response_examples
+    assert "stateless chat endpoint" in response_examples["conversationIdRejected"]["value"]["detail"]
+
+    stream_examples = responses["200"]["content"]["text/event-stream"]["examples"]
+    assert '"finish_reason":null' in stream_examples["streamTextDelta"]["value"]
+    assert '"finish_reason":"stop"' in stream_examples["streamFinalArtifacts"]["value"]
+    assert "data: [DONE]" in stream_examples["streamDone"]["value"]
 
 @pytest.mark.asyncio
 async def test_openapi_chat_endpoint_metadata():

@@ -43,12 +43,17 @@ ProviderSessions observe/store `last_browser_generation`; they do not choose gen
 ### 2.2 Deterministic Shutdown Ordering
 Application shutdown follows:
 
-1. `ApplicationServer.handle_exit()` marks `shutdown_requested(source="application")`.
-2. Uvicorn drains active connections while new page/session admission is rejected.
-3. FastAPI lifespan calls `BrowserEngine.close(source="application")`.
-4. Existing requests receive up to 15 seconds to finish; remaining requests receive request-owned abort callbacks.
-5. ProviderSession lifecycle tasks are cancelled/drained and ProviderSession resources close.
-6. Browser closes or is skipped, then the driver stops — both executed through the `BrowserRuntime` boundary (`runtime.close_browser()`, `runtime.stop()`).
+1. `ApplicationServer.handle_exit()` marks generic `app.shutdown` intent and `BrowserEngine.shutdown_requested(source="application")` (first source wins, thread-safe).
+2. Uvicorn stops accepting new connections and drains active connections/tasks (`timeout_graceful_shutdown=15`), while new page/session admission is rejected.
+3. Active requests receive up to 15 seconds to complete.
+4. Remaining ASGI tasks are timeout-cancelled with `Task cancelled, timeout graceful shutdown exceeded`; the outermost shutdown-aware ASGI boundary completes them as expected termination: pre-header → `503 Service Unavailable` (`Connection: close`), post-header streaming → truncated without `[DONE]`.
+5. FastAPI lifespan shutdown runs (`app.main:lifespan`).
+6. ProviderSession lifecycle tasks are cancelled/drained, Gemini client and `BrowserEngine` resources close (session/browser/driver via `BrowserRuntime`).
+7. Process exits.
+
+Emergency operator force-quit: a second `SIGINT` while shutdown is already active logs one concise warning and terminates immediately via `os._exit(130)` without awaiting cleanup. This applies only to repeated `SIGINT`; `SIGTERM` and programmatic `request_shutdown()` retain normal graceful `15s` drain, while `SIGINT` after programmatic shutdown is treated as explicit force-quit.
+
+**Startup Shutdown Invariant**: Shutdown intent received during application startup (e.g., `SIGINT`/`Ctrl+C` during FastAPI lifespan startup while Gemini initialization is in progress) prevents transition into normal serving state and proceeds through application lifespan cleanup once startup reaches a safe completion point. The server does not log `Uvicorn running on ...`, does not schedule update-check, and does not require immediate cancellation of the in-progress Gemini initialization; the current initialization step may finish before lifespan shutdown executes.
 
 ProviderSession resources always close before Browser, and Browser before the driver stops. `BrowserEngine` owns this ordering and all shutdown/recovery decisions; the runtime only executes the mechanics. Runtime terminal cleanup uses `save_state=False`; bootstrap/manual auth cleanup may use `save_state=True`.
 

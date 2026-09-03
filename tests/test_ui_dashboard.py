@@ -867,3 +867,59 @@ async def test_ui_routes_are_excluded_from_openapi():
     assert "/ui/models" not in paths
     assert "/ui/playground" not in paths
     assert "/ui/conversations" not in paths
+
+
+@pytest.mark.asyncio
+async def test_dashboard_categorizes_stateless_as_recommended_and_temporary_as_legacy(mocker):
+    # Directly verify categorization logic via helper (generic route.deprecated handling)
+    from unittest.mock import Mock
+
+    chat_deprecated = Mock()
+    chat_deprecated.tags = ["Chat"]
+    chat_deprecated.deprecated = True
+    assert ui_module._get_category_for_route(chat_deprecated) == "Legacy"
+
+    chat_active = Mock()
+    chat_active.tags = ["Chat"]
+    chat_active.deprecated = False
+    assert ui_module._get_category_for_route(chat_active) == "Recommended"
+
+    # Only Recommended is demoted; other categories stay as-is even when deprecated
+    compat_deprecated = Mock()
+    compat_deprecated.tags = ["Compatibility"]
+    compat_deprecated.deprecated = True
+    assert ui_module._get_category_for_route(compat_deprecated) == "Compatibility"
+
+    # Integration: capture actual Dashboard grouping rather than brittle HTML string order
+    captured: dict = {}
+
+    original = ui_module.templates.TemplateResponse
+
+    def fake_template(request, name, context, **kwargs):
+        captured.update(context)
+        return original(request, name, context, **kwargs)
+
+    mocker.patch.object(ui_module.templates, "TemplateResponse", side_effect=fake_template)
+
+    response = await _get("/ui/apis")
+    assert response.status_code == 200
+    grouped = captured.get("grouped_apis")
+    assert grouped is not None
+
+    def find_category(path: str):
+        for cat, apis in grouped.items():
+            for api in apis:
+                if api["path"] == path:
+                    return cat
+        return None
+
+    assert find_category("/v1/stateless/chat/completions") == "Recommended"
+    assert find_category("/v1/temporary/chat/completions") == "Legacy"
+    assert find_category("/v1/temporary/chat/completions") != "Recommended"
+
+    recommended_paths = [api["path"] for api in grouped.get("Recommended", [])]
+    assert "/v1/temporary/chat/completions" not in recommended_paths
+    assert "/v1/stateless/chat/completions" in recommended_paths
+
+    legacy_paths = [api["path"] for api in grouped.get("Legacy", [])]
+    assert "/v1/temporary/chat/completions" in legacy_paths

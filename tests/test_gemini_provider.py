@@ -16,6 +16,7 @@ from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
     build_webapi_streaming_artifact_chunk,
 )
+from app.services.providers.gemini.shared import ToolCallParseStatus
 
 @pytest.fixture
 def provider():
@@ -110,20 +111,22 @@ def make_delete_client(mocker, status_name="AVAILABLE"):
     )
 
 def test_parse_tool_call_valid(provider):
-    """Verify _parse_tool_call correctly extracts tool calls from text."""
-    text = 'Sure, I will call the tool: {"tool_call": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}'
-    tool_call = provider._parse_tool_call(text)
-    
-    assert tool_call is not None
-    assert tool_call["name"] == "get_weather"
-    assert tool_call["arguments"] == {"location": "San Francisco"}
+    result = provider._parse_tool_call(
+        '{"tool_call": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}'
+    )
+
+    assert result.status is ToolCallParseStatus.VALID_TOOL_CALL
+    assert result.tool_call == {
+        "name": "get_weather",
+        "arguments": {"location": "San Francisco"},
+    }
 
 def test_parse_tool_call_invalid(provider):
-    """Verify _parse_tool_call returns None when no valid tool call is found."""
     text = "Hello, how can I help you today?"
-    tool_call = provider._parse_tool_call(text)
-    
-    assert tool_call is None
+    result = provider._parse_tool_call(text)
+
+    assert result.status is ToolCallParseStatus.NO_TOOL_CALL
+    assert result.tool_call is None
 
 def test_convert_to_openai_format_non_streaming(provider):
     """Verify _convert_to_openai_format for non-streaming response."""
@@ -136,6 +139,7 @@ def test_convert_to_openai_format_non_streaming(provider):
     assert result["object"] == "chat.completion"
     assert result["choices"][0]["message"]["content"] == response_text
     assert result["choices"][0]["finish_reason"] == "stop"
+    assert "usage" not in result
 
 def test_convert_to_openai_format_streaming(provider):
     """Verify _convert_to_openai_format for streaming chunk."""
@@ -147,6 +151,7 @@ def test_convert_to_openai_format_streaming(provider):
     assert result["model"] == model
     assert result["object"] == "chat.completion.chunk"
     assert result["choices"][0]["delta"]["content"] == response_text
+    assert "usage" not in result
 
 def test_convert_to_openai_format_with_tool_call(provider):
     """Verify _convert_to_openai_format when a tool call is present."""
@@ -159,6 +164,25 @@ def test_convert_to_openai_format_with_tool_call(provider):
     assert result["choices"][0]["finish_reason"] == "tool_calls"
     assert result["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "test_tool"
     assert json.loads(result["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]) == {"arg": 1}
+    assert "index" not in result["choices"][0]["message"]["tool_calls"][0]
+    assert "usage" not in result
+
+
+def test_convert_to_openai_format_streaming_tool_call_includes_index(provider):
+    result = provider._convert_to_openai_format(
+        '{"tool_call": {"name": "test"}}',
+        "gemini-3-flash",
+        stream=True,
+        tool_call={"name": "test_tool", "arguments": {"arg": 1}},
+    )
+
+    tool_call = result["choices"][0]["delta"]["tool_calls"][0]
+    assert tool_call["index"] == 0
+    assert tool_call["id"].startswith("call_")
+    assert tool_call["function"]["name"] == "test_tool"
+    assert json.loads(tool_call["function"]["arguments"]) == {"arg": 1}
+    assert result["choices"][0]["finish_reason"] == "tool_calls"
+    assert "usage" not in result
 
 
 def test_build_choice_artifacts_maps_safe_webapi_metadata():
@@ -253,6 +277,7 @@ def test_build_webapi_chat_completion_response_keeps_text_only_shape():
     assert "artifacts" not in result["choices"][0]
     assert result["conversation_id"] == "conv-1"
     assert result["reused_conversation"] is False
+    assert "usage" not in result
 
 
 def test_build_webapi_chat_completion_response_attaches_artifacts_without_thoughts():
@@ -325,6 +350,7 @@ def test_build_webapi_chat_completion_response_preserves_tool_calls_and_artifact
     ]
     assert "thoughts" not in result["choices"][0]
     assert result["conversation_id"] == "conv-3"
+    assert "usage" not in result
 
 
 def test_build_webapi_streaming_artifact_chunk_behaviour():
@@ -1177,7 +1203,12 @@ async def test_chat_completions_stateful_streaming(mocker, provider, install_gem
     async def mock_generator(*args, **kwargs):
         yield {
             "type": "chunk",
-            "text_delta": "Stateful delta content",
+            "text_delta": "Stateful delta ",
+            "is_reused": True
+        }
+        yield {
+            "type": "chunk",
+            "text_delta": "content",
             "is_reused": True
         }
         yield {
@@ -1218,14 +1249,31 @@ async def test_chat_completions_stateful_streaming(mocker, provider, install_gem
     async for chunk in response.body_iterator:
         chunks.append(chunk)
         
-    assert len(chunks) == 2
+    assert len(chunks) == 4
     assert chunks[0].startswith("data: ")
-    assert chunks[1] == "data: [DONE]\n\n"
+    assert chunks[3] == "data: [DONE]\n\n"
     
     chunk_data = json.loads(chunks[0][6:-2])
-    assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta content"
-    assert chunk_data["conversation_id"] == "test_token_XYZ"
-    assert chunk_data["reused_conversation"] is True
+    second_chunk_data = json.loads(chunks[1][6:-2])
+    assert chunk_data["choices"][0]["delta"]["content"] == "Stateful delta "
+    assert second_chunk_data["choices"][0]["delta"]["content"] == "content"
+    assert all(
+        chunk["choices"][0]["finish_reason"] is None
+        for chunk in (chunk_data, second_chunk_data)
+    )
+    assert all(chunk["conversation_id"] == "test_token_XYZ" for chunk in (chunk_data, second_chunk_data))
+    assert all(chunk["reused_conversation"] is True for chunk in (chunk_data, second_chunk_data))
+    terminal_data = json.loads(chunks[2][6:-2])
+    assert terminal_data["choices"][0]["delta"] == {}
+    assert terminal_data["choices"][0]["finish_reason"] == "stop"
+    assert terminal_data["conversation_id"] == "test_token_XYZ"
+    assert terminal_data["reused_conversation"] is True
+    json_chunks = (chunk_data, second_chunk_data, terminal_data)
+    assert len({chunk["id"] for chunk in json_chunks}) == 1
+    assert chunk_data["id"].startswith("chatcmpl-")
+    assert len({chunk["created"] for chunk in json_chunks}) == 1
+    assert {chunk["model"] for chunk in json_chunks} == {"gemini-3-flash"}
+    assert all("usage" not in chunk for chunk in json_chunks)
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
@@ -1295,6 +1343,7 @@ async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_be
     artifact_chunk = json.loads(chunks[1][6:-2])
 
     assert text_chunk["choices"][0]["delta"]["content"] == "Stateful delta content"
+    assert text_chunk["choices"][0]["finish_reason"] is None
     assert text_chunk["conversation_id"] == "test_token_XYZ"
     assert text_chunk["reused_conversation"] is False
 
@@ -1312,13 +1361,20 @@ async def test_chat_completions_stateful_streaming_emits_final_artifact_chunk_be
     assert "thoughts" not in artifact_chunk["choices"][0]
     assert artifact_chunk["conversation_id"] == "test_token_XYZ"
     assert artifact_chunk["reused_conversation"] is False
+    assert artifact_chunk["id"] == text_chunk["id"]
+    assert artifact_chunk["created"] == text_chunk["created"]
+    assert artifact_chunk["model"] == text_chunk["model"]
+    assert sum(
+        json.loads(chunk[6:-2])["choices"][0]["finish_reason"] == "stop"
+        for chunk in chunks[:2]
+    ) == 1
     assert chunks[2] == "data: [DONE]\n\n"
     mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 @pytest.mark.asyncio
 async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artifact_chunk(mocker, provider, install_gemini_client):
-    """Verify interrupting WebAPI streaming does not emit an artifact chunk."""
+    """Verify interrupted WebAPI streaming emits no terminal chunk or [DONE]."""
     from app.schemas.request import OpenAIChatRequest
     from app.services.providers.gemini.session_manager import SessionManager, SessionRegistry
 
@@ -1365,9 +1421,12 @@ async def test_chat_completions_stateful_streaming_interrupt_does_not_emit_artif
     async for chunk in response.body_iterator:
         chunks.append(chunk)
 
-    assert len(chunks) == 2
+    assert len(chunks) == 1
     assert json.loads(chunks[0][6:-2])["choices"][0]["delta"]["content"] == "Stateful delta content"
-    assert chunks[1] == "data: [DONE]\n\n"
+    interrupted_chunk = json.loads(chunks[0][6:-2])
+    assert interrupted_chunk["choices"][0]["finish_reason"] is None
+    assert "data: [DONE]\n\n" not in chunks
+    mock_registry.save_session_snapshot.assert_called_once_with("test_token_XYZ", provider, mock_manager)
 
 
 def test_transform_messages_formatting():
@@ -1388,7 +1447,7 @@ def test_transform_messages_formatting():
     assert "System: You are a helpful assistant.\n\nTools list" in result[0]
     assert "User: Hello" in result
     assert "Assistant: Hi there!" in result
-    assert "Assistant called tool get_weather: {\"loc\": \"SF\"}" in result
+    assert "Assistant tool call [] get_weather: {\"loc\": \"SF\"}" in result
     assert "Tool result [123]: Sunny" in result
 
 

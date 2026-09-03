@@ -17,22 +17,30 @@ from app.services.providers.gemini.session_manager import (
 )
 from app.services.providers.exceptions import (
     ConversationInUseError,
+    GeminiProviderOutputError,
     SessionRecoveryError,
     SnapshotNotFoundError,
     StateIntegrityError,
 )
-from app.services.providers.gemini.base_adapter import GeminiBackendAdapter
+from app.services.providers.gemini.base_adapter import (
+    GEMINI_WEBAPI_OPENAI_COMPATIBILITY,
+    GeminiBackendAdapter,
+)
 from app.services.providers.gemini.shared import (
     convert_to_openai_format,
     ensure_gemini_client_ready,
     parse_tool_call,
     resolve_extended_thinking,
+    ToolCallParseStatus,
     validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
 )
 from app.services.providers.gemini.webapi_response_builder import (
     build_webapi_chat_completion_response,
     build_webapi_streaming_artifact_chunk,
+    build_progressive_terminal_chunk,
+    build_progressive_text_chunk,
+    create_stream_metadata,
 )
 from app.services.providers.gemini.persistence import (
     serialize_session_state,
@@ -48,6 +56,8 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
     Backend adapter for Google Gemini using the gemini-webapi library.
     Handles stateful sessions via SessionRegistry and SQLite.
     """
+
+    openai_compatibility = GEMINI_WEBAPI_OPENAI_COMPATIBILITY
 
     def __init__(self, provider):
         self.provider = provider
@@ -390,6 +400,10 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             # 2. Progressive Streaming Path (only if no tools are used)
             if is_stream and not request.tools:
                 async def sse_generator():
+                    completion_id, created = create_stream_metadata()
+                    interrupted = False
+                    reused_conversation = False
+                    artifact_chunk = None
                     from app.utils.streaming import format_sse_chunk, get_done_chunk
                     try:
                         async for chunk in session_manager.get_streaming_response_stateful(
@@ -402,23 +416,28 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                             extended_thinking=extended_thinking,
                         ):
                             if chunk.get("type") == "chunk" and chunk.get("text_delta"):
-                                openai_chunk = convert_to_openai_format(
+                                reused_conversation = chunk.get("is_reused", reused_conversation)
+                                openai_chunk = build_progressive_text_chunk(
                                     chunk["text_delta"],
                                     request.model or "unknown",
-                                    stream=True
+                                    completion_id=completion_id,
+                                    created=created,
                                 )
                                 openai_chunk["conversation_id"] = cid
-                                openai_chunk["reused_conversation"] = chunk.get("is_reused", False)
+                                openai_chunk["reused_conversation"] = reused_conversation
                                 yield await format_sse_chunk(openai_chunk)
                             elif chunk.get("type") == "final":
+                                reused_conversation = chunk.get("is_reused", reused_conversation)
                                 artifact_chunk = build_webapi_streaming_artifact_chunk(
                                     chunk.get("response"),
                                     request.model or "unknown",
                                     conversation_id=cid,
-                                    reused_conversation=chunk.get("is_reused", False),
+                                    reused_conversation=reused_conversation,
+                                    completion_id=completion_id,
+                                    created=created,
                                 )
-                                if artifact_chunk is not None:
-                                    yield await format_sse_chunk(artifact_chunk)
+                            elif chunk.get("type") == "interrupt":
+                                interrupted = True
                     except (asyncio.CancelledError, GeneratorExit):
                         raise
                     except Exception as e:
@@ -426,6 +445,19 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
                         raise
                     else:
                         await registry.save_session_snapshot(cid, self.provider, session_manager)
+                        if interrupted:
+                            return
+                        if artifact_chunk is not None:
+                            yield await format_sse_chunk(artifact_chunk)
+                        else:
+                            terminal_chunk = build_progressive_terminal_chunk(
+                                request.model or "unknown",
+                                completion_id=completion_id,
+                                created=created,
+                            )
+                            terminal_chunk["conversation_id"] = cid
+                            terminal_chunk["reused_conversation"] = reused_conversation
+                            yield await format_sse_chunk(terminal_chunk)
                         yield await get_done_chunk()
                     finally:
                         await cleanup_once()
@@ -484,12 +516,21 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             await registry.save_session_snapshot(cid, self.provider, session_manager)
             
             # 4. Parse tool calls if necessary
-            tool_call = parse_tool_call(response.text) if request.tools else None
+            response_text = getattr(response, "text", "") or ""
+            tool_call = None
+            if request.tools:
+                parse_result = parse_tool_call(response_text, tools=request.tools)
+                if parse_result.status is ToolCallParseStatus.INVALID_TOOL_CALL:
+                    raise GeminiProviderOutputError(
+                        parse_result.error or "Gemini returned malformed tool-call output."
+                    )
+                if parse_result.status is ToolCallParseStatus.VALID_TOOL_CALL:
+                    tool_call = parse_result.tool_call
 
             # 5. Normalize Gemini WebAPI response to OpenAI format and attach artifacts
             if is_stream:
                 openai_response = convert_to_openai_format(
-                    response.text,
+                    response_text,
                     request.model or "unknown",
                     is_stream,
                     tool_call,
@@ -524,6 +565,10 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             await cleanup_once()
             await release_lease()
             raise
+        except GeminiProviderOutputError as e:
+            await cleanup_once()
+            await release_lease()
+            raise HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.") from e
         except APIError as e:
             await cleanup_once()
             await release_lease()

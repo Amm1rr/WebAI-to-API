@@ -50,6 +50,12 @@ asyncio_mode = "strict"
 testpaths = ["tests"]
 asyncio_default_test_loop_scope = "function"
 timeout = 30
+# Temporary workaround for Starlette using deprecated anyio.abc.BlockingPortal.
+# Remove once Starlette no longer emits this warning.
+# Tracking: #142
+filterwarnings = [
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:starlette\\.testclient",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

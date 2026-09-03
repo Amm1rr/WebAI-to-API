@@ -31,6 +31,28 @@ OpenAI-compatible chat completion endpoint.
 * OpenAI-style multimodal `content` parts (`type: "text"` and `type: "file"`)
 * System prompt support
 
+#### OpenAI Request Controls
+
+Audited OpenAI controls are parsed and validated before backend execution. Invalid values and simultaneous
+`max_tokens` plus `max_completion_tokens` return HTTP 422. An explicitly supplied control that the selected backend
+does not support returns HTTP 400; controls are never silently forwarded as if supported.
+
+| Control | Gemini WebAPI | Gemini Playwright | Atlas |
+| --- | --- | --- | --- |
+| `max_tokens` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `max_completion_tokens` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `reasoning_effort` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `stream_options.include_usage` | Accepted, no effect | Accepted, no effect | 400, not forwarded |
+| `temperature` | 400 | 400 | 400, not forwarded |
+| `top_p` | 400 | 400 | 400, not forwarded |
+| `top_k` | 400 | 400 | 400, not forwarded |
+| `response_format` | 400 | 400 | 400, not forwarded |
+| `parallel_tool_calls` | 400 | 400 | 400, not forwarded |
+| `tool_choice` | 400 | 400 | Forwarded unchanged |
+
+Gemini compatibility no-ops do not alter generation settings, usage output, extended-thinking behavior, or
+conversation persistence. `reasoning_effort` is not mapped to `provider_options.gemini.extended_thinking`.
+
 #### Example
 
 ```json
@@ -46,6 +68,8 @@ OpenAI-compatible chat completion endpoint.
 ```
 
 #### Gemini Extended Thinking
+
+This option applies to stateful `/v1/chat/completions` requests. The stateless and temporary Gemini WebAPI endpoints reject `provider_options.gemini` with HTTP 400; stateful Gemini support does not extend to those surfaces.
 
 Gemini WebAPI and Playwright requests may control Extended thinking through typed provider options:
 
@@ -144,9 +168,132 @@ Legacy Gemini browser-native routing remains supported for backward compatibilit
 
 ---
 
+## Stateless Chat API
+
+The stateless surface is intended for Hermes Agent and other clients that own conversation history.
+
+### GET `/v1/stateless/models`
+
+Returns only currently available direct Gemini WebAPI models that satisfy the stateless execution contract, including valid slash-containing model IDs when advertised by the Gemini WebAPI runtime catalog. The catalog is the authority; every model returned here is accepted by `/v1/stateless/chat/completions` under the same runtime state.
+
+Atlas models, Playwright models, legacy Playwright aliases, and models unavailable to the direct WebAPI backend are not advertised. Playwright stateless execution is not implemented.
+
+### POST `/v1/stateless/chat/completions`
+
+Canonical stateless Gemini WebAPI endpoint. OpenAI-compatible chat completion where the client owns conversation history.
+
+#### Backend and state
+
+* Gemini WebAPI is the only supported backend.
+* Playwright stateless execution is not implemented.
+* Atlas and other non-Gemini providers are not supported on this surface.
+* Every request uses Gemini WebAPI `temporary=True` execution.
+* The client owns conversation history and must send the complete history required for each request, including `system`, `user`, `assistant`, and `tool` messages.
+* `conversation_id` is rejected with HTTP 400. No server continuation ID is created or returned.
+* Requests do not use server conversation continuation or SQLite conversation snapshots.
+* Slash-containing model IDs are valid when advertised by `/v1/stateless/models` and recognized as available by the runtime Gemini catalog; unknown slash IDs are rejected. Slash does not imply provider routing. `playwright/*` and `atlas/*` remain rejected.
+
+#### Request controls
+
+These controls are accepted for OpenAI client compatibility but have no effect on Gemini WebAPI generation:
+
+| Control | Behavior |
+| --- | --- |
+| `max_tokens` | Accepted, no effect |
+| `max_completion_tokens` | Accepted, no effect |
+| `reasoning_effort` | Accepted, no effect |
+| `stream_options.include_usage` | Accepted, no effect |
+
+These controls are unsupported and return HTTP 400:
+
+| Control | Behavior |
+| --- | --- |
+| `temperature` | Unsupported |
+| `top_p` | Unsupported |
+| `top_k` | Unsupported |
+| `response_format` | Unsupported |
+| `parallel_tool_calls` | Unsupported |
+| `tool_choice` | Unsupported |
+
+Malformed declared values, invalid types or ranges, and sending both `max_tokens` and `max_completion_tokens` return HTTP 422. Accepted no-effect controls are not forwarded and do not produce fake usage data.
+
+#### Extended thinking
+
+`provider_options.gemini.extended_thinking` is rejected with HTTP 400 on this endpoint. Do not infer stateless support from the broader stateful Gemini WebAPI option.
+
+#### Buffered responses
+
+With `stream=false` (the default), successful text responses use the OpenAI-compatible `chat.completion` shape. Normal text uses `finish_reason: "stop"`. Stateless responses do not include `usage`, `conversation_id`, or `reused_conversation`.
+
+#### Progressive streaming
+
+With `stream=true` and no tools, the endpoint emits Server-Sent Events containing `chat.completion.chunk` objects:
+
+* `id`, `created`, and `model` remain stable for the stream.
+* Content chunks use `delta.content` and `finish_reason: null`.
+* Successful completion emits exactly one terminal chunk with `delta: {}` and `finish_reason: "stop"`.
+* The terminal chunk is followed by `data: [DONE]`.
+* If the response includes generated artifacts, the artifact chunk is the terminal `"stop"` chunk; no additional empty terminal chunk is emitted.
+
+If a provider failure or timeout occurs after SSE headers are sent, the stream terminates without a terminal `"stop"` chunk and without `[DONE]`. This is an incomplete response, not successful completion.
+
+Direct Gemini WebAPI execution has a 300-second request deadline covering buffered generation and progressive stream generation.
+
+#### Generated tool calls
+
+The current provider contract supports one model-generated function tool call per response:
+
+* The function name must be a non-empty string and must match a function declared in the current request's `tools`.
+* Arguments must be a JSON object.
+* OpenAI responses expose arguments as a JSON string.
+* Malformed client tool declarations return HTTP 422; malformed provider tool output returns HTTP 502.
+* Multiple generated tool calls are unsupported.
+
+Tool parameter JSON Schema is provided to the model but is not independently validated by this endpoint.
+
+#### Tool-buffered streaming
+
+`stream=true` with `tools` buffers provider generation first, then emits an OpenAI-compatible SSE replay. This is not native progressive tool streaming. The tool chunk contains `delta.tool_calls`, uses `index: 0`, and has `finish_reason: "tool_calls"`, followed by `[DONE]`.
+
+#### Tool history
+
+For client-owned tool loops, historical assistant tool calls must include:
+
+* a unique non-empty call ID;
+* `type: "function"`;
+* The function name must be a non-empty string.
+* JSON-string arguments whose root value is an object.
+
+Each historical tool result must reference an existing pending call ID and may consume that ID only once. Multiple calls are supported; results may arrive in a different order from their declarations; historical function names do not need to appear in the current request's `tools`.
+
+Malformed, orphan, duplicate, or unresolved tool associations return HTTP 422.
+
+#### Error and status mapping
+
+| Case | Status |
+| --- | ---: |
+| Unsupported capability, provider, or backend | 400 |
+| Invalid request or tool history | 422 |
+| Usage limit or temporary provider block | 429 |
+| Gemini unavailable or authentication not ready | 503 |
+| Direct Gemini timeout | 504 |
+| Expected upstream/provider failure | 502 |
+| Malformed provider tool output | 502 |
+| Unexpected server defect | 500 |
+
+#### Known limitations
+
+* Playwright stateless execution is not implemented.
+* Generated multiple tool calls are unsupported.
+* `parallel_tool_calls` and `tool_choice` are unsupported.
+* Client disconnect or cancellation may not immediately abort the underlying curl transfer.
+* Concurrent requests share upstream Gemini WebAPI client infrastructure; provider-level recovery and failure isolation are not guaranteed.
+
+---
+
 ### POST `/v1/temporary/chat/completions`
 
-Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requests.
+Deprecated compatibility endpoint. New integrations must use `POST /v1/stateless/chat/completions`. This endpoint remains for backward compatibility and delegates to the same canonical stateless Gemini WebAPI implementation (`temporary=True`, client-owned history, no `conversation_id`, no SQLite snapshots).
 
 #### Features
 
@@ -164,6 +311,7 @@ Gemini WebAPI-only OpenAI-compatible chat completion endpoint for temporary requ
 * `atlas/*` models and `provider=atlas` are rejected with HTTP 400
 * File parts are staged per request and cleaned up after completion
 * Successful streaming responses emit OpenAI-compatible SSE chunks and `[DONE]`; terminally truncated streams may end without `[DONE]`
+* Marked `deprecated=True` in OpenAPI; prefer `/v1/stateless/chat/completions`
 ---
 
 ### GET `/v1/conversations`

@@ -8,12 +8,21 @@ from .client import get_atlas_client, AtlasClientNotConfiguredError, AtlasClient
 from app.logger import logger
 from app.schemas.request import OpenAIChatRequest
 from app.services.multimodal import normalize_openai_chat_messages
+from app.services.openai_compatibility import (
+    OpenAICompatibilityCapabilities,
+    OpenAIRequestCapability,
+)
 
 class AtlasProvider(BaseProvider):
     """
     HTTP-native provider for Atlas Cloud.
     Stateless and leverages direct streaming.
     """
+
+    openai_compatibility = OpenAICompatibilityCapabilities(
+        backend_name="Atlas",
+        fields={"tool_choice": OpenAIRequestCapability.SUPPORTED},
+    )
     
     def __init__(self):
         self._model_cache: List[dict] = []

@@ -115,6 +115,98 @@ TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400 = {
                         "detail": "Playwright models are not supported on the temporary chat endpoint.",
                     },
                 },
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES = {
+    "statelessTextOnly": {
+        "summary": "Client-owned conversation history",
+        "value": {
+            "model": "gemini-3-flash",
+            "messages": [
+                {"role": "user", "content": "Hello!"},
+            ],
+        },
+    },
+}
+
+
+STATELESS_CHAT_COMPLETIONS_RESPONSE_400 = {
+    "description": "Bad Request",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {"detail": {"type": "string"}},
+                "required": ["detail"],
+                "additionalProperties": True,
+            },
+            "examples": {
+                "conversationIdRejected": {
+                    "summary": "conversation_id is not supported",
+                    "value": {
+                        "detail": "conversation_id is not supported on the stateless chat endpoint.",
+                    },
+                },
+                "unsupportedProviderRejected": {
+                    "summary": "Unsupported provider or backend",
+                    "value": {
+                        "detail": "Only the Gemini provider is supported on the stateless chat endpoint.",
+                    },
+                },
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
+                    },
+                },
+                "extendedThinkingRejected": {
+                    "summary": "Unsupported provider option",
+                    "value": {
+                        "detail": "provider_options.gemini is not supported by the Gemini WebAPI backend.",
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+STATELESS_CHAT_COMPLETIONS_ERROR_RESPONSES = {
+    429: {"description": "Too Many Requests"},
+    500: {"description": "Internal Server Error"},
+    502: {"description": "Bad Gateway"},
+    503: {"description": "Service Unavailable"},
+    504: {"description": "Gateway Timeout"},
+}
+
+
+CHAT_COMPLETIONS_RESPONSE_400 = {
+    "description": "Bad Request",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {"detail": {"type": "string"}},
+                "required": ["detail"],
+                "additionalProperties": True,
+            },
+            "examples": {
+                "unsupportedRequestFields": {
+                    "summary": "Backend-incompatible request controls",
+                    "value": {
+                        "detail": "Unsupported parameter: temperature (code: unsupported_parameter).",
+                    },
+                },
             },
         }
     },

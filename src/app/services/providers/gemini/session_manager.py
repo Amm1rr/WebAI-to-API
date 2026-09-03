@@ -762,8 +762,9 @@ def transform_messages(messages: list[dict], tools_prompt: str = "") -> list[str
             if tool_calls:
                 for tc in tool_calls:
                     fn = tc.get("function", {})
+                    call_id = tc.get("id") or ""
                     conversation_parts.append(
-                        f"Assistant called tool {fn.get('name')}: {fn.get('arguments', '')}"
+                        f"Assistant tool call [{call_id}] {fn.get('name')}: {fn.get('arguments', '')}"
                     )
             elif content:
                 conversation_parts.append(f"Assistant: {content}")

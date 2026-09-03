@@ -989,7 +989,99 @@ async def test_lease_streaming_response_releases_before_body_starts(install_gemi
 
     assert body_started is False
     cleanup.assert_awaited_once_with()
+    assert record.lease_count == 0
     client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_lease_streaming_response_cleanup_failure_still_releases_lease(
+    install_gemini_client,
+    caplog,
+):
+    client = make_mock_client("AVAILABLE")
+    install_gemini_client(client)
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    record = gemini_client_module._gemini_generation_records[lease.generation]
+    gemini_client_module._retire_generation(record)
+    cleanup = AsyncMock(side_effect=RuntimeError("cleanup failed"))
+
+    async def body():
+        yield b"body"
+
+    response = GeminiLeaseStreamingResponse(
+        body(),
+        lease=lease,
+        cleanup=cleanup,
+    )
+    lease.transfer()
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    async def send(_message):
+        return None
+
+    await response(
+        {"type": "http", "asgi": {"spec_version": "2.4"}},
+        receive,
+        send,
+    )
+
+    cleanup.assert_awaited_once_with()
+    assert any(
+        record.levelname == "WARNING" and "cleanup failed" in record.message
+        for record in caplog.records
+    )
+    assert record.lease_count == 0
+    client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_lease_streaming_response_preserves_cancellation_through_cleanup(install_gemini_client):
+    client = make_mock_client("AVAILABLE")
+    install_gemini_client(client)
+    lease = gemini_client_module.acquire_current_gemini_lease()
+    cleanup_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    async def cleanup():
+        cleanup_started.set()
+        await cleanup_finished.wait()
+
+    async def body():
+        yield b"body"
+
+    response = GeminiLeaseStreamingResponse(
+        body(),
+        lease=lease,
+        cleanup=cleanup,
+    )
+    lease.transfer()
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    async def send(_message):
+        return None
+
+    response_task = asyncio.create_task(
+        response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+    )
+    await cleanup_started.wait()
+    response_task.cancel()
+    await asyncio.sleep(0)
+    assert not response_task.done()
+
+    cleanup_finished.set()
+    with pytest.raises(asyncio.CancelledError):
+        await response_task
+
+    assert cleanup_finished.is_set()
+    assert gemini_client_module._gemini_generation_records[0].lease_count == 0
 
 
 def test_lease_cannot_transfer_ownership_twice(install_gemini_client):

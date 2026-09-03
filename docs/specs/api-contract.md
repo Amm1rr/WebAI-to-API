@@ -16,7 +16,9 @@ WebAI-to-API exposes multiple API surfaces to balance standard compatibility, le
 | Endpoint | Category | Recommended | Persistence | Streaming | Notes |
 | :--- | :--- | :---: | :--- | :---: | :--- |
 | `/v1/chat/completions` | Primary | Yes | Provider/backend-dependent | Yes | Authoritative OpenAI-compatible surface. |
-| `/v1/temporary/chat/completions` | Specialized | No | Gemini WebAPI temporary | Yes | OpenAI-compatible Gemini-only temporary endpoint; no durable conversation continuation. |
+| `/v1/stateless/chat/completions` | Primary | Yes | Client-owned history; Gemini WebAPI temporary | Yes | Canonical stateless Gemini WebAPI endpoint; `conversation_id` rejected; slash IDs valid when advertised. |
+| `/v1/stateless/models` | Primary | Yes | N/A | No | Lists currently available direct Gemini WebAPI models valid for stateless execution (including valid slash IDs). |
+| `/v1/temporary/chat/completions` | Deprecated | No | Gemini WebAPI temporary (delegates to stateless) | Yes | Deprecated compatibility wrapper; use `/v1/stateless/chat/completions`. |
 | `/v1/conversations` | Primary | Yes | Lists/deletes Gemini WebAPI snapshots | No | GET lists local snapshots; DELETE bulk-deletes Gemini WebAPI conversations. |
 | `/v1/conversations/{conversation_id}` | Primary | Yes | Deletes Gemini WebAPI snapshots | No | Gemini WebAPI-only conversation deletion. |
 | `/v1/models` | Primary | Yes | N/A | No | Discovery endpoint for registered providers and their available model IDs. |
@@ -52,9 +54,27 @@ Requests may use typed provider-scoped options:
 }
 ```
 
-`gemini.extended_thinking` applies to Gemini WebAPI and Playwright models. Effective value is resolved on every request: an explicit request value takes precedence over `[Gemini].extended_thinking`, which falls back to `false` when the key is missing. The value accepts only case-insensitive, trimmed `true` or `false`; config stores canonical lowercase values. The option is request-scoped and is not part of session identity or persisted snapshots, so reused conversations may switch values between turns. Omitted Playwright request options do not inherit UI state from a reused `PersistentTab`. Atlas rejects the option with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Extended thinking is not declared equivalent to `reasoning_effort`.
+`gemini.extended_thinking` applies to stateful `/v1/chat/completions` requests for Gemini WebAPI and Playwright models. Effective value is resolved on every request: an explicit request value takes precedence over `[Gemini].extended_thinking`, which falls back to `false` when the key is missing. The value accepts only case-insensitive, trimmed `true` or `false`; config stores canonical lowercase values. The option is request-scoped and is not part of session identity or persisted snapshots, so reused conversations may switch values between turns. Omitted Playwright request options do not inherit UI state from a reused `PersistentTab`. Atlas rejects the option with HTTP 400. `/v1/stateless/chat/completions` and `/v1/temporary/chat/completions` reject `provider_options.gemini` with HTTP 400. Unknown namespaces, unknown Gemini options, and invalid value types fail schema validation with HTTP 422. Extended thinking is not declared equivalent to `reasoning_effort`.
 
-For Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
+For stateful Gemini WebAPI, the resolved boolean applies to buffered generation, progressive streaming, tool-call buffered generation, and generation retry, and is passed through to upstream chat generation.
+
+### OpenAI Request Controls
+
+The primary and Gemini temporary/stateless chat endpoints share one backend-aware compatibility validator. Request
+values are validated before leases, browser work, normalization side effects, or upstream calls.
+
+| Control | Gemini WebAPI | Gemini Playwright | Atlas |
+| --- | --- | --- | --- |
+| `max_tokens`, `max_completion_tokens` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `reasoning_effort` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `stream_options.include_usage` | Accepted, no effect | Accepted, no effect | Unsupported, HTTP 400 |
+| `temperature`, `top_p`, `top_k` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Unsupported, HTTP 400 |
+| `response_format`, `parallel_tool_calls` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Unsupported, HTTP 400 |
+| `tool_choice` | Unsupported, HTTP 400 | Unsupported, HTTP 400 | Supported and forwarded unchanged |
+
+Malformed control values and requests supplying both token aliases fail schema validation with HTTP 422. Accepted
+no-effect controls are not forwarded to generation, do not synthesize usage, and do not change persistence or
+extended-thinking semantics. A schema-accepted field is not automatically a semantically supported field.
 
 ### 3.1 Multimodal Content Parts
 
@@ -84,6 +104,21 @@ Gemini WebAPI may return generated artifacts alongside text output.
 - **Thoughts**: Model thoughts remain hidden by default and are not exposed through the public API response shape.
 - **Persistence**: Artifact blobs are not persisted in local snapshots or conversation state.
 - **Metadata Semantics**: Artifact URLs are provider metadata only. Clients must not assume they are permanent, public, or stable download handles.
+
+### 3.3 Stateless Contract: /v1/stateless/chat/completions
+
+The `/v1/stateless/chat/completions` endpoint is the canonical generic client-owned-history surface. It supports direct Gemini WebAPI execution only (`temporary=True`, no `conversation_id`, no SQLite snapshots). The complete request, response, tool, timeout, error, and limitation rules are defined in the [Stateless Chat Execution Contract](stateless-chat-contract.md).
+
+- **History Ownership**: Clients must send the complete conversation history required for each request, including assistant tool calls and tool results.
+- **Conversation IDs**: `conversation_id` is rejected. The endpoint does not create or return a continuation ID.
+- **Execution**: Requests use Gemini WebAPI `temporary=True` execution and the shared message transformation, tool prompt, tool-call parsing, and response streaming paths.
+- **Persistence**: Requests do not restore or create `ChatSession` state, SQLite conversation snapshots, or Gemini conversation history.
+- **Excluded Backends**: Playwright, Atlas, and other non-Gemini providers are rejected. Playwright stateless execution is not implemented.
+- **Model IDs**: Slash-containing model IDs are valid when the runtime Gemini catalog reports them as available. Validity is determined solely by the runtime catalog/resolver; slash does not imply provider routing and unknown slash IDs are rejected.
+
+### 3.4 Stateless Model Discovery: /v1/stateless/models
+
+`GET /v1/stateless/models` returns only currently available direct Gemini WebAPI models from the runtime capability catalog, including valid slash-containing model IDs when the runtime reports them as available. It does not advertise Atlas models, Playwright models, legacy Playwright aliases, or models unavailable to the direct WebAPI backend. Every model advertised here is accepted by `/v1/stateless/chat/completions` under the same runtime state.
 
 ## 4. Conversation Contract
 
@@ -145,6 +180,7 @@ Persistence semantics vary significantly across endpoints and across `/v1/chat/c
 | Endpoint / Backend | Restart Safe | Persistence Type | Recovery Mechanism |
 | :--- | :---: | :--- | :--- |
 | `/v1/chat/completions` - Gemini WebAPI | Yes | SQLite-backed snapshots | Serialized `ChatSession` restoration via repository. |
+| `/v1/stateless/chat/completions` - Gemini WebAPI | No | Client-owned history; temporary only | Full supplied message history is transformed and sent independently on every request. |
 | `/v1/temporary/chat/completions` - Gemini WebAPI | No | Temporary only | Requests use `temporary=True` and are never written to Gemini history or SQLite snapshots. |
 | `/v1/chat/completions` - Gemini Playwright | Provider-dependent | Provider-side URL-backed | Navigate to `https://gemini.google.com/app/{conversation_id}`; reuse `PersistentTab` when still in memory. |
 | `/v1/chat/completions` - Atlas | No | Stateless | No local conversation persistence; requests are forwarded independently. |
@@ -184,11 +220,12 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 
 ### `/v1/temporary/chat/completions`
 
-- **Status**: **Supported (Specialized)**.
+- **Status**: **Deprecated – compatibility wrapper**.
 - **Scope**: Gemini WebAPI only. Playwright and Atlas models/providers are rejected.
 - **Schema**: OpenAI-compatible request/response shape.
 - **Persistence**: Requests use `temporary=True`, do not persist in Gemini history, and do not write SQLite conversation snapshots.
 - **Conversation IDs**: `conversation_id` is rejected to avoid implying durable continuation.
+- **Implementation**: Delegates to the canonical `/v1/stateless/chat/completions` implementation; marked `deprecated=True` in OpenAPI. New integrations must use `/v1/stateless/chat/completions`.
 
 ## 9. Authentication Contract
 
@@ -244,6 +281,8 @@ Adapter (Execution Strategy - e.g., Playwright or WebAPI)
 2. **Stability**: Legacy and Specialized endpoints must remain stable even if their underlying implementation is refactored.
 3. **Contracts over Wrappers**: The structural API contracts defined here take precedence over any convenience wrappers or documentation summaries.
 4. **Deprecation**: Removal of public endpoints should follow a documented deprecation process.
+
+**Stateless Execution:** The implemented client-owned conversation design is defined in [Stateless Chat Execution Contract](stateless-chat-contract.md) and [ADR-0001](../adr/0001-stateless-chat-execution.md). `/v1/stateless/models` and `/v1/stateless/chat/completions` expose direct Gemini WebAPI execution only; Playwright stateless execution is not implemented.
 
 ## 12. System and Runtime Endpoints
 

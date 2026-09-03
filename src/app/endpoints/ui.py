@@ -24,6 +24,22 @@ CATEGORY_MAPPING = {
     "Legacy": "Legacy",
 }
 
+
+def _get_category_for_route(route: APIRoute) -> str:
+    """Categorize a route, demoting deprecated Recommended routes to Legacy.
+
+    Uses generic `route.deprecated` metadata rather than hardcoding paths,
+    so any deprecated route that would otherwise be Recommended is shown as
+    Legacy. This keeps the Dashboard from presenting deprecated APIs as
+    recommended starting points.
+    """
+    tags = getattr(route, "tags", []) or []
+    primary_tag = tags[0] if tags else "None"
+    category = CATEGORY_MAPPING.get(primary_tag, "Advanced")
+    if getattr(route, "deprecated", False) and category == "Recommended":
+        category = "Legacy"
+    return category
+
 FEATURE_REGISTRY = {
     "/v1/chat/completions": {
         "streaming": True,
@@ -32,6 +48,13 @@ FEATURE_REGISTRY = {
     "/v1/temporary/chat/completions": {
         "streaming": True,
         "persistence": "none",
+    },
+    "/v1/stateless/chat/completions": {
+        "streaming": True,
+        "persistence": "none",
+    },
+    "/v1/stateless/models": {
+        "streaming": False,
     },
     "/v1beta/models/{model_path:path}": {
         "streaming": True,
@@ -305,8 +328,7 @@ async def dashboard_apis(request: Request):
         normalized_description = " ".join(description.split()) if description else "No description provided."
 
         # Categorization
-        primary_tag = tags[0] if tags else "None"
-        category = CATEGORY_MAPPING.get(primary_tag, "Advanced")
+        category = _get_category_for_route(route)
 
         # Feature Injection
         features = FEATURE_REGISTRY.get(path, {})

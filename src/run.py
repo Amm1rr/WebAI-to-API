@@ -1,11 +1,17 @@
 # src/run.py
 import argparse
 import asyncio
+import logging
 import os
+import signal
 import sys
 import threading
 
 import uvicorn
+
+logger = logging.getLogger("app")
+
+from app.shutdown import request_shutdown as request_generic_shutdown
 # --- App and Service Imports ---
 from app.config import CONFIG, get_runtime_dir, resolve_logging_config
 from app.utils.startup import (
@@ -39,9 +45,41 @@ class ApplicationServer(uvicorn.Server):
         self._shutdown_lock = threading.Lock()
         self._shutdown_intent_marked = False
         self._update_check_task = None
+        self._startup_shutdown_requested = False
+
+    def _log_started_message(self, listeners):
+        # Defensive: suppress log if shutdown was requested during startup
+        # after listener creation race. Primary prevention is in startup()
+        # via lifespan.should_exit before listener creation.
+        if self.should_exit:
+            return
+        super()._log_started_message(listeners)
 
     async def startup(self, sockets=None):
+        # Covers the narrow case where SIGINT arrived after signal handlers
+        # became active but before ApplicationServer.startup() began.
+        if self._startup_shutdown_requested:
+            lifespan = getattr(self, "lifespan", None)
+            if lifespan is not None:
+                lifespan.should_exit = True
+
         await super().startup(sockets=sockets)
+
+        if self._startup_shutdown_requested:
+            if self.started:
+                # Narrow race: SIGINT arrived after Uvicorn's lifespan.should_exit
+                # check, so listeners may already have been created.
+                # Use Uvicorn's own shutdown implementation to close them and
+                # execute lifespan shutdown.
+                await super().shutdown(sockets=sockets)
+            elif not self.force_exit:
+                # Normal startup-SIGINT case: Uvicorn observed lifespan.should_exit
+                # and returned before listener creation, but Server._serve will
+                # return without calling shutdown(), so complete lifespan shutdown
+                # here.
+                await self.lifespan.shutdown()
+            return
+
         if (
             self.started
             and self._update_check_task is None
@@ -68,15 +106,44 @@ class ApplicationServer(uvicorn.Server):
         if self._shutdown_intent_marked:
             return
         self._shutdown_intent_marked = True
+        # Generic application intent (neutral, for ASGI boundary)
+        request_generic_shutdown("application")
+        # BrowserEngine intent remains authoritative for browser lifecycle
         from app.services.browser.engine import request_application_shutdown
+
         request_application_shutdown()
 
+    def _mark_startup_shutdown(self):
+        """Mark that shutdown was requested before server.started became True."""
+        self._startup_shutdown_requested = True
+        # Use lifespan boundary to prevent normal listener creation.
+        # When lifespan object exists, set its should_exit so startup returns
+        # before listeners. This is safe to set even if lifespan already completed;
+        # startup() will check self.should_exit as well.
+        lifespan = getattr(self, "lifespan", None)
+        if lifespan is not None:
+            try:
+                lifespan.should_exit = True
+            except Exception:
+                pass
+
     def handle_exit(self, sig, frame):
-        # Real signal path: mark intent first (at most once, under the same
-        # lock as the programmatic path), then delegate unchanged so Uvicorn
-        # keeps its own logging and second-signal force-exit behavior.
+        # Emergency hard exit: second SIGINT while shutdown already active
+        # must terminate immediately with POSIX 130 without delegating to
+        # Uvicorn's force-exit machinery.
+        # This is the operator force-quit path; first SIGINT and SIGTERM
+        # retain normal graceful shutdown.
+        should_hard_exit = False
         with self._shutdown_lock:
-            self._mark_application_shutdown_intent()
+            if self.should_exit and sig == signal.SIGINT:
+                should_hard_exit = True
+            else:
+                self._mark_application_shutdown_intent()
+                if not self.started:
+                    self._mark_startup_shutdown()
+        if should_hard_exit:
+            logger.warning("Emergency shutdown: second SIGINT received, exiting immediately.")
+            os._exit(130)
         super().handle_exit(sig, frame)
 
     def request_shutdown(self, reason: str = "programmatic") -> bool:
@@ -172,5 +239,6 @@ if __name__ == "__main__":
         log_level=resolved_level.lower(),
         access_log=not resolved_disable_access,
         workers=1,
+        timeout_graceful_shutdown=15,
     )
     run_server(config)

@@ -69,10 +69,10 @@ The pipeline is designed to handle providers that "rewrite" the full response te
 - **Finalization**: Every successful stream MUST terminate with a literal `data: [DONE]` chunk.
 
 ### 7.2 Post-Header Terminal Conditions
-- **Before response start**: The request executor owns terminal browser loss and applies normal HTTP error policy. `BrowserDisconnectedError` retains its existing HTTP 502 mapping.
+- **Before response start**: The request executor owns terminal browser loss and applies normal HTTP error policy. `BrowserDisconnectedError` retains its existing HTTP 502 mapping. Uvicorn graceful-timeout cancellation before headers is handled by the outermost shutdown boundary as `503 Service Unavailable` (expected shutdown, not `500`).
 - **After response start**: Once SSE status 200 and headers are sent, HTTP status cannot be rewritten. The SSE body iterator owns expected terminal request conditions.
-- **Expected terminal conditions**: `BrowserDisconnectedError`, `BrowserShuttingDownError`, `BrowserGenerationMismatchError`, `QueueOverflowError`, and `ConversationBusyError` terminate the iterator internally and MUST NOT escape into Starlette/AnyIO. No new SSE error event or schema is emitted.
-- **Terminal truncation**: A browser/page/context loss, forced shutdown, generation mismatch, queue overflow, or conversation contention ends the stream without `data: [DONE]` and logs `Stream terminated`, not `Stream completed`. Absence of `[DONE]` means the stream did not complete successfully; clients MUST NOT interpret it as successful completion.
+- **Expected terminal conditions**: `BrowserDisconnectedError`, `BrowserShuttingDownError`, `BrowserGenerationMismatchError`, `QueueOverflowError`, and `ConversationBusyError` terminate the iterator internally and MUST NOT escape into Starlette/AnyIO. No new SSE error event or schema is emitted. `Task cancelled, timeout graceful shutdown exceeded` during `timeout_graceful_shutdown` is also expected: the shutdown boundary truncates the stream via an empty final body frame (`more_body=False`) without `[DONE]`.
+- **Terminal truncation**: A browser/page/context loss, forced shutdown, generation mismatch, queue overflow, conversation contention, or graceful-timeout cancellation ends the stream without `data: [DONE]` and logs `Stream terminated`, not `Stream completed`. Absence of `[DONE]` means the stream did not complete successfully; clients MUST NOT interpret it as successful completion.
 
 Successful completion remains:
 
