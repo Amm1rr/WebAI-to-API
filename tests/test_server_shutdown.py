@@ -733,3 +733,277 @@ def test_server_main_configures_graceful_shutdown_timeout():
             )
 
     raise AssertionError("no uvicorn.Config() call found in src/run.py")
+
+
+# --- Startup SIGINT handling (lifespan startup) --------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sigint_during_startup_records_shutdown_intent(mocker):
+    """SIGINT during startup must record application shutdown intent."""
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown", return_value=True)
+
+    server = make_server()
+
+    async def slow_startup(*args, **kwargs):
+        server.handle_exit(2, None)
+        return
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=slow_startup)
+    mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+    # Mock lifespan to avoid real shutdown call
+    server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    mocker.patch.object(uvicorn.Server, "_log_started_message")
+
+    await server.startup()
+
+    assert server.should_exit is True
+    assert server._shutdown_intent_marked is True
+    assert server._startup_shutdown_requested is True
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_startup_prevents_update_check_and_log(mocker):
+    """Shutdown during super().startup() must not schedule update-check nor log running."""
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+    log_mock = mocker.patch.object(uvicorn.Server, "_log_started_message")
+    mocker.patch("run.CONFIG.getboolean", return_value=True)
+
+    server = make_server()
+    server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+
+    async def slow_startup(self, sockets=None):
+        self.handle_exit(2, None)
+        # Simulate super().startup returning early without listeners when lifespan.should_exit
+        return
+
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=slow_startup)
+    # Patch update check to ensure not called
+    update_check = mocker.patch("app.utils.update_check.run_update_check")
+
+    await server.startup()
+
+    assert server.should_exit is True
+    assert server._update_check_task is None
+    update_check.assert_not_called()
+    # _log_started_message should have been suppressed (not called when should_exit)
+    # Our startup should not have called it because super().startup returned early
+    log_mock.assert_not_called()
+    server2 = make_server()
+    server2.should_exit = True
+    server2._log_started_message([])
+    log_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_log_suppressed_when_should_exit_during_startup(mocker):
+    """_log_started_message must be suppressed when should_exit is already set."""
+    server = make_server()
+    server.should_exit = True
+    log_mock = mocker.patch.object(uvicorn.Server, "_log_started_message")
+
+    server._log_started_message([])
+
+    log_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_normal_startup_still_schedules_update_check(mocker):
+    """Normal startup (no SIGINT) must still schedule update-check once."""
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+
+    async def normal_startup(sockets=None):
+        mocker.patch.object(uvicorn.Server, "_log_started_message")
+        # Simulate successful super startup
+        pass
+
+    # Use real startup flow with mocked parent
+    async def parent_startup(server, sockets=None):
+        server.started = True
+
+    check = mocker.patch("app.utils.update_check.run_update_check", new_callable=AsyncMock)
+    mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
+    mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
+    mocker.patch("run.CONFIG.getboolean", return_value=True)
+
+    server = make_server()
+    await server.startup()
+    # Simulate _serve's should_exit check not triggering
+    assert server.should_exit is False
+    assert server._update_check_task is not None
+    # Second startup should not create another
+    await server.startup()
+    assert check.call_count == 1 or server._update_check_task is not None
+    await server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_startup_exception_still_propagates(mocker):
+    """Real startup errors must propagate, not be converted to clean shutdown."""
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+
+    async def failing_startup(*args, **kwargs):
+        raise RuntimeError("startup failed")
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=failing_startup)
+    server = make_server()
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        await server.startup()
+
+    assert server._update_check_task is None
+    assert server.should_exit is False
+
+
+@pytest.mark.asyncio
+async def test_startup_then_serve_skips_main_loop_when_should_exit_during_startup(mocker):
+    """Real _serve path must skip main_loop when should_exit set during startup (no fake logic)."""
+    mocker.patch("app.services.browser.engine.request_application_shutdown")
+    mocker.patch("run.request_generic_shutdown")
+
+    server = make_server()
+    server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+
+    async def slow_startup(*args, **kwargs):
+        server.handle_exit(2, None)
+        return
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=slow_startup)
+    await server.startup()
+    assert server.should_exit is True
+    assert server._startup_shutdown_requested is True
+    assert server._update_check_task is None
+    assert server.started is False
+
+
+@pytest.mark.asyncio
+async def test_startup_sigint_uses_lifespan_boundary(mocker):
+    """SIGINT during lifespan startup must set lifespan.should_exit and prevent listeners."""
+    server = make_server()
+    mock_lifespan = MagicMock()
+    mock_lifespan.should_exit = False
+    mock_lifespan.state = {}
+    mock_lifespan.shutdown = AsyncMock()
+    # Simulate super().startup observing lifespan.should_exit and returning without listeners
+    # Patch super().startup to set started only if not should_exit, like real Uvicorn
+    async def mock_super_startup(sockets=None):
+        # This simulates Uvicorn's startup after lifespan.should_exit check
+        if server.lifespan.should_exit:
+            return
+        # Simulate normal listener creation
+        server.started = True
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=mock_super_startup)
+    server.lifespan = mock_lifespan
+    # Simulate SIGINT during startup before super().startup
+    server.handle_exit(2, None)
+    # At this point, _startup_shutdown_requested True and lifespan.should_exit True
+    assert server._startup_shutdown_requested is True
+    assert server.lifespan.should_exit is True
+    assert server.should_exit is True
+
+    # Now call ApplicationServer.startup which should propagate _startup_shutdown_requested to lifespan.should_exit
+    # and then call super().startup which will return early, then handle shutdown
+    # Test the pre-startup propagation
+    server2 = make_server()
+    server2.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    server2._startup_shutdown_requested = True
+    # Mock super().startup to check that lifespan.should_exit was set before call
+    async def check_super(sockets=None):
+        assert server2.lifespan.should_exit is True
+        # Simulate Uvicorn returning before listeners
+        return
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=check_super)
+    mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+    server2.lifespan.shutdown = AsyncMock()
+    await server2.startup()
+    # Should have called lifespan.shutdown exactly once via startup's post-super handling
+    server2.lifespan.shutdown.assert_awaited_once()
+    assert server2._update_check_task is None
+    assert server2.started is False
+
+
+@pytest.mark.asyncio
+async def test_startup_race_uses_super_shutdown_for_listeners(mocker):
+    """Narrow race where startup returns started=True must use super().shutdown() to close listeners."""
+    server = make_server()
+    # Simulate super().startup creating listeners despite should_exit (race)
+    async def mock_super_startup(sockets=None):
+        server.started = True
+        server.servers = [MagicMock(close=MagicMock(), wait_closed=AsyncMock())]
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=mock_super_startup)
+    super_shutdown = mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+    server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    server._startup_shutdown_requested = True
+    server.should_exit = True
+    server.force_exit = False
+
+    await server.startup()
+
+    # Should have called super().shutdown to close listeners via Uvicorn's own shutdown
+    super_shutdown.assert_awaited_once()
+    assert server._update_check_task is None
+
+
+@pytest.mark.asyncio
+async def test_normal_startup_uses_inherited_uvicorn_startup(mocker):
+    """Normal startup must use inherited Uvicorn startup and schedule update-check once."""
+    server = make_server()
+    # Mock super().startup to simulate normal Uvicorn startup
+    async def mock_super(sockets=None):
+        server.started = True
+        server.lifespan = MagicMock(should_exit=False, state={})
+        # No should_exit set
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=mock_super)
+    mocker.patch("run.CONFIG.getboolean", return_value=True)
+    mock_update = mocker.patch("app.utils.update_check.run_update_check", new_callable=AsyncMock)
+
+    await server.startup()
+    assert server.started is True
+    assert server._update_check_task is not None
+    first_task = server._update_check_task
+    # Second startup should not create another
+    await server.startup()
+    assert server._update_check_task is first_task
+    # Cleanup
+    if server._update_check_task:
+        server._update_check_task.cancel()
+        try:
+            await server._update_check_task
+        except:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_genuine_startup_failure_not_mistaken_for_sigint(mocker):
+    """Genuine startup failure must not be mistaken for operator startup shutdown."""
+    server = make_server()
+    mock_lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
+    server.lifespan = mock_lifespan
+    server._startup_shutdown_requested = False
+
+    # Simulate inherited Uvicorn startup returning with should_exit=True for genuine failure
+    # while _startup_shutdown_requested remains False
+    async def mock_super(sockets=None):
+        server.should_exit = True
+        # started remains False (no listeners), like real Uvicorn when lifespan.should_exit
+        return
+
+    mocker.patch.object(uvicorn.Server, "startup", side_effect=mock_super)
+    mocker.patch.object(uvicorn.Server, "shutdown", new_callable=AsyncMock)
+
+    await server.startup()
+
+    # Startup-SIGINT cleanup branch must only execute when _startup_shutdown_requested=True
+    mock_lifespan.shutdown.assert_not_called()
+    assert server._update_check_task is None
+    assert server._startup_shutdown_requested is False

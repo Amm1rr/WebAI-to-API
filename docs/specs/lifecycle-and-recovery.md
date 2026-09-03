@@ -53,6 +53,8 @@ Application shutdown follows:
 
 Emergency operator force-quit: a second `SIGINT` while shutdown is already active logs one concise warning and terminates immediately via `os._exit(130)` without awaiting cleanup. This applies only to repeated `SIGINT`; `SIGTERM` and programmatic `request_shutdown()` retain normal graceful `15s` drain, while `SIGINT` after programmatic shutdown is treated as explicit force-quit.
 
+**Startup Shutdown Invariant**: Shutdown intent received during application startup (e.g., `SIGINT`/`Ctrl+C` during FastAPI lifespan startup while Gemini initialization is in progress) prevents transition into normal serving state and proceeds through application lifespan cleanup once startup reaches a safe completion point. The server does not log `Uvicorn running on ...`, does not schedule update-check, and does not require immediate cancellation of the in-progress Gemini initialization; the current initialization step may finish before lifespan shutdown executes.
+
 ProviderSession resources always close before Browser, and Browser before the driver stops. `BrowserEngine` owns this ordering and all shutdown/recovery decisions; the runtime only executes the mechanics. Runtime terminal cleanup uses `save_state=False`; bootstrap/manual auth cleanup may use `save_state=True`.
 
 **Shutdown Invariant**: Once shutdown intent exists, no new recovery or admission may begin. Workers recheck shutdown state after acquiring `init_lock` and before cleanup. Existing recovery may be cancelled and awaited during terminal cleanup.
