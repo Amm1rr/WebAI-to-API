@@ -121,6 +121,8 @@ AI Agents working on this runtime MUST adhere to these strict constraints:
 ## 8. Development & Operations
 
 ### 8.1 Key Directory Structure
+- `src/app/server.py`: Application server lifecycle, Uvicorn configuration, signal handling, and graceful shutdown orchestration.
+- `src/run.py`: Minimal process entry point that delegates to `app.server` and handles bootstrap `KeyboardInterrupt`.
 - `src/app/services/browser/`: Core engine, session, and tab management.
 - `src/app/services/browser/runtime/`: Browser launch mechanics (`BrowserRuntime`, `PlaywrightChromiumRuntime`, `create_browser_runtime()`).
 - `src/app/services/providers/`: Provider-specific implementation logic.

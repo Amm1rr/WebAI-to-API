@@ -17,7 +17,7 @@ The `BrowserEngine` operates according to a strict state machine. Transitions in
   - `shutdown_requested` records lifecycle admission closure and first-writer-owned shutdown source (`application`, `browser-disconnect`, or `manual/internal`).
   - `is_shutting_down` indicates that BrowserEngine terminal teardown is active and blocks recovery while active.
   - `_shutdown_started` is the internal idempotency guard for `close()` execution. It is managed by `close()` under `management_lock`.
-- **Application Shutdown**: `ApplicationServer.handle_exit()` marks application shutdown intent before delegating to Uvicorn. Uvicorn drains connections; FastAPI lifespan later calls `BrowserEngine.close(source="application")`.
+- **Application Shutdown**: Once `ApplicationServer` signal handling is active, `ApplicationServer.handle_exit()` marks application shutdown intent before delegating to Uvicorn. Uvicorn drains connections; FastAPI lifespan later calls `BrowserEngine.close(source="application")`.
 - **No Resurrection**: A `CLOSED` engine can never transition back to `HEALTHY`. A new process instance must be created.
 - **Enforcement**: Any call to `ensure_healthy()` during `SHUTTING_DOWN` or `CLOSED` must raise `RuntimeError("Browser engine is shutting down")`.
 
