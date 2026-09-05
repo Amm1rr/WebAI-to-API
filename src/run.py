@@ -11,14 +11,8 @@ import uvicorn
 
 logger = logging.getLogger("app")
 
+from app.config import CONFIG, get_runtime_dir
 from app.shutdown import request_shutdown as request_generic_shutdown
-# --- App and Service Imports ---
-from app.config import CONFIG, get_runtime_dir, resolve_logging_config
-from app.utils.startup import (
-    configure_startup_output,
-    print_gemini_preflight_status,
-    print_server_info,
-)
 
 
 def configure_windows_event_loop_policy():
@@ -194,10 +188,16 @@ def run_server(config):
 
 
 
-# --- Main Execution Block ---
-if __name__ == "__main__":
+def main():
     # Fix: Set the asyncio event loop policy for Windows.
     configure_windows_event_loop_policy()
+    from app.config import resolve_logging_config
+    from app.utils.startup import (
+        configure_startup_output,
+        print_gemini_preflight_status,
+        print_server_info,
+    )
+
     configure_startup_output()
 
     parser = argparse.ArgumentParser(
@@ -214,6 +214,7 @@ if __name__ == "__main__":
 
     # Setup logging
     from app.logger import setup_logging
+
     setup_logging(resolved_level, resolved_disable_access)
 
     # Import app.main now that the root logger is configured
@@ -242,3 +243,10 @@ if __name__ == "__main__":
         timeout_graceful_shutdown=15,
     )
     run_server(config)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise SystemExit(130)

@@ -1007,3 +1007,69 @@ async def test_genuine_startup_failure_not_mistaken_for_sigint(mocker):
     mock_lifespan.shutdown.assert_not_called()
     assert server._update_check_task is None
     assert server._startup_shutdown_requested is False
+
+
+# --- Bootstrap KeyboardInterrupt handling (run.main) --------------------------
+
+
+def test_main_bootstrap_keyboard_interrupt_propagates(mocker):
+    """KeyboardInterrupt during bootstrap must propagate from main() so the entry boundary can handle it."""
+    mocker.patch("run.configure_windows_event_loop_policy", side_effect=KeyboardInterrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_module.main()
+
+
+def test_main_normal_execution_reaches_run_server(mocker):
+    """Normal bootstrap must reach run_server(config) with a constructed uvicorn.Config."""
+    import argparse
+
+    mocker.patch("run.configure_windows_event_loop_policy")
+    mocker.patch("app.utils.startup.configure_startup_output")
+    mocker.patch("app.utils.startup.print_gemini_preflight_status")
+    mocker.patch("app.utils.startup.print_server_info")
+    mocker.patch("app.config.resolve_logging_config", return_value=("info", False))
+    mocker.patch("app.logger.setup_logging")
+    fake_app = MagicMock()
+    mocker.patch.dict(sys.modules, {"app.main": MagicMock(app=fake_app)})
+    mocker.patch.object(run_module.CONFIG, "getboolean", return_value=True)
+    mocker.patch.object(run_module.CONFIG, "get", return_value="gemini-test")
+    fake_config = MagicMock()
+    mock_uvicorn_config = mocker.patch("run.uvicorn.Config", return_value=fake_config)
+    mock_run_server = mocker.patch("run.run_server")
+    mocker.patch.object(
+        argparse.ArgumentParser,
+        "parse_args",
+        return_value=MagicMock(host="localhost", port=6969, log_level=None, disable_access_logs=False),
+    )
+
+    run_module.main()
+
+    mock_run_server.assert_called_once_with(fake_config)
+    mock_uvicorn_config.assert_called_once()
+    assert mock_uvicorn_config.call_args.kwargs["host"] == "localhost"
+    assert mock_uvicorn_config.call_args.kwargs["port"] == 6969
+
+
+def test_bootstrap_interrupt_exits_130_without_traceback():
+    """Real entry-point behavior: interrupt during bootstrap exits 130 without traceback."""
+    import subprocess
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        import sys
+        sys.path.insert(0, 'src')
+        from unittest.mock import patch
+        import runpy
+        patch('app.utils.startup.configure_startup_output', side_effect=KeyboardInterrupt).start()
+        try:
+            runpy.run_path('src/run.py', run_name='__main__')
+        except SystemExit as e:
+            sys.exit(e.code)
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 130, f"expected 130 got {result.returncode} stderr={result.stderr!r}"
+    assert "Traceback" not in result.stderr
+    assert "KeyboardInterrupt" not in result.stderr
