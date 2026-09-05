@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import uvicorn
-import run as run_module
+import app.server as run_module
 
 from app.services.browser.engine import BrowserEngine
-from run import ApplicationServer, run_server
+from app.server import ApplicationServer, run_server
 
 
 def make_server():
@@ -59,7 +59,7 @@ def test_signal_marks_application_intent_before_uvicorn_exit(mocker):
         "app.services.browser.engine.request_application_shutdown",
         side_effect=lambda: calls.append("application-shutdown"),
     )
-    mocker.patch("run.request_generic_shutdown", side_effect=lambda source="application": calls.append("generic-shutdown") or True)
+    mocker.patch("app.server.request_generic_shutdown", side_effect=lambda source="application": calls.append("generic-shutdown") or True)
     mocker.patch.object(
         uvicorn.Server,
         "handle_exit",
@@ -82,7 +82,7 @@ def test_real_sig_and_frame_forwarded_unchanged(mocker):
     mocker.patch(
         "app.services.browser.engine.request_application_shutdown"
     )
-    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("app.server.request_generic_shutdown")
     uvicorn_exit = mocker.patch.object(
         uvicorn.Server, "handle_exit", autospec=True
     )
@@ -235,7 +235,7 @@ def test_request_shutdown_is_thread_callable(mocker):
 
 def test_run_server_suppresses_top_level_keyboard_interrupt(mocker):
     config = MagicMock()
-    server = mocker.patch("run.ApplicationServer")
+    server = mocker.patch("app.server.ApplicationServer")
     server.return_value.run.side_effect = KeyboardInterrupt
 
     run_server(config)
@@ -246,7 +246,7 @@ def test_run_server_suppresses_top_level_keyboard_interrupt(mocker):
 
 def test_run_server_propagates_runtime_error(mocker):
     config = MagicMock()
-    server = mocker.patch("run.ApplicationServer")
+    server = mocker.patch("app.server.ApplicationServer")
     server.return_value.run.side_effect = RuntimeError("startup failed")
 
     try:
@@ -259,7 +259,7 @@ def test_run_server_propagates_runtime_error(mocker):
 
 def test_run_server_returns_normally_when_server_returns(mocker):
     config = MagicMock()
-    server = mocker.patch("run.ApplicationServer")
+    server = mocker.patch("app.server.ApplicationServer")
 
     assert run_server(config) is None
     server.return_value.run.assert_called_once_with()
@@ -300,7 +300,7 @@ async def test_startup_does_not_create_update_check_when_disabled(mocker):
     check = mocker.patch("app.utils.update_check.run_update_check")
     mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
     mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
-    mocker.patch("run.CONFIG.getboolean", return_value=False)
+    mocker.patch("app.server.CONFIG.getboolean", return_value=False)
     server = make_server()
 
     await server.startup()
@@ -589,9 +589,9 @@ import signal as _signal
 
 def test_first_sigint_delegates_and_marks_intent(mocker):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown", return_value=True)
+    mocker.patch("app.server.request_generic_shutdown", return_value=True)
     uvicorn_exit = mocker.patch.object(uvicorn.Server, "handle_exit", autospec=True)
-    mock_exit = mocker.patch("run.os._exit")
+    mock_exit = mocker.patch("app.server.os._exit")
 
     server = make_server()
     server.handle_exit(_signal.SIGINT, None)
@@ -603,8 +603,8 @@ def test_first_sigint_delegates_and_marks_intent(mocker):
 
 def test_second_sigint_hard_exits_with_130(mocker):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
-    mock_exit = mocker.patch("run.os._exit", side_effect=SystemExit(130))
+    mocker.patch("app.server.request_generic_shutdown")
+    mock_exit = mocker.patch("app.server.os._exit", side_effect=SystemExit(130))
 
     server = make_server()
     # first SIGINT → graceful, sets should_exit via real Uvicorn handle_exit (not mocked)
@@ -618,8 +618,8 @@ def test_second_sigint_hard_exits_with_130(mocker):
 
 def test_sigterm_does_not_hard_exit(mocker):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
-    mock_exit = mocker.patch("run.os._exit")
+    mocker.patch("app.server.request_generic_shutdown")
+    mock_exit = mocker.patch("app.server.os._exit")
 
     server = make_server()
     server.handle_exit(_signal.SIGINT, None)
@@ -632,8 +632,8 @@ def test_sigterm_does_not_hard_exit(mocker):
 
 def test_programmatic_shutdown_does_not_hard_exit(mocker):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
-    mocker.patch("run.os._exit")
+    mocker.patch("app.server.request_generic_shutdown")
+    mocker.patch("app.server.os._exit")
 
     server = started_server()
     assert server.request_shutdown("programmatic") is True
@@ -643,8 +643,8 @@ def test_programmatic_shutdown_does_not_hard_exit(mocker):
 
 def test_sigint_after_programmatic_shutdown_hard_exits(mocker):
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown", return_value=True)
-    mock_exit = mocker.patch("run.os._exit", side_effect=SystemExit(130))
+    mocker.patch("app.server.request_generic_shutdown", return_value=True)
+    mock_exit = mocker.patch("app.server.os._exit", side_effect=SystemExit(130))
 
     server = started_server()
     assert server.request_shutdown("programmatic") is True
@@ -663,7 +663,7 @@ def test_windows_branch_starts_stops_listener_around_run(mocker):
     listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
     mocker.patch("sys.platform", new="win32")
     config = MagicMock()
-    fake_server = mocker.patch("run.ApplicationServer").return_value
+    fake_server = mocker.patch("app.server.ApplicationServer").return_value
 
     run_server(config)
 
@@ -682,7 +682,7 @@ def test_windows_branch_starts_stops_listener_around_run(mocker):
 def test_listener_stopped_when_run_raises_on_windows(mocker):
     listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
     mocker.patch("sys.platform", new="win32")
-    fake_server = mocker.patch("run.ApplicationServer").return_value
+    fake_server = mocker.patch("app.server.ApplicationServer").return_value
     fake_server.run.side_effect = RuntimeError("boom")
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -694,7 +694,7 @@ def test_listener_stopped_when_run_raises_on_windows(mocker):
 def test_non_windows_branch_never_instantiates_listener(mocker):
     listener_cls = mocker.patch("app.shutdown_transport.ShutdownListener")
     mocker.patch("sys.platform", new="linux")
-    fake_server = mocker.patch("run.ApplicationServer").return_value
+    fake_server = mocker.patch("app.server.ApplicationServer").return_value
 
     run_server(MagicMock())
 
@@ -706,11 +706,11 @@ def test_non_windows_branch_never_instantiates_listener(mocker):
 
 
 def test_server_main_configures_graceful_shutdown_timeout():
-    """run.py passes timeout_graceful_shutdown=15 to the production uvicorn.Config."""
+    """app.server passes timeout_graceful_shutdown=15 to the production uvicorn.Config."""
     import ast
     from pathlib import Path
 
-    source = Path("src/run.py").read_text()
+    source = Path("src/app/server.py").read_text()
     tree = ast.parse(source)
 
     for node in ast.walk(tree):
@@ -729,10 +729,10 @@ def test_server_main_configures_graceful_shutdown_timeout():
                     assert kw.value.value == 15
                     return
             raise AssertionError(
-                "uvicorn.Config() in src/run.py missing timeout_graceful_shutdown"
+                "uvicorn.Config() in src/app/server.py missing timeout_graceful_shutdown"
             )
 
-    raise AssertionError("no uvicorn.Config() call found in src/run.py")
+    raise AssertionError("no uvicorn.Config() call found in src/app/server.py")
 
 
 # --- Startup SIGINT handling (lifespan startup) --------------------------------
@@ -742,7 +742,7 @@ def test_server_main_configures_graceful_shutdown_timeout():
 async def test_sigint_during_startup_records_shutdown_intent(mocker):
     """SIGINT during startup must record application shutdown intent."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown", return_value=True)
+    mocker.patch("app.server.request_generic_shutdown", return_value=True)
 
     server = make_server()
 
@@ -767,9 +767,9 @@ async def test_sigint_during_startup_records_shutdown_intent(mocker):
 async def test_shutdown_during_startup_prevents_update_check_and_log(mocker):
     """Shutdown during super().startup() must not schedule update-check nor log running."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("app.server.request_generic_shutdown")
     log_mock = mocker.patch.object(uvicorn.Server, "_log_started_message")
-    mocker.patch("run.CONFIG.getboolean", return_value=True)
+    mocker.patch("app.server.CONFIG.getboolean", return_value=True)
 
     server = make_server()
     server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
@@ -814,7 +814,7 @@ async def test_log_suppressed_when_should_exit_during_startup(mocker):
 async def test_normal_startup_still_schedules_update_check(mocker):
     """Normal startup (no SIGINT) must still schedule update-check once."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("app.server.request_generic_shutdown")
 
     async def normal_startup(sockets=None):
         mocker.patch.object(uvicorn.Server, "_log_started_message")
@@ -828,7 +828,7 @@ async def test_normal_startup_still_schedules_update_check(mocker):
     check = mocker.patch("app.utils.update_check.run_update_check", new_callable=AsyncMock)
     mocker.patch.object(uvicorn.Server, "startup", autospec=True, side_effect=parent_startup)
     mocker.patch.object(uvicorn.Server, "shutdown", autospec=True)
-    mocker.patch("run.CONFIG.getboolean", return_value=True)
+    mocker.patch("app.server.CONFIG.getboolean", return_value=True)
 
     server = make_server()
     await server.startup()
@@ -845,7 +845,7 @@ async def test_normal_startup_still_schedules_update_check(mocker):
 async def test_startup_exception_still_propagates(mocker):
     """Real startup errors must propagate, not be converted to clean shutdown."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("app.server.request_generic_shutdown")
 
     async def failing_startup(*args, **kwargs):
         raise RuntimeError("startup failed")
@@ -864,7 +864,7 @@ async def test_startup_exception_still_propagates(mocker):
 async def test_startup_then_serve_skips_main_loop_when_should_exit_during_startup(mocker):
     """Real _serve path must skip main_loop when should_exit set during startup (no fake logic)."""
     mocker.patch("app.services.browser.engine.request_application_shutdown")
-    mocker.patch("run.request_generic_shutdown")
+    mocker.patch("app.server.request_generic_shutdown")
 
     server = make_server()
     server.lifespan = MagicMock(should_exit=False, shutdown=AsyncMock(), startup=AsyncMock(), state={})
@@ -964,7 +964,7 @@ async def test_normal_startup_uses_inherited_uvicorn_startup(mocker):
         # No should_exit set
 
     mocker.patch.object(uvicorn.Server, "startup", side_effect=mock_super)
-    mocker.patch("run.CONFIG.getboolean", return_value=True)
+    mocker.patch("app.server.CONFIG.getboolean", return_value=True)
     mock_update = mocker.patch("app.utils.update_check.run_update_check", new_callable=AsyncMock)
 
     await server.startup()
@@ -1014,7 +1014,7 @@ async def test_genuine_startup_failure_not_mistaken_for_sigint(mocker):
 
 def test_main_bootstrap_keyboard_interrupt_propagates(mocker):
     """KeyboardInterrupt during bootstrap must propagate from main() so the entry boundary can handle it."""
-    mocker.patch("run.configure_windows_event_loop_policy", side_effect=KeyboardInterrupt)
+    mocker.patch("app.server.configure_windows_event_loop_policy", side_effect=KeyboardInterrupt)
 
     with pytest.raises(KeyboardInterrupt):
         run_module.main()
@@ -1024,7 +1024,7 @@ def test_main_normal_execution_reaches_run_server(mocker):
     """Normal bootstrap must reach run_server(config) with a constructed uvicorn.Config."""
     import argparse
 
-    mocker.patch("run.configure_windows_event_loop_policy")
+    mocker.patch("app.server.configure_windows_event_loop_policy")
     mocker.patch("app.utils.startup.configure_startup_output")
     mocker.patch("app.utils.startup.print_gemini_preflight_status")
     mocker.patch("app.utils.startup.print_server_info")
@@ -1035,8 +1035,8 @@ def test_main_normal_execution_reaches_run_server(mocker):
     mocker.patch.object(run_module.CONFIG, "getboolean", return_value=True)
     mocker.patch.object(run_module.CONFIG, "get", return_value="gemini-test")
     fake_config = MagicMock()
-    mock_uvicorn_config = mocker.patch("run.uvicorn.Config", return_value=fake_config)
-    mock_run_server = mocker.patch("run.run_server")
+    mock_uvicorn_config = mocker.patch("app.server.uvicorn.Config", return_value=fake_config)
+    mock_run_server = mocker.patch("app.server.run_server")
     mocker.patch.object(
         argparse.ArgumentParser,
         "parse_args",
@@ -1052,7 +1052,7 @@ def test_main_normal_execution_reaches_run_server(mocker):
 
 
 def test_bootstrap_interrupt_exits_130_without_traceback():
-    """Real entry-point behavior: interrupt during bootstrap exits 130 without traceback."""
+    """Real entry-point behavior: interrupt while importing server implementation exits 130 without traceback."""
     import subprocess
     import textwrap
 
@@ -1060,9 +1060,14 @@ def test_bootstrap_interrupt_exits_130_without_traceback():
         """
         import sys
         sys.path.insert(0, 'src')
-        from unittest.mock import patch
+        import builtins
         import runpy
-        patch('app.utils.startup.configure_startup_output', side_effect=KeyboardInterrupt).start()
+        orig_import = builtins.__import__
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "app.server" or name.startswith("app.server."):
+                raise KeyboardInterrupt
+            return orig_import(name, globals, locals, fromlist, level)
+        builtins.__import__ = fake_import
         try:
             runpy.run_path('src/run.py', run_name='__main__')
         except SystemExit as e:
