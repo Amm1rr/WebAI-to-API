@@ -2,7 +2,7 @@
 import configparser
 import os
 
-from app.config_contract import load_effective_config, normalize_strict_boolean
+from app.config_contract import StartupConfigError, load_effective_config, normalize_strict_boolean
 from app.env import load_local_env
 from app.utils.runtime_paths import (
     get_default_auth_state_dir,
@@ -21,7 +21,10 @@ def load_config(config_file: str = "config.conf"):
 
 
 # Load configuration globally
-CONFIG = load_config()
+try:
+    CONFIG = load_config()
+except (ValueError, configparser.Error, OSError) as exc:
+    raise StartupConfigError(str(exc)) from exc
 
 
 def resolve_logging_config(

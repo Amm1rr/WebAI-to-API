@@ -4,6 +4,12 @@ import os
 from app.utils.runtime_paths import get_default_auth_state_dir, resolve_auth_state_dir
 
 
+class StartupConfigError(Exception):
+    """Config-file failure surfacing through the startup import boundary."""
+
+    pass
+
+
 def normalize_strict_boolean(raw_value: str, setting_name: str) -> str:
     """Return canonical true/false, rejecting ConfigParser's wider boolean set."""
     normalized = raw_value.strip().lower()
