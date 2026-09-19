@@ -162,9 +162,6 @@ class SessionManager:
                     extended_thinking=extended_thinking,
                 )
                 return response, is_reused
-            except Exception as e:
-                logger.error(f"Error in stateful session get_response: {e}", exc_info=True)
-                raise
             finally:
                 if owns_lease and lease is not None:
                     await asyncio.shield(lease.release())

@@ -32,6 +32,7 @@ from app.services.providers.gemini.shared import (
     parse_tool_call,
     resolve_extended_thinking,
     ToolCallParseStatus,
+    translate_gemini_provider_error,
     validate_model_name,
     UNRECOVERABLE_CONVERSATION_ERROR_CODES
 )
@@ -565,25 +566,20 @@ class GeminiWebAPIAdapter(GeminiBackendAdapter):
             await cleanup_once()
             await release_lease()
             raise
-        except GeminiProviderOutputError as e:
+        except Exception as e:
             await cleanup_once()
             await release_lease()
-            raise HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.") from e
-        except APIError as e:
-            await cleanup_once()
-            await release_lease()
-            if not is_new_conversation and self._is_unrecoverable_conversation_error(e):
+            if isinstance(e, APIError) and not is_new_conversation and self._is_unrecoverable_conversation_error(e):
                 raise HTTPException(
                     status_code=410,
                     detail="The provided conversation_id can no longer be recovered. Start a new conversation.",
                 ) from e
+            translated = translate_gemini_provider_error(e)
+            if translated is not None:
+                logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
+                raise translated from e
             logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
-        except Exception as e:
-            await cleanup_once()
-            await release_lease()
-            logger.error(f"Error in GeminiWebAPIAdapter.chat_completions: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error processing Gemini chat completion: {str(e)}") from e
         finally:
             if not stream_lease_handoff:
                 await release_lease()

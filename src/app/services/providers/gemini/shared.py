@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import time
@@ -7,6 +8,15 @@ from enum import Enum
 from typing import Optional, List, Any, Union
 from pathlib import Path
 from fastapi import HTTPException
+from gemini_webapi.exceptions import (
+    APIError,
+    AuthError,
+    GeminiError,
+    ModelInvalidError,
+    TemporarilyBlockedError,
+    TimeoutError as GeminiTimeoutError,
+    UsageLimitExceededError,
+)
 from app.config import CONFIG
 from app.logger import logger
 from app.schemas.request import validate_openai_tool_declarations
@@ -17,6 +27,47 @@ from .webapi_client import resolve_model_name
 UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
     "1097",
 }
+
+
+def translate_gemini_provider_error(error: Exception) -> HTTPException | None:
+    """Map expected Gemini provider failures to HTTP errors.
+
+    Shared by stateful and stateless buffered paths. Returns None for
+    unrelated unexpected defects (caller maps to 500).
+    """
+    if isinstance(error, GeminiProviderOutputError):
+        return HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.")
+    if isinstance(error, AuthError):
+        return HTTPException(
+            status_code=503,
+            detail="Gemini WebAPI authentication is unavailable.",
+        )
+    if isinstance(error, (asyncio.TimeoutError, GeminiTimeoutError)):
+        return HTTPException(
+            status_code=504,
+            detail="Gemini WebAPI request timed out.",
+        )
+    if isinstance(error, UsageLimitExceededError):
+        return HTTPException(
+            status_code=429,
+            detail="Gemini WebAPI usage limit exceeded.",
+        )
+    if isinstance(error, TemporarilyBlockedError):
+        return HTTPException(
+            status_code=429,
+            detail="Gemini WebAPI request is temporarily blocked.",
+        )
+    if isinstance(error, ModelInvalidError):
+        return HTTPException(
+            status_code=502,
+            detail="Gemini WebAPI rejected the requested model.",
+        )
+    if isinstance(error, (APIError, GeminiError)):
+        return HTTPException(
+            status_code=502,
+            detail="Gemini WebAPI provider request failed.",
+        )
+    return None
 
 def resolve_extended_thinking(request: Any) -> bool:
     """Resolve request-scoped extended_thinking: provider override > [Gemini] config > false."""

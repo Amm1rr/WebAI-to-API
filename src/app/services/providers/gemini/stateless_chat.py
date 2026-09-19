@@ -18,10 +18,6 @@ from gemini_webapi.exceptions import (
     APIError,
     AuthError,
     GeminiError,
-    ModelInvalidError,
-    TemporarilyBlockedError,
-    TimeoutError as GeminiTimeoutError,
-    UsageLimitExceededError,
 )
 
 from app.config import CONFIG
@@ -42,6 +38,7 @@ from app.services.providers.gemini.shared import (
     ensure_gemini_client_ready,
     parse_tool_call,
     ToolCallParseStatus,
+    translate_gemini_provider_error,
     validate_tool_history,
     validate_direct_webapi_model_name,
     validate_model_name,
@@ -179,39 +176,7 @@ def _ensure_direct_webapi_ready(gemini_client) -> None:
 
 
 def _translate_direct_gemini_error(error: Exception) -> HTTPException | None:
-    if isinstance(error, GeminiProviderOutputError):
-        return HTTPException(status_code=502, detail="Gemini WebAPI returned malformed tool output.")
-    if isinstance(error, AuthError):
-        return HTTPException(
-            status_code=503,
-            detail="Gemini WebAPI authentication is unavailable.",
-        )
-    if isinstance(error, (asyncio.TimeoutError, GeminiTimeoutError)):
-        return HTTPException(
-            status_code=504,
-            detail="Gemini WebAPI request timed out.",
-        )
-    if isinstance(error, UsageLimitExceededError):
-        return HTTPException(
-            status_code=429,
-            detail="Gemini WebAPI usage limit exceeded.",
-        )
-    if isinstance(error, TemporarilyBlockedError):
-        return HTTPException(
-            status_code=429,
-            detail="Gemini WebAPI request is temporarily blocked.",
-        )
-    if isinstance(error, ModelInvalidError):
-        return HTTPException(
-            status_code=502,
-            detail="Gemini WebAPI rejected the requested model.",
-        )
-    if isinstance(error, (APIError, GeminiError)):
-        return HTTPException(
-            status_code=502,
-            detail="Gemini WebAPI provider request failed.",
-        )
-    return None
+    return translate_gemini_provider_error(error)
 
 
 def _streaming_headers() -> dict[str, str]:

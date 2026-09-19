@@ -1175,8 +1175,8 @@ async def test_chat_completions_new_prompt_does_not_map_api_1097_to_recovery_err
     with pytest.raises(HTTPException) as exc_info:
         await provider.chat_completions(request)
 
-    assert exc_info.value.status_code == 500
-    assert "Unknown API error code: 1097" in exc_info.value.detail
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "Gemini WebAPI provider request failed."
     mock_registry.get_session.assert_called_once_with(
         "new-conversation",
         provider,
