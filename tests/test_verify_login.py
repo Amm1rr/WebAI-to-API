@@ -247,7 +247,7 @@ async def test_verify_login_enter_rechecks_auth_cookie_after_pending_retry(mocke
 
     async def press_enter_during_retry(*_args):
         await first_cookie_read.wait()
-        return "stdin"
+        return "enter"
 
     session.context.cookies = AsyncMock(side_effect=read_cookies)
     mocker.patch.object(
@@ -280,7 +280,7 @@ async def test_verify_login_fails_if_user_exits_before_shared_auth_is_available(
     mocker.patch.object(
         verify_login,
         "_wait_for_completion_signal",
-        AsyncMock(return_value="stdin"),
+        AsyncMock(return_value="enter"),
     )
 
     with pytest.raises(RuntimeError, match="Login was not verified"):

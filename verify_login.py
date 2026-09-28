@@ -241,7 +241,7 @@ async def verify_login():
                 result = await task
                 if task is completion_task:
                     completion_signal = result
-            if not login_detected and completion_signal == "stdin":
+            if not login_detected and completion_signal == "enter":
                 input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                 if input_exists and await _has_webapi_auth_material(session):
                     if await persist_state():
