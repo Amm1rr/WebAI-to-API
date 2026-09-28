@@ -226,6 +226,7 @@ async def verify_login():
         # Start the background observer
         save_task = asyncio.create_task(auto_save_loop())
         completion_task = asyncio.create_task(_wait_for_completion_signal(engine, page, session))
+        completion_signal = None
 
         # Wait for user to press Enter in a non-blocking way for the loop
         try:
@@ -237,7 +238,15 @@ async def verify_login():
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
-                await task
+                result = await task
+                if task is completion_task:
+                    completion_signal = result
+            if not login_detected and completion_signal == "stdin":
+                input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
+                if input_exists and await _has_webapi_auth_material(session):
+                    if await persist_state():
+                        login_detected = True
+                        print(f"\n[SUCCESS] Shared Gemini authentication state saved atomically to: {resolved_path}")
             if persistence_error is not None:
                 raise persistence_error
             if not login_detected:

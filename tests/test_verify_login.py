@@ -234,6 +234,39 @@ async def test_verify_login_waits_for_webapi_cookie_after_chat_ui_appears(mocker
 
 
 @pytest.mark.asyncio
+async def test_verify_login_enter_rechecks_auth_cookie_after_pending_retry(mocker, capsys):
+    cookie = {"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com"}
+    session, page_wrapper, engine = _verify_login_mocks(mocker, [True, True])
+    first_cookie_read = asyncio.Event()
+
+    async def read_cookies():
+        if not first_cookie_read.is_set():
+            first_cookie_read.set()
+            return []
+        return [cookie]
+
+    async def press_enter_during_retry(*_args):
+        await first_cookie_read.wait()
+        return "stdin"
+
+    session.context.cookies = AsyncMock(side_effect=read_cookies)
+    mocker.patch.object(
+        verify_login,
+        "_wait_for_completion_signal",
+        AsyncMock(side_effect=press_enter_during_retry),
+    )
+
+    await verify_login.verify_login()
+
+    captured = capsys.readouterr()
+    assert "[SUCCESS] Shared Gemini authentication state saved atomically" in captured.out
+    assert "Login was not verified" not in captured.err
+    assert session.save_state.await_count == 2
+    page_wrapper.close.assert_awaited_once()
+    engine.close.assert_awaited_once_with(save_state=False)
+
+
+@pytest.mark.asyncio
 async def test_verify_login_fails_if_user_exits_before_shared_auth_is_available(mocker):
     partitioned_cookie = {
         "name": "__Secure-1PSID",
