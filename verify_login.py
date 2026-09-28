@@ -104,6 +104,13 @@ async def _wait_for_browser_shutdown(engine, page, session, poll_interval=0.25):
         await asyncio.sleep(poll_interval)
 
 
+async def _has_webapi_auth_material(session):
+    from app.services.browser.auth_loader import GeminiAuthStateLoader
+
+    cookies = await session.context.cookies()
+    return GeminiAuthStateLoader.get_browser_webapi_cookie_material(cookies) is not None
+
+
 async def _wait_for_completion_signal(engine, page, session, stdin_waiter=None):
     stdin_waiter = stdin_waiter or _wait_for_stdin_enter
     wait_tasks = {
@@ -134,13 +141,13 @@ async def verify_login():
         # 1. Obtain managed page via engine to ensure browser health/init with persistence enabled
         page_wrapper = await engine.get_page("gemini", enable_persistence=True)
         page = page_wrapper.page
-        
+
         # 2. Fetch the session for scoped state persistence logic
         session = await engine.get_session("gemini", enable_persistence=True)
-        
+
         # Resolve the destination path for display
         resolved_path = os.path.abspath(session.state_path)
-        
+
         print("\n" + "="*60)
         print("MANUAL BOOTSTRAP UTILITY: GEMINI SESSION INITIALIZATION")
         print("="*60)
@@ -148,9 +155,9 @@ async def verify_login():
         print(f"Target State File   : {resolved_path}")
         print("-"*60)
         print("Navigating to https://gemini.google.com/app...")
-        
+
         await page.goto("https://gemini.google.com/app")
-        
+
         print("\nINSTRUCTIONS:")
         print("1. Log in to your Google account in the headful browser window.")
         print("2. Once you reach the chat interface, this utility will automatically detect it.")
@@ -158,7 +165,7 @@ async def verify_login():
         print("4. Press ENTER in this terminal to complete verification and close.")
         print("   You may also close the browser window to finish after login is detected.")
         print("="*60 + "\n")
-        
+
         login_detected = False
         persistence_error = None
 
@@ -187,7 +194,7 @@ async def verify_login():
                 )
                 print(f"\n[ERROR] {persistence_error}", file=sys.stderr)
             return False
- 
+
         async def auto_save_loop():
             nonlocal login_detected
             try:
@@ -195,12 +202,15 @@ async def verify_login():
                     # Check if we are logged in by looking for the input box
                     input_exists = await page.locator(SELECTORS["INPUT"]).first.is_visible()
                     if input_exists and not login_detected:
+                        if not await _has_webapi_auth_material(session):
+                            await asyncio.sleep(1)
+                            continue
                         if not await persist_state():
                             return
                         login_detected = True
                         print(f"\n[SUCCESS] Shared Gemini authentication state saved atomically to: {resolved_path}")
                         print("You can now safely press ENTER to finish.")
-                    
+
                     # Periodic backup every 20 seconds
                     await asyncio.sleep(20)
                     if login_detected:
@@ -212,11 +222,11 @@ async def verify_login():
                 pass # Expected Playwright closure errors exit silently
             except Exception as e:
                 logger.warning(f"Unexpected error in auto-save loop: {e}", exc_info=True)
- 
+
         # Start the background observer
         save_task = asyncio.create_task(auto_save_loop())
         completion_task = asyncio.create_task(_wait_for_completion_signal(engine, page, session))
-  
+
         # Wait for user to press Enter in a non-blocking way for the loop
         try:
             done, pending = await asyncio.wait(
@@ -230,6 +240,10 @@ async def verify_login():
                 await task
             if persistence_error is not None:
                 raise persistence_error
+            if not login_detected:
+                raise RuntimeError(
+                    "Login was not verified; shared WebAPI authentication material was not captured."
+                )
         except KeyboardInterrupt:
             pass
         finally:
@@ -238,16 +252,16 @@ async def verify_login():
                 await save_task
             except asyncio.CancelledError:
                 pass
-            
+
             # Deterministic shutdown ordering
             # 1. Final session save
             if login_detected and persistence_error is None:
                 if await persist_state():
                     print(f"\n[FINAL SAVE] Verified persistent state saved to: {resolved_path}")
-            
+
             if persistence_error is not None:
                 raise persistence_error
-                
+
             print("Manual bootstrap utility successfully completed and exiting...")
     except BaseException as exc:
         primary_error = exc

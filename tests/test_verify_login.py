@@ -92,7 +92,8 @@ def _verify_login_mocks(mocker, save_results, state=None, context_cookies=None):
     session = MagicMock()
     session.state_path = "runtime/auth/gemini.json"
     session.is_alive = True
-    session.context.cookies = AsyncMock(return_value=context_cookies or auth_state["cookies"])
+    cookies = auth_state["cookies"] if context_cookies is None else context_cookies
+    session.context.cookies = AsyncMock(return_value=cookies)
     session.save_state = AsyncMock(side_effect=save_state)
 
     engine = MagicMock()
@@ -216,49 +217,43 @@ async def test_verify_login_reports_final_save_failure_after_cleanup(mocker, cap
 
 
 @pytest.mark.asyncio
-async def test_verify_login_rejects_ui_only_auth_without_cookie_values(mocker, capsys):
+async def test_verify_login_waits_for_webapi_cookie_after_chat_ui_appears(mocker, capsys):
+    cookie = {"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com"}
     session, page_wrapper, engine = _verify_login_mocks(
-        mocker,
-        [True],
-        state={"cookies": [], "origins": []},
+        mocker, [True, True], context_cookies=[]
     )
+    session.context.cookies = AsyncMock(side_effect=[[], [cookie], [cookie], [cookie]])
 
-    with pytest.raises(RuntimeError, match="shared WebAPI authentication material"):
-        await verify_login.verify_login()
+    await verify_login.verify_login()
 
     captured = capsys.readouterr()
-    assert "[SUCCESS]" not in captured.out
-    assert "shared WebAPI authentication material" in captured.err
-    assert "test-psid" not in captured.err
-    session.save_state.assert_awaited_once()
+    assert "[SUCCESS] Shared Gemini authentication state saved atomically" in captured.out
+    assert session.save_state.await_count == 2
     page_wrapper.close.assert_awaited_once()
     engine.close.assert_awaited_once_with(save_state=False)
 
 
 @pytest.mark.asyncio
-async def test_verify_login_rejects_partitioned_context_psid(mocker, capsys):
-    state = {
-        "cookies": [{"name": "__Secure-1PSID", "value": "test-psid", "domain": ".google.com", "path": "/"}],
-        "origins": [],
-    }
-    context_cookies = [{
+async def test_verify_login_fails_if_user_exits_before_shared_auth_is_available(mocker):
+    partitioned_cookie = {
         "name": "__Secure-1PSID",
         "value": "test-psid",
         "domain": ".google.com",
-        "path": "/",
         "partitionKey": "https://gemini.google.com",
-    }]
+    }
     session, page_wrapper, engine = _verify_login_mocks(
-        mocker, [True], state=state, context_cookies=context_cookies
+        mocker, [True], context_cookies=[partitioned_cookie]
+    )
+    mocker.patch.object(
+        verify_login,
+        "_wait_for_completion_signal",
+        AsyncMock(return_value="stdin"),
     )
 
-    with pytest.raises(RuntimeError, match="shared WebAPI authentication material"):
+    with pytest.raises(RuntimeError, match="Login was not verified"):
         await verify_login.verify_login()
 
-    captured = capsys.readouterr()
-    assert "[SUCCESS]" not in captured.out
-    assert "test-psid" not in captured.err
-    session.save_state.assert_awaited_once()
+    session.save_state.assert_not_awaited()
     page_wrapper.close.assert_awaited_once()
     engine.close.assert_awaited_once_with(save_state=False)
 
