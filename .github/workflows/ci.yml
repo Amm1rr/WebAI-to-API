@@ -1,0 +1,53 @@
+# General CI for normal development.
+#
+# Triggers:
+#   - pull_request -> master (always runs, no docs exclusion)
+#   - push -> master (skipped for docs-only changes)
+#   - workflow_dispatch (manual)
+#
+# Delegates the occasional real-platform updater validation to the separate
+# updater-validation.yml workflow; this file intentionally stays independent.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Poetry (pinned to lockfile-compatible version)
+        run: pipx install poetry==2.3.4
+      - name: Show toolchain
+        run: |
+          python --version
+          poetry --version
+      - name: Install dependencies (locked)
+        run: poetry sync
+      - name: Test suite
+        run: poetry run pytest -q
