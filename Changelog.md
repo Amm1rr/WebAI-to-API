@@ -1,5 +1,15 @@
 ### WebAI to API
 
+#### v0.7.1 – 2026-10-06
+
+##### Changed
+
+- Updated selected project dependencies.
+- Updated Gemini WebAPI to 2.1.1.
+- Synchronized Poetry lockfile and exported requirements.
+
+---
+
 #### v0.7.0 – 2026-09-03
 
 #### Added
