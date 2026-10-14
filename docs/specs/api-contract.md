@@ -216,6 +216,8 @@ This endpoint is a **compatibility bridge**, not a full implementation of the Go
 - **Conversation State**: Requests do not share conversation state and are not persisted in Gemini history.
 - **Temporary Requests**: Gemini WebAPI requests use `temporary=True`.
 - **Concurrency**: Independent requests can execute concurrently at the application layer. Dependency, network, and Gemini remote limits still apply.
+- **Deadline**: Direct generation has a 300-second application-level deadline; exceeding it returns HTTP 504.
+- **Provider Failures**: Expected Gemini failures map to HTTP 502 (provider/model), 503 (authentication), 504 (timeout), or 429 (usage limit/temporary block), with stable details. Unexpected errors remain HTTP 500.
 - **Retention**: Maintained as long as the "Translate It!" extension remains a primary project use case.
 
 ### `/v1/temporary/chat/completions`

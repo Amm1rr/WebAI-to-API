@@ -23,6 +23,9 @@ from app.schemas.request import validate_openai_tool_declarations
 from app.services.providers.exceptions import GeminiProviderOutputError
 from .webapi_client import resolve_model_name
 
+# Direct Gemini WebAPI execution deadline.
+DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS = 300
+
 # Unrecoverable conversation error codes for Gemini API
 UNRECOVERABLE_CONVERSATION_ERROR_CODES = {
     "1097",

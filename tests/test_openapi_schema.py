@@ -50,6 +50,11 @@ async def test_openapi_translate_endpoint_metadata():
     assert "does not support streaming" in translate_path["post"]["description"]
     assert "does not maintain conversation state" in translate_path["post"]["description"]
     assert "/v1/chat/completions" in translate_path["post"]["description"]
+    assert "300-second deadline" in translate_path["post"]["description"]
+
+    responses = translate_path["post"]["responses"]
+    for status in ("400", "401", "429", "500", "502", "503", "504"):
+        assert status in responses
 
 
 @pytest.mark.asyncio

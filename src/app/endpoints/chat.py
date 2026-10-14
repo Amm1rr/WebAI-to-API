@@ -1,4 +1,6 @@
 # src/app/endpoints/chat.py
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 from app.logger import logger
 from app.openapi.chat_completions import (
@@ -8,6 +10,7 @@ from app.openapi.chat_completions import (
     STATELESS_CHAT_COMPLETIONS_ERROR_RESPONSES,
     STATELESS_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     STATELESS_CHAT_COMPLETIONS_RESPONSE_400,
+    TRANSLATE_ERROR_RESPONSES,
     TEMPORARY_CHAT_COMPLETIONS_REQUEST_EXAMPLES,
     TEMPORARY_CHAT_COMPLETIONS_RESPONSE_400,
 )
@@ -25,7 +28,9 @@ from app.services.providers.gemini.temporary_chat import (
     handle_temporary_chat_completions,
 )
 from app.services.providers.gemini.shared import (
+    DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS,
     ensure_gemini_client_ready,
+    translate_gemini_provider_error,
     validate_direct_webapi_model_name,
 )
 
@@ -67,7 +72,8 @@ async def list_gems():
     "/translate",
     tags=["Translation"],
     summary="Translate Extension Compatibility",
-    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint executes stateless Gemini WebAPI requests concurrently, sends them as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not maintain conversation state. The client is responsible for sending a translation-specific prompt. For persistent translation workflows, use `/v1/chat/completions`."
+    description="Extension-specific translation endpoint retained for compatibility with Translate It!-style browser extensions. This endpoint executes stateless Gemini WebAPI requests concurrently, sends them as temporary requests so they are not saved in Gemini history, has no `conversation_id` support, does not support streaming, and does not maintain conversation state. Requests have a 300-second deadline, and known Gemini provider failures use stable HTTP status codes. The client is responsible for sending a translation-specific prompt. For persistent translation workflows, use `/v1/chat/completions`.",
+    responses=TRANSLATE_ERROR_RESPONSES,
 )
 async def translate_chat(request: GeminiRequest):
     try:
@@ -80,19 +86,23 @@ async def translate_chat(request: GeminiRequest):
             gemini_client = lease.client
             ensure_gemini_client_ready(gemini_client)
             validate_direct_webapi_model_name(request.model, gemini_client)
-            response = await gemini_client.generate_content(
-                request.message,
-                request.model,
-                files=request.files,
-                gem=request.gem,
-                temporary=True,
-            )
+            async with asyncio.timeout(DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS):
+                response = await gemini_client.generate_content(
+                    request.message,
+                    request.model,
+                    files=request.files,
+                    gem=request.gem,
+                    temporary=True,
+                )
             return {"response": response.text}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in /translate endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}")
+        translated_error = translate_gemini_provider_error(e)
+        if translated_error is not None:
+            raise translated_error from e
+        raise HTTPException(status_code=500, detail=f"Error during translation: {str(e)}") from e
 @router.post(
     "/v1/temporary/chat/completions",
     tags=["Chat"],

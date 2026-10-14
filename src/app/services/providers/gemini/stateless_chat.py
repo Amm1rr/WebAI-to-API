@@ -34,6 +34,7 @@ from app.services.multimodal import (
     normalize_openai_chat_messages,
 )
 from app.services.providers.gemini.shared import (
+    DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS,
     build_tools_prompt,
     ensure_gemini_client_ready,
     parse_tool_call,
@@ -61,9 +62,6 @@ from app.utils.streaming import (
     get_done_chunk,
     simulate_streaming_generator,
 )
-
-
-DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS = 300
 
 
 @dataclass(slots=True)
