@@ -793,6 +793,44 @@ async def test_translate_readiness_precedes_model_validation(mocker, install_gem
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_detail"),
+    [
+        pytest.param(AuthError("auth failed"), 503, "Gemini WebAPI authentication is unavailable.", id="auth"),
+        pytest.param(asyncio.TimeoutError("timed out"), 504, "Gemini WebAPI request timed out.", id="application-timeout"),
+        pytest.param(GeminiTimeoutError("timed out"), 504, "Gemini WebAPI request timed out.", id="gemini-timeout"),
+        pytest.param(UsageLimitExceededError("quota"), 429, "Gemini WebAPI usage limit exceeded.", id="usage-limit"),
+        pytest.param(TemporarilyBlockedError("blocked"), 429, "Gemini WebAPI request is temporarily blocked.", id="temporarily-blocked"),
+        pytest.param(ModelInvalidError("invalid model"), 502, "Gemini WebAPI rejected the requested model.", id="invalid-model"),
+        pytest.param(APIError("provider error"), 502, "Gemini WebAPI provider request failed.", id="api-error"),
+        pytest.param(GeminiError("provider error"), 502, "Gemini WebAPI provider request failed.", id="gemini-error"),
+    ],
+)
+async def test_translate_maps_gemini_errors_with_stable_details_and_tracebacks(
+    mocker,
+    install_gemini_client,
+    caplog,
+    error,
+    expected_status,
+    expected_detail,
+):
+    mock_client = _ready_direct_client(mocker)
+    mock_client.generate_content = mocker.AsyncMock(side_effect=error)
+    generation = install_gemini_client(mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"message": "Translate this text"})
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
+    endpoint_errors = [record for record in caplog.records if "Error in /translate endpoint" in record.message]
+    assert endpoint_errors
+    assert endpoint_errors[-1].exc_info is not None
+    assert endpoint_errors[-1].exc_info[1] is error
+    assert gemini_client_module._gemini_generation_records[generation].lease_count == 0
+
+
+@pytest.mark.asyncio
 async def test_translate_non_model_value_error_remains_500(mocker, install_gemini_client):
     mock_client = mocker.Mock()
     mock_client.client.account_status.name = "AVAILABLE"
@@ -804,6 +842,62 @@ async def test_translate_non_model_value_error_remains_500(mocker, install_gemin
         response = await ac.post("/translate", json={"message": "Translate this text"})
 
     assert response.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_translate_deadline_cancels_generation_and_releases_lease(mocker, monkeypatch, install_gemini_client):
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def never_returns(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    mock_client = _ready_direct_client(mocker)
+    mock_client.generate_content = never_returns
+    generation = install_gemini_client(mock_client)
+    monkeypatch.setattr("app.endpoints.chat.DIRECT_WEBAPI_EXECUTION_TIMEOUT_SECONDS", 0.01)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/translate", json={"message": "Translate this text"})
+
+    assert entered.is_set()
+    assert cancelled.is_set()
+    assert response.status_code == 504
+    assert response.json() == {"detail": "Gemini WebAPI request timed out."}
+    assert gemini_client_module._gemini_generation_records[generation].lease_count == 0
+
+
+@pytest.mark.asyncio
+async def test_translate_request_cancellation_propagates_and_releases_lease(mocker, install_gemini_client):
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def never_returns(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    mock_client = _ready_direct_client(mocker)
+    mock_client.generate_content = never_returns
+    generation = install_gemini_client(mock_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        request_task = asyncio.create_task(ac.post("/translate", json={"message": "Translate this text"}))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        request_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request_task
+
+    assert cancelled.is_set()
+    assert gemini_client_module._gemini_generation_records[generation].lease_count == 0
 
 
 @pytest.mark.asyncio

@@ -546,6 +546,8 @@ Characteristics:
 * No conversation state
 * Independent requests can execute concurrently at the application layer; dependency, network, and Gemini remote limits still apply
 * Non-streaming responses
+* Direct generation has a 300-second application-level deadline (HTTP 504 on timeout)
+* Gemini provider/model errors return HTTP 502, authentication errors 503, and usage limits or temporary blocks 429; unrelated failures remain 500
 
 ---
 

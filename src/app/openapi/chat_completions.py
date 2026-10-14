@@ -190,6 +190,17 @@ STATELESS_CHAT_COMPLETIONS_ERROR_RESPONSES = {
 }
 
 
+TRANSLATE_ERROR_RESPONSES = {
+    400: {"description": "Invalid model or request"},
+    401: {"description": "Gemini authentication required"},
+    429: {"description": "Gemini usage limit exceeded or temporarily blocked"},
+    500: {"description": "Internal Server Error"},
+    502: {"description": "Gemini provider or model failure"},
+    503: {"description": "Gemini service unavailable"},
+    504: {"description": "Gemini request timed out"},
+}
+
+
 CHAT_COMPLETIONS_RESPONSE_400 = {
     "description": "Bad Request",
     "content": {
