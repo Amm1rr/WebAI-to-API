@@ -1442,7 +1442,7 @@ async def test_init_gemini_client_available(mocker):
     assert gemini_client_module._initialization_error is None
     assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     mock_my_gemini_client_class.assert_called_once()
-    mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False)
+    mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False, impersonate="chrome146")
     mock_get_cookies.assert_not_called()
 
 
@@ -1827,7 +1827,7 @@ async def test_init_gemini_client_unauthenticated_retained(mocker):
     assert gemini_client_module._initialization_error is None
     assert gemini_client_module._gemini_client_auth_source == "[Gemini] config"
     mock_my_gemini_client_class.assert_called_once()
-    mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False)
+    mock_client_instance.init.assert_called_once_with(verbose=True, auto_refresh=False, impersonate="chrome146")
     
     mock_gemini_source.assert_called_once()
     mock_legacy_source.assert_called_once()
@@ -1890,7 +1890,11 @@ async def test_init_gemini_client_location_rejected_discarded_and_fallback(mocke
     mock_loader_client.init.assert_called_once()
     mock_loader_client.close.assert_called_once()
     
-    mock_fallback_client.init.assert_called_once()
+    mock_fallback_client.init.assert_called_once_with(
+        verbose=True,
+        auto_refresh=False,
+        impersonate="chrome146",
+    )
 
     # Verify fallback cookies were requested
     mock_gemini_source.assert_called_once()

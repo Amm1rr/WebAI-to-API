@@ -442,7 +442,7 @@ async def init_gemini_client(
                         logger.info(f"Attempting to initialize Gemini client with cookies from {candidate.source_name}...")
                         try:
                             client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=cookies_dict)
-                            await client.init(verbose=True, auto_refresh=False)
+                            await client.init(verbose=True, auto_refresh=False, impersonate="chrome146")
 
                             status_name = client.client.account_status.name if hasattr(client.client, 'account_status') else "UNKNOWN"
                             if status_name == "AVAILABLE":
@@ -483,7 +483,7 @@ async def init_gemini_client(
                         psidts = browser_cookies.get("__Secure-1PSIDTS")
                         _ensure_gemini_cache_directory()
                         client = MyGeminiClient(secure_1psid=psid, secure_1psidts=psidts, proxy=gemini_proxy, cookies=browser_cookies)
-                        await client.init(verbose=True, auto_refresh=False)
+                        await client.init(verbose=True, auto_refresh=False, impersonate="chrome146")
                         
                         status_name = client.client.account_status.name if hasattr(client.client, 'account_status') else "UNKNOWN"
                         if status_name == "AVAILABLE":
