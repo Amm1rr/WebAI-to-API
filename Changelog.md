@@ -1,5 +1,18 @@
 ### Changelog – WebAI to API
 
+#### v0.7.1 – 2026-11-07
+
+##### Fixed
+- Upgraded `gemini-webapi` to `>=2.1.1` (along with `curl-cffi>=0.16.2` and `orjson>=3.11.9`), resolving Google streaming stalls (`Response stalled (>60s)`) and body parsing errors caused by Google's updated web RPC protocol.
+- Updated supported Python requirement in `pyproject.toml` to `>=3.11,<4.0` to match `gemini-webapi>=2.1.1` and container base image.
+
+##### Added
+- **Error Diagnostics & Alert Banner**: Dashboard now immediately detects and highlights stream stalls, parse failures, and expired cookies with actionable troubleshooting tips.
+- **Recent Issues History**: Added a dedicated section on the dashboard displaying recent errors, affected endpoints, and recommended fixes with a one-click history clear.
+- **Test Generation Button**: Added a "Test Generation" button in the admin interface to instantly verify live Gemini streaming and view response latency.
+
+---
+
 #### v0.x.x – Draft
 
 ##### Fixed

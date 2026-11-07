@@ -42,6 +42,22 @@
     <main>
         <!-- ── Dashboard Tab ────────────────────────────────────── -->
         <section id="tab-dashboard" class="tab-panel active">
+            <!-- Alert / Diagnostics Banner -->
+            <div id="status-alert-banner" class="alert-banner" style="display: none;">
+                <div class="alert-icon-wrap">
+                    <span class="material-symbols-outlined" id="alert-banner-icon">warning</span>
+                </div>
+                <div class="alert-body">
+                    <div class="alert-header">
+                        <span class="alert-title" id="alert-banner-title">Service Warning</span>
+                        <span class="alert-badge" id="alert-banner-badge">Stream Issue</span>
+                    </div>
+                    <div class="alert-message" id="alert-banner-message">Error details</div>
+                    <div class="alert-tip" id="alert-banner-tip">💡 Tip: ...</div>
+                </div>
+                <button class="alert-close-btn" id="alert-banner-close" title="Dismiss banner">&times;</button>
+            </div>
+
             <div class="stats-grid">
                 <div class="stat-card" id="card-status">
                     <div class="stat-icon-wrap">
@@ -98,6 +114,18 @@
                 <p class="empty-state" id="no-endpoints">No requests yet</p>
             </div>
 
+            <div class="section" id="section-recent-errors" style="display: none;">
+                <div class="section-header-inline">
+                    <h3>
+                        <span class="material-symbols-outlined">report_problem</span>
+                        Recent Service Issues &amp; Diagnostics
+                    </h3>
+                    <button id="btn-clear-errors" class="btn btn-small btn-secondary">Clear History</button>
+                </div>
+                <p class="help-text">Recent errors encountered while streaming or processing requests from clients.</p>
+                <div id="recent-errors-list" class="error-cards-list"></div>
+            </div>
+
             <div class="section">
                 <h3>
                     <span class="material-symbols-outlined">api</span>
@@ -134,8 +162,16 @@
                 </div>
             </div>
 
-            <div class="section">
-                <button id="btn-reinit" class="btn btn-warning">Reinitialize Gemini Client</button>
+            <div class="section client-actions-row">
+                <button id="btn-test-gen" class="btn btn-primary">
+                    <span class="material-symbols-outlined">play_arrow</span>
+                    Test Generation
+                </button>
+                <button id="btn-reinit" class="btn btn-warning">
+                    <span class="material-symbols-outlined">refresh</span>
+                    Reinitialize Gemini Client
+                </button>
+                <span id="test-gen-result" class="inline-result"></span>
                 <span id="reinit-result" class="inline-result"></span>
             </div>
         </section>

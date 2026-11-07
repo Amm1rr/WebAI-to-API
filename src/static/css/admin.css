@@ -227,6 +227,15 @@ body {
   border-color: rgba(230, 197, 90, 0.25);
 }
 .status-badge.checking::before { background: var(--md-warning); }
+.status-badge.warning {
+  background: rgba(230, 197, 90, 0.12);
+  color: var(--md-warning);
+  border-color: rgba(230, 197, 90, 0.35);
+}
+.status-badge.warning::before {
+  background: var(--md-warning);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
 
 /* ── Tab Navigation ─────────────────────────────────────────────── */
 .tab-nav {
@@ -1055,6 +1064,158 @@ code {
   padding: 1px 6px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.82em;
+}
+
+/* ── Alert & Diagnostics Banners ────────────────────────────────── */
+.alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: var(--shape-md);
+  background: rgba(230, 197, 90, 0.12);
+  border: 1px solid rgba(230, 197, 90, 0.35);
+  margin-bottom: 20px;
+  position: relative;
+  animation: fadeIn 0.3s var(--ease-decel);
+}
+.alert-banner.error-mode {
+  background: rgba(255, 180, 171, 0.12);
+  border-color: rgba(255, 180, 171, 0.35);
+}
+.alert-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--shape-sm);
+  background: rgba(230, 197, 90, 0.20);
+  color: var(--md-warning);
+  flex-shrink: 0;
+}
+.alert-banner.error-mode .alert-icon-wrap {
+  background: rgba(255, 180, 171, 0.20);
+  color: var(--md-error);
+}
+.alert-body {
+  flex: 1;
+  min-width: 0;
+}
+.alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.alert-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--md-on-surface);
+}
+.alert-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--shape-full);
+  background: rgba(230, 197, 90, 0.25);
+  color: var(--md-warning);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.alert-banner.error-mode .alert-badge {
+  background: rgba(255, 180, 171, 0.25);
+  color: var(--md-error);
+}
+.alert-message {
+  font-size: 0.88rem;
+  color: var(--md-on-surface-variant);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.alert-tip {
+  margin-top: 6px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--md-primary);
+  line-height: 1.4;
+}
+.alert-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--md-outline);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color var(--dur-s);
+}
+.alert-close-btn:hover {
+  color: var(--md-on-surface);
+}
+
+/* ── Error Diagnostics List ─────────────────────────────────────── */
+.section-header-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.section-header-inline h3 { margin-bottom: 0; }
+.error-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.error-card-item {
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-left: 4px solid var(--md-warning);
+  border-radius: var(--shape-sm);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.error-card-item.cat-auth { border-left-color: var(--md-error); }
+.error-card-item.cat-stalled { border-left-color: var(--md-warning); }
+.error-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.error-card-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--md-on-surface);
+}
+.error-card-time {
+  font-size: 0.78rem;
+  color: var(--md-outline);
+  font-family: var(--font-mono);
+}
+.error-card-msg {
+  font-size: 0.82rem;
+  color: var(--md-on-surface-variant);
+  font-family: var(--font-mono);
+  background: var(--md-surface-container-lowest);
+  padding: 6px 10px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+.error-card-tip {
+  font-size: 0.82rem;
+  color: var(--md-primary);
+  line-height: 1.4;
+}
+.client-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */

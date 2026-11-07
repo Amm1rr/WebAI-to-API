@@ -1,5 +1,6 @@
 # src/app/endpoints/admin_api.py
 import json
+import time
 import tomllib
 from pathlib import Path
 
@@ -68,7 +69,8 @@ class TelegramUpdateRequest(BaseModel):
 @router.get("/status")
 async def get_status():
     """Return overall system status for the dashboard."""
-    stats = StatsCollector.get_instance().get_stats()
+    collector = StatsCollector.get_instance()
+    stats = collector.get_stats()
     client_status = get_client_status()
 
     try:
@@ -77,11 +79,28 @@ async def get_status():
     except GeminiClientNotInitializedError:
         gemini_status = "disconnected"
 
+    last_error = collector.get_last_error()
+    recent_errors = collector.get_recent_errors()
+
+    # Determine health level
+    status_level = "healthy"
+    status_message = "All systems operational"
+    if gemini_status == "disconnected":
+        status_level = "error"
+        status_message = client_status.get("error") or "Gemini client disconnected"
+    elif last_error and (time.time() - last_error.get("timestamp", 0) < 1800):
+        status_level = "warning"
+        status_message = f"{last_error.get('title', 'Service Warning')}: {last_error.get('suggestion', '')}"
+
     return {
         "version": _VERSION,
         "gemini_status": gemini_status,
+        "status_level": status_level,
+        "status_message": status_message,
         "client_error": client_status.get("error"),
         "error_code": client_status.get("error_code"),
+        "last_error": last_error,
+        "recent_errors": recent_errors,
         "current_model": CONFIG["AI"].get("default_model_gemini", "unknown"),
         "proxy": CONFIG["Proxy"].get("http_proxy", ""),
         "browser": CONFIG["Browser"].get("name", "unknown"),
@@ -198,6 +217,45 @@ async def reinitialize_client():
         "error_code": status.get("error_code"),
         "error_detail": status.get("error"),
     }
+
+@router.post("/client/test")
+async def test_generation():
+    """Quick generation test to verify live Gemini streaming and response."""
+    try:
+        client = get_gemini_client()
+        start = time.time()
+        res = await client.generate_content("Ping. Reply 'Pong' only.", model="gemini-2.5-flash")
+        latency = round(time.time() - start, 2)
+        return {
+            "success": True,
+            "latency": latency,
+            "response": res.text.strip(),
+            "message": f"Gemini responded in {latency}s: {res.text.strip()[:60]}",
+        }
+    except Exception as e:
+        err_str = str(e)
+        collector = StatsCollector.get_instance()
+        collector.record_error(
+            error_type="stalled" if "stalled" in err_str.lower() else "test_failed",
+            message=err_str,
+            endpoint="/api/admin/client/test",
+            status_code=500,
+        )
+        return {
+            "success": False,
+            "error": err_str,
+            "suggestion": (
+                "Google Gemini stream stalled or failed to respond. "
+                "Update gemini-webapi / Docker image or refresh cookies."
+            ),
+        }
+
+
+@router.post("/errors/clear")
+async def clear_errors():
+    """Clear recorded error diagnostics."""
+    StatsCollector.get_instance().clear_errors()
+    return {"success": True}
 
 
 # --- SSE Logs ---

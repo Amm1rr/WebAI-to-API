@@ -108,7 +108,7 @@ curl -X POST ${base}/v1/chat/completions \\
 
 const Dashboard = {
     intervalId: null,
-
+    _dismissedAlertId: null,
     _activeCurlTab: null,
 
     init() {
@@ -137,6 +137,56 @@ const Dashboard = {
                 this.refresh();
             }
         });
+        // Test Generation button
+        const btnTest = document.getElementById("btn-test-gen");
+        if (btnTest) {
+            btnTest.addEventListener("click", async () => {
+                const resultEl = document.getElementById("test-gen-result");
+                btnTest.disabled = true;
+                btnTest.textContent = "Testing...";
+                showInline(resultEl, "Sending test prompt to Gemini...", false);
+                try {
+                    const data = await api.post("/api/admin/client/test");
+                    if (data.success) {
+                        showInline(resultEl, data.message || "Test passed!", false);
+                        resultEl.style.color = "var(--success)";
+                    } else {
+                        showInline(resultEl, `Test failed: ${data.error || "Unknown"} (${data.suggestion || ""})`, true);
+                        resultEl.style.color = "var(--error)";
+                    }
+                } catch (err) {
+                    showInline(resultEl, "Test failed: " + (err.detail || "Request error"), true);
+                } finally {
+                    btnTest.disabled = false;
+                    btnTest.innerHTML = '<span class="material-symbols-outlined">play_arrow</span> Test Generation';
+                    this.refresh();
+                }
+            });
+        }
+
+        // Clear errors button
+        const btnClearErrors = document.getElementById("btn-clear-errors");
+        if (btnClearErrors) {
+            btnClearErrors.addEventListener("click", async () => {
+                try {
+                    await api.post("/api/admin/errors/clear");
+                    this.refresh();
+                } catch (_) {}
+            });
+        }
+
+        // Dismiss alert banner
+        const btnDismiss = document.getElementById("alert-banner-close");
+        if (btnDismiss) {
+            btnDismiss.addEventListener("click", () => {
+                const banner = document.getElementById("status-alert-banner");
+                banner.style.display = "none";
+                if (this._currentAlertId) {
+                    this._dismissedAlertId = this._currentAlertId;
+                }
+            });
+        }
+
 
         // Copy button handlers
         document.querySelectorAll(".btn-copy").forEach(btn => {
@@ -171,6 +221,8 @@ const Dashboard = {
         try {
             const data = await api.get("/api/admin/status");
             this.updateCards(data);
+            this.updateAlertBanner(data);
+            this.updateRecentErrors(data.recent_errors);
             this.updateEndpointTable(data.stats.endpoints, data.stats.endpoints_detail, data.stats.total_requests);
         } catch {
             document.getElementById("val-status").textContent = "Error";
@@ -180,7 +232,17 @@ const Dashboard = {
     updateCards(data) {
         const statusEl = document.getElementById("val-status");
         const statusCard = document.getElementById("card-status");
-        if (data.gemini_status === "connected") {
+        if (data.status_level === "warning") {
+            statusEl.textContent = "Warning";
+            statusEl.style.color = "var(--md-warning)";
+            let detailEl = statusCard.querySelector(".stat-detail");
+            if (!detailEl) {
+                detailEl = document.createElement("div");
+                detailEl.className = "stat-detail";
+                statusCard.appendChild(detailEl);
+            }
+            detailEl.innerHTML = `<span style="color:var(--md-warning);font-weight:600;">⚠️ ${escapeHtml(data.last_error?.title || "Stream issue detected")}</span>`;
+        } else if (data.gemini_status === "connected") {
             statusEl.textContent = "Connected";
             statusEl.style.color = "var(--success)";
             statusCard.querySelector(".stat-detail")?.remove();
@@ -202,7 +264,6 @@ const Dashboard = {
             };
             detailEl.innerHTML = `<span class="error">${escapeHtml(hints[data.error_code] || data.client_error || "Check Configuration tab")}</span>`;
         }
-
         document.getElementById("val-model").textContent = data.current_model || "--";
         document.getElementById("val-requests").textContent = data.stats.total_requests;
         document.getElementById("val-success").textContent = data.stats.success_count + " OK";
@@ -211,12 +272,77 @@ const Dashboard = {
 
         // Update header badge
         const badge = document.getElementById("connection-status");
-        badge.textContent = data.gemini_status === "connected" ? "Connected" : "Disconnected";
-        badge.className = "status-badge " + data.gemini_status;
+        if (data.status_level === "warning") {
+            badge.textContent = "Warning";
+            badge.className = "status-badge warning";
+        } else if (data.gemini_status === "connected") {
+            badge.textContent = "Connected";
+            badge.className = "status-badge connected";
+        } else {
+            badge.textContent = "Disconnected";
+            badge.className = "status-badge disconnected";
+        }
 
         // Update version chip
         const versionEl = document.getElementById("app-version");
         if (versionEl && data.version) versionEl.textContent = "v" + data.version;
+    },
+    updateAlertBanner(data) {
+        const banner = document.getElementById("status-alert-banner");
+        if (!banner) return;
+
+        const lastErr = data.last_error;
+        const isFresh = lastErr && (Date.now() / 1000 - lastErr.timestamp < 1800);
+
+        if (isFresh && lastErr.id !== this._dismissedAlertId) {
+            this._currentAlertId = lastErr.id;
+            banner.style.display = "flex";
+            if (data.status_level === "error" || lastErr.category === "auth") {
+                banner.classList.add("error-mode");
+            } else {
+                banner.classList.remove("error-mode");
+            }
+
+            document.getElementById("alert-banner-title").textContent = lastErr.title || "Service Issue Detected";
+            document.getElementById("alert-banner-badge").textContent = (lastErr.category || "Warning").toUpperCase();
+            document.getElementById("alert-banner-message").textContent = `${lastErr.endpoint} (${lastErr.model || "default"}): ${lastErr.message}`;
+            document.getElementById("alert-banner-tip").textContent = "💡 " + (lastErr.suggestion || "Check Logs tab for more info.");
+        } else if (data.status_level === "error") {
+            banner.style.display = "flex";
+            banner.classList.add("error-mode");
+            document.getElementById("alert-banner-title").textContent = "Client Disconnected";
+            document.getElementById("alert-banner-badge").textContent = "ERROR";
+            document.getElementById("alert-banner-message").textContent = data.client_error || "Gemini client failed to initialize.";
+            document.getElementById("alert-banner-tip").textContent = "💡 Check Configuration tab to verify cookies.";
+        } else {
+            banner.style.display = "none";
+        }
+    },
+
+    updateRecentErrors(recentErrors) {
+        const section = document.getElementById("section-recent-errors");
+        const listEl = document.getElementById("recent-errors-list");
+        if (!section || !listEl) return;
+
+        if (!recentErrors || recentErrors.length === 0) {
+            section.style.display = "none";
+            listEl.innerHTML = "";
+            return;
+        }
+
+        section.style.display = "block";
+        const now = Date.now() / 1000;
+        listEl.innerHTML = recentErrors.map(err => {
+            const timeAgo = _relativeTime(now - err.timestamp);
+            return `<div class="error-card-item cat-${escapeHtml(err.category || 'error')}">
+                <div class="error-card-top">
+                    <span class="error-card-title">⚠️ ${escapeHtml(err.title || "Error")}</span>
+                    <span class="error-card-time">${escapeHtml(timeAgo)} (${escapeHtml(err.endpoint || '')})</span>
+                </div>
+                <div class="error-card-msg">${escapeHtml(err.message)}</div>
+                <div class="error-card-tip">💡 ${escapeHtml(err.suggestion || '')}</div>
+            </div>`;
+        }).join("");
     },
 
     updateEndpointTable(endpoints, endpointsDetail, totalRequests) {

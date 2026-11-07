@@ -38,6 +38,7 @@ from fastapi.responses import StreamingResponse
 
 from app.logger import logger
 from app.services.gemini_client import GeminiClientNotInitializedError, get_gemini_client
+from app.services.stats_collector import StatsCollector
 from app.utils.image_utils import (
     cleanup_temp_files,
     get_temp_dir,
@@ -294,15 +295,19 @@ async def create_response(request: dict):
     except Exception as e:
         err_str = str(e)
         err_lower = err_str.lower()
+        stats_collector = StatsCollector.get_instance()
         if "auth" in err_lower or "cookie" in err_lower:
             logger.error(f"[/v1/responses] Auth error: {e}")
+            stats_collector.record_error("auth", err_str, "/v1/responses", model_value, 401)
             raise HTTPException(status_code=401, detail=f"Gemini authentication failed: {err_str}")
         elif "zombie" in err_lower or "parse" in err_lower or "stalled" in err_lower:
             logger.error(f"[/v1/responses] Stream error after retries (model={model_value}): {e}")
+            cat = "stalled" if "stalled" in err_lower else ("parse" if "parse" in err_lower else "zombie")
+            stats_collector.record_error(cat, err_str, "/v1/responses", model_value, 503)
             raise HTTPException(status_code=503, detail="Gemini stream temporarily unavailable — please retry")
         else:
             logger.error(f"[/v1/responses] Unexpected error (model={model_value}): {e}", exc_info=True)
+            stats_collector.record_error("unexpected", err_str, "/v1/responses", model_value, 500)
             raise HTTPException(status_code=500, detail=f"Error: {err_str}")
-
     finally:
         cleanup_temp_files(temp_file_paths)
